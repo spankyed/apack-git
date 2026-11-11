@@ -1,0 +1,132 @@
+// The shapes the engine answers in. Plain data, all of it: a snapshot and a change cross a host's bus to its
+// windows, so nothing here has methods.
+
+/** One changed path of a checkout, as a status lists it: once for what is staged of it and once for what is not */
+export interface GitStatusFile {
+  path: string
+  status: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'copied' | 'typechange' | 'unmerged'
+  staged: boolean
+  /** Where a renamed or copied path came from */
+  originalPath?: string
+  /** How alike a renamed or copied path is to where it came from, from 0 to 100 */
+  score?: number
+  /** For an unmerged file: what each side did to it, which is what there is to settle */
+  conflict?: ConflictKind
+  /** An untracked folder, listed as one row: git tracks nothing in it. Its path ends with `/` */
+  isDirectory?: boolean
+}
+
+/**
+ * How the two sides being brought together disagree about a file. `us` is the side the checkout was on and
+ * `them` the one coming in, as git names them.
+ */
+export const CONFLICT_KINDS = ['both-modified', 'both-added', 'both-deleted', 'added-by-us', 'added-by-them', 'deleted-by-us', 'deleted-by-them'] as const
+export type ConflictKind = (typeof CONFLICT_KINDS)[number]
+
+/** What git can be in the middle of in a checkout, each of which ends when it is carried on with or given up */
+export const OPERATION_KINDS = ['merge', 'rebase', 'cherry-pick', 'revert'] as const
+export type OperationKind = (typeof OPERATION_KINDS)[number]
+
+/** What git is in the middle of in a checkout */
+export interface RepositoryOperation {
+  kind: OperationKind
+  /** What is merged in, rebased onto, picked or reverted, as a person would name it: a branch where one is known, else a short commit */
+  subject: string
+  /** The branch a rebase is replaying, where it is replaying one */
+  branch?: string
+  /** A rebase's place among the commits it replays, counted from one */
+  step?: number
+  steps?: number
+}
+
+/** What can be done with what git is in the middle of: carry on once its conflicts are settled, leave out the commit a rebase stopped at, or give it up */
+export const OPERATION_MOVES = ['continue', 'skip', 'abort'] as const
+export type OperationMove = (typeof OPERATION_MOVES)[number]
+
+/**
+ * The parts of a repository, each read and refreshed on its own: its changed files with the branch and its
+ * distance from upstream; the two sides of each changed file, which a diff of it shows; which branch is checked
+ * out, the commit it is on and every branch and tag, which a log is read from; its stashes; its worktrees.
+ */
+export const REPOSITORY_PARTS = ['status', 'diffs', 'history', 'stashes', 'worktrees'] as const
+export type RepositoryPart = (typeof REPOSITORY_PARTS)[number]
+
+/** Which parts of a repository differ from when it was last checked */
+export type RepositoryChange = Record<RepositoryPart, boolean> & {
+  /** The changed files whose diff differs, when they are few enough to name: without it, any of them may */
+  files?: string[]
+}
+
+/** A checkout's changed files, branch and distance from its upstream, read in one pass */
+export interface RepositorySnapshot {
+  files: GitStatusFile[]
+  /** Whether there are more changed files than `files` lists */
+  truncated: boolean
+  /** The branch checked out, or `HEAD` when none is */
+  branch: string
+  /** Whether the branch tracks a remote branch that exists */
+  hasUpstream: boolean
+  ahead: number
+  behind: number
+  /** What git is in the middle of here, when it is in the middle of anything */
+  operation?: RepositoryOperation
+}
+
+/** How far along git is with a command that talks to a remote or writes many files */
+export interface GitProgress {
+  /** What git is doing, in its own words: `Writing objects`, `Receiving objects`, `Updating files` */
+  stage: string
+  /** How much of that is done, from 0 to 100 */
+  percent: number
+}
+
+/** One piece of a file's change, as git cuts it */
+export interface DiffHunk {
+  /** What names this piece when it is staged or unstaged: the same for as long as git cuts the same piece */
+  id: string
+  /** Where it begins on the left side of the diff, and how many lines of that side it covers */
+  oldStart: number
+  oldLines: number
+  /** The same on the right side */
+  newStart: number
+  newLines: number
+  /** The piece as text, to show: its header and its lines. Git is handed the piece by its `id`, never this */
+  patch: string
+}
+
+export interface StashEntry {
+  index: number
+  ref: string
+  message: string
+  date: string
+}
+
+export interface WorktreeEntry {
+  path: string
+  head: string
+  branch: string
+  isBare: boolean
+  isCurrent: boolean
+  isMain: boolean
+  isLocked: boolean
+  lockedReason?: string
+}
+
+export interface CommitLogEntry {
+  hash: string
+  shortHash: string
+  subject: string
+  body: string
+  authorName: string
+  authorEmail: string
+  date: string
+  refs: string
+}
+
+/** Where a checkout's git state lives, and where the working directory is in it */
+export interface GitDirectories {
+  gitDir: string
+  commonDir: string
+  /** The working directory's path from the top of the checkout, ending in `/`: empty when it is the top */
+  prefix: string
+}

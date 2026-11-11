@@ -1,0 +1,73 @@
+// What a failed git command means, read from what git printed, in one place. Git says why it failed in prose, and
+// every caller that needs to know why reads the code this gives rather than the prose: a second place matching the
+// text is a second list to keep in step with git, and the one that falls behind answers wrongly without failing.
+//
+// The prose is English because every git child is run in English (`gitEnvironment`, git.ts), whatever the user's
+// locale is.
+
+/** Why a git command failed, where what it printed says */
+export const GIT_ERROR_CODES = [
+  /** Another process holds a lock the command needs */
+  'locked',
+  /** The remote asked for a sign-in git does not have: no stored credentials, or a key it refused */
+  'authentication',
+  /** The remote knows who is asking and will not allow it */
+  'permission',
+  /** The remote could not be reached at all */
+  'remote-unreachable',
+  /** A push the remote refused because its branch has commits this one lacks */
+  'non-fast-forward',
+  /** A pull of a branch that both sides have added to, which git was not told how to bring together */
+  'diverged',
+  /** A merge, a rebase or a stash stopped on changes that conflict */
+  'conflict',
+  /** The command would overwrite changes in the working tree */
+  'local-changes',
+  /** A branch, a commit or a path that git does not know */
+  'unknown-ref',
+  /** The directory is in no git repository */
+  'not-a-repository',
+] as const
+
+export type GitErrorCode = (typeof GIT_ERROR_CODES)[number]
+
+/** What git says when another process holds a lock it needs, with the lock's path */
+export const LOCKED = /Unable to create '(.+\.lock)': File exists/
+
+/**
+ * What git prints for each, most telling first: a refused key prints "Permission denied (publickey)" and then
+ * "Could not read from remote repository", and the first is why.
+ *
+ * **Each is a line git itself writes, matched from the line's start.** What git printed also holds names the
+ * user chose (a branch called `fix/CONFLICT-markers`, a file called `CONFLICTS.md`), what a hook printed, and
+ * what another step of the same command said (a tag a pull could not move is `[rejected]` too). A phrase found
+ * anywhere in that reads those as git's reason; a whole line of git's does not. A reason with no line here
+ * gets no code, and git's own words are what is shown.
+ */
+const SIGNS: readonly (readonly [GitErrorCode, RegExp])[] = [
+  ['locked', LOCKED],
+  ['authentication', /^fatal: Authentication failed|^fatal: could not read (Username|Password)|^\S+: Permission denied \(publickey|^remote: Invalid username or (password|token)/m],
+  ['permission', /^(remote: |ERROR: )?Permission to \S+ denied|^fatal: unable to access .*The requested URL returned error: 403/m],
+  ['remote-unreachable', /^fatal: unable to access .*(Could not resolve host|Failed to connect|Couldn't connect|Connection refused|Connection timed out|Network is unreachable)|^fatal: Could not read from remote repository|^ssh: .*(Could not resolve hostname|Connection refused|Connection timed out|Network is unreachable)|^fatal: unable to (connect to|look up) /m],
+  // A branch the remote would not move, and not a tag: git says which in the brackets that end the line
+  ['non-fast-forward', /^ ! \[rejected\].*\((non-fast-forward|fetch first)\)\s*$|^hint: Updates were rejected because/m],
+  ['diverged', /^fatal: Not possible to fast-forward|^fatal: Need to specify how to reconcile divergent branches/m],
+  ['conflict', /^CONFLICT \(|^Automatic merge failed|^(error|fatal): .*[Mm]erge conflict/m],
+  // Changes to tracked files. Untracked files in the way are not these, and git's own words name them
+  ['local-changes', /^error: Your local changes/m],
+  ['unknown-ref', /^(error|fatal): pathspec '.*' did not match|^fatal: invalid reference: |^fatal: .*cannot be resolved|^fatal: .*unknown revision/m],
+  ['not-a-repository', /^fatal: not a git repository/im],
+]
+
+/** Why git failed, from everything it printed; nothing when it does not say, or says something not known here */
+export function classifyGitError(printed: string): GitErrorCode | undefined {
+  return SIGNS.find(([, sign]) => sign.test(printed))?.[0]
+}
+
+/** A git command that failed, with why where git said */
+export class GitError extends Error {
+  constructor(message: string, readonly code?: GitErrorCode) {
+    super(message)
+    this.name = 'GitError'
+  }
+}

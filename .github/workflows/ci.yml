@@ -1,0 +1,45 @@
+name: CI
+
+# Every push to master and every pull request runs the whole suite on Linux, macOS and Windows. All three is
+# the point: how a tree is watched, how a path is spelled and how a process is ended differ on each, and a claim
+# about a platform is made by running on it. A newer push to the same branch or pull request cancels the run
+# before it. `ci-pass` is the one check a merge waits on.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    name: suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      # Specs compare bytes git wrote, so nothing is converted on the way in
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # Which git the suite ran against is part of what a pass means
+      - run: git --version
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+  ci-pass:
+    if: always()
+    needs: suite
+    runs-on: ubuntu-24.04
+    steps:
+      - run: test "${{ needs.suite.result }}" = "success"

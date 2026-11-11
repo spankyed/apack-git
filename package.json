@@ -1,0 +1,43 @@
+{
+  "name": "apack-git",
+  "version": "0.1.0",
+  "description": "A live picture of one git working tree, and every git process that keeps it: status as plain data, which parts changed since the last check, and the reads and writes a source control panel makes.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./staging": {
+      "types": "./dist/staging.d.ts",
+      "import": "./dist/staging.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spankyed/apack-git.git"
+  },
+  "engines": {
+    "node": ">=24.12.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12"
+  }
+}
