@@ -3,11 +3,12 @@
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import { commitArgument, refArgument, rowSpec, stashArgument } from './arguments.ts'
+import { DiscardStore } from './discards.ts'
 import { GitError, type GitErrorCode } from './errors.ts'
 import type { RepositoryModel } from './model.ts'
 import { BASE_KEY, type GitReads } from './reads.ts'
 import { failure, type GitCommandResult, type GitRunner } from './runner.ts'
-import type { GitProgress, OperationMove } from './types.ts'
+import type { DiscardKept, DiscardRestored, GitProgress, OperationMove } from './types.ts'
 
 /** Thrown when a stash apply/pop succeeds partially but leaves conflicts. */
 export class StashConflictError extends Error {
@@ -22,7 +23,11 @@ export class GitWrites {
 
   private _writeCompleteCallbacks: (() => void)[] = []
 
-  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly reads: GitReads) {}
+  private readonly discards: DiscardStore
+
+  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly reads: GitReads) {
+    this.discards = new DiscardStore(runner, model)
+  }
 
   private get workingDirectory(): string {
     return this.runner.workingDirectory
@@ -94,10 +99,15 @@ export class GitWrites {
     })
   }
 
-  async revertFile(filePath: string): Promise<void> {
+  /**
+   * Discards a file's changes, or an untracked file or folder, and answers with what it kept of what that
+   * removed (`restoreDiscarded`). Nothing is removed when the copy could not be taken.
+   */
+  async revertFile(filePath: string): Promise<DiscardKept> {
     return this.withWriteFlag(async () => {
       const status = await this.model.getStatus()
       const fileStatus = status.find(f => f.path === filePath)
+      const kept = await this.discards.keep([filePath])
 
       // A file inside a folder listed as one row is untracked too, though it has no row of its own
       const inAFolderRow = !fileStatus && status.some(f => f.isDirectory && filePath.startsWith(f.path))
@@ -125,6 +135,7 @@ export class GitWrites {
         }
       }
       this.model.markSnapshotStale()
+      return kept
     })
   }
 
@@ -145,11 +156,13 @@ export class GitWrites {
     if (!result.success) throw failure(result, `Failed to discard folder: ${filePath}`)
   }
 
-  async revertFiles(filePaths: string[]): Promise<void> {
-    if (filePaths.length === 0) return
+  /** The same for several at once, kept as one */
+  async revertFiles(filePaths: string[]): Promise<DiscardKept> {
+    if (filePaths.length === 0) return { notKept: [] }
     return this.withWriteFlag(async () => {
       const status = await this.model.getStatus()
       const statusMap = new Map(status.map(f => [f.path, f.status]))
+      const kept = await this.discards.keep(filePaths)
 
       const untrackedPaths = filePaths.filter(p => statusMap.get(p) === 'untracked')
       const unmergedPaths = filePaths.filter(p => statusMap.get(p) === 'unmerged')
@@ -195,7 +208,18 @@ export class GitWrites {
       }
 
       this.model.markSnapshotStale()
+      return kept
     })
+  }
+
+  /** The paths, among what discarding these would remove, that are too large to keep a copy of */
+  discardNotKept(filePaths: string[]): Promise<string[]> {
+    return this.discards.notKeptOf(filePaths)
+  }
+
+  /** Puts back what a discard kept, leaving alone what has changed or been made again since */
+  async restoreDiscarded(id: string): Promise<DiscardRestored> {
+    return this.withWriteFlag(() => this.discards.restore(id))
   }
 
   async resolveConflict(filePath: string, strategy: 'ours' | 'theirs'): Promise<void> {

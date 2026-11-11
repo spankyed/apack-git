@@ -8,7 +8,7 @@ import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
 import type { GitErrorCode } from './errors.ts'
 import type {
-  CommitLogEntry, DiffHunk, GitDirectories, GitProgress, GitStatusFile, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
+  CommitLogEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
 } from './types.ts'
 
 export class GitRepository {
@@ -181,11 +181,16 @@ export class GitRepository {
     return this.writes.unstageFiles(filePaths)
   }
 
-  revertFile(filePath: string): Promise<void> {
+  /**
+   * Discards a file's changes, or an untracked file or folder, and answers with what it kept of what that
+   * removed: `restoreDiscarded` puts it back. Nothing is removed when the copy could not be taken.
+   */
+  revertFile(filePath: string): Promise<DiscardKept> {
     return this.writes.revertFile(filePath)
   }
 
-  revertFiles(filePaths: string[]): Promise<void> {
+  /** The same for several at once, kept as one */
+  revertFiles(filePaths: string[]): Promise<DiscardKept> {
     return this.writes.revertFiles(filePaths)
   }
 
@@ -333,6 +338,23 @@ export class GitRepository {
 
   resetToCommit(hash: string): Promise<void> {
     return this.writes.resetToCommit(hash)
+  }
+
+  /**
+   * The paths, among what discarding these would remove, that are too large for a discard to keep a copy of:
+   * what a host says cannot be brought back, before it is discarded
+   */
+  discardNotKept(filePaths: string[]): Promise<string[]> {
+    return this.writes.discardNotKept(filePaths)
+  }
+
+  /**
+   * Puts back what a discard kept, by the id it answered with. A path changed or made again since is left as it
+   * is and named. Rejects when git no longer keeps it, which it does for as long as it keeps objects nothing
+   * refers to: two weeks, unless the user's settings or a prune say otherwise.
+   */
+  restoreDiscarded(id: string): Promise<DiscardRestored> {
+    return this.writes.restoreDiscarded(id)
   }
 
   /**

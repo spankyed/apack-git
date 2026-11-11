@@ -183,11 +183,11 @@ export class GitRunner {
    * Runs git, answering once it has exited and its output has gone quiet, without waiting for its pipes to
    * close: a process a hook left behind holds them open for as long as it lives.
    */
-  runGit(args: string[], encoding: BufferEncoding, refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void): Promise<{ stdout: string; stderr: string }> {
+  runGit(args: string[], encoding: BufferEncoding, refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, env?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
     const running = this.run('git', ['-c', 'color.ui=never', ...args], {
       cwd: this.workingDirectory,
       // The one read that may write: it lets git take its optional lock and keep what it learns of the files
-      env: refreshesIndex ? { ...this.environment(), GIT_OPTIONAL_LOCKS: '1' } : this.environment(),
+      env: { ...this.environment(), ...(refreshesIndex && { GIT_OPTIONAL_LOCKS: '1' }), ...env },
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer limit
       encoding,
     })
@@ -214,12 +214,12 @@ export class GitRunner {
    * of: a git in a terminal, or an agent's, holds the index for moments, and the user who staged a file in
    * those moments meant it. The lane waits with it, since what is queued behind needs the same lock.
    */
-  executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8' }: { refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding } = {}): Promise<GitCommandResult> {
+  executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env }: { refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding; /** Laid over the environment every git runs with, for this one */ env?: NodeJS.ProcessEnv } = {}): Promise<GitCommandResult> {
     // A read allowed to write the index waits its turn among the writes made here, which need the same lock
     return this.enqueueCommand(refreshesIndex ? 'write' : laneOf(args), async () => {
       let refusedAt: number | undefined
       for (;;) {
-        const result = await this.runGitOnce(args, refreshesIndex, input, onProgress, encoding)
+        const result = await this.runGitOnce(args, refreshesIndex, input, onProgress, encoding, env)
         const lock = result.code === 'locked' ? LOCKED.exec(result.error ?? '')?.[1] : undefined
         if (!lock) return result
         // A stash is several steps to git, and one refused part-way has done the steps before it: run again, it
@@ -234,19 +234,19 @@ export class GitRunner {
     })
   }
 
-  async runGitOnce(args: string[], refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, encoding: BufferEncoding = 'utf8'): Promise<GitCommandResult> {
+  async runGitOnce(args: string[], refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, encoding: BufferEncoding = 'utf8', env?: NodeJS.ProcessEnv): Promise<GitCommandResult> {
     const started = performance.now()
-    const result = await this.runGitAnswered(args, refreshesIndex, input, onProgress, encoding)
+    const result = await this.runGitAnswered(args, refreshesIndex, input, onProgress, encoding, env)
     // A reading for whoever is looking into what the panel is doing: nothing is decided with it
     this.log.command?.(`git ${args.join(' ').slice(0, 300)}: ${result.success ? 'ok' : `failed${result.code ? ` (${result.code})` : ''}`} in ${Math.round(performance.now() - started)} ms`)
     return result
   }
 
-  async runGitAnswered(args: string[], refreshesIndex: boolean, input: string | Buffer | undefined, onProgress: ((progress: GitProgress) => void) | undefined, encoding: BufferEncoding): Promise<GitCommandResult> {
+  async runGitAnswered(args: string[], refreshesIndex: boolean, input: string | Buffer | undefined, onProgress: ((progress: GitProgress) => void) | undefined, encoding: BufferEncoding, env?: NodeJS.ProcessEnv): Promise<GitCommandResult> {
     try {
       // Ended when it stops working, not when a clock runs out: a fetch stalled on the network would
       // otherwise hold its lane, and every later remote command with it, until the app restarts
-      const { stdout } = await this.runGit(args, encoding, refreshesIndex, input, onProgress)
+      const { stdout } = await this.runGit(args, encoding, refreshesIndex, input, onProgress, env)
 
       return { success: true, output: stdout }
     } catch (error) {

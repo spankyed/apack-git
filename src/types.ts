@@ -123,6 +123,21 @@ export interface CommitLogEntry {
   refs: string
 }
 
+/** What a discard kept of what it removed */
+export interface DiscardKept {
+  /** Names what was kept, for `restoreDiscarded`. Absent when nothing was: every file was too large, or there was none */
+  id?: string
+  /** The paths removed without a copy, each larger than a discard keeps: from the top of the checkout */
+  notKept: string[]
+}
+
+/** What putting a discard back did, by path from the top of the checkout */
+export interface DiscardRestored {
+  restored: string[]
+  /** Changed or made again since the discard, and left as they are */
+  left: string[]
+}
+
 /** Where a checkout's git state lives, and where the working directory is in it */
 export interface GitDirectories {
   gitDir: string

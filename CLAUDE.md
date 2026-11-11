@@ -12,6 +12,7 @@ it is for and the rules that hold it together; this is what to know before chang
   `reads.ts` and `writes.ts` are what the names say.
 - `src/status.ts` reads `git status --porcelain=v2`; `errors.ts` reads why a command failed; `hunks.ts`,
   `objects.ts` and `progress.ts` each hold one mechanism.
+- `src/discards.ts` keeps what a discard removes, as a tree nothing refers to, and puts it back.
 - `src/watcher.ts` turns file events into hints, over `directory-watch.ts`, the platform's watch on a tree.
 - `src/types.ts` holds the shapes the engine answers in, and `ties.ts` what a host hands in.
 
