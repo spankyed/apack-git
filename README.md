@@ -37,6 +37,11 @@ await repo.stageFiles(paths)         // resolves, or rejects with a `GitError` c
   from, what watches a git kept open, and where to log. With none it uses Node's `execFile` and the process's
   own environment.
 - **Nothing native, and no dependencies.** A tree is watched with Node's own `fs.watch`.
+- **A repository cannot make it run a program before it is trusted.** A repository's own configuration and hooks
+  can name programs, and a plain status runs one of them. Until a host says the repository is trusted
+  (`isTrusted`), the engine reads what it would run without running it (`readTrust`), and when that names
+  anything it runs no git there but that reading: a command is refused with an `UntrustedError` carrying the
+  list. The rule is a list of settings known to run nothing, and every other setting asks.
 - **A discard keeps what it removes.** Before a changed file is checked out again, or an untracked file or folder
   deleted, what is about to go is written into git's object store as a tree built with an index of its own, and
   `restoreDiscarded` puts it back. The user's index, refs and stash are not touched. Nothing refers to that tree,

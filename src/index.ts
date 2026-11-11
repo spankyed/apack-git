@@ -11,6 +11,7 @@ export {
 } from './directory-watch.ts'
 export { followFile, followFileWith, type FileFollower, type FollowFile, type WatchFile } from './file-watch.ts'
 export { GIT_ERROR_CODES, GitError, classifyGitError, type GitErrorCode } from './errors.ts'
+export { UntrustedError, settingRunsNothing, type TrustAsk, type TrustReading } from './trust.ts'
 export { StashConflictError } from './writes.ts'
 export { GitObjectReader } from './objects.ts'
 export { progressReader, withoutProgress } from './progress.ts'

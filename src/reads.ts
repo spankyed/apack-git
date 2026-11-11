@@ -49,6 +49,8 @@ export class GitReads {
    * that ended. Never for the index (`:src/a.ts`), which that git would go on answering from as it first read it.
    */
   async fileInCommit(name: string): Promise<Buffer | undefined> {
+    // The git kept open is a git like any other: none is started in a repository that is not trusted
+    await this.runner.trust.pass()
     try {
       return await this.objects.read(name)
     } catch {

@@ -23,7 +23,8 @@ async function repository() {
   fs.writeFileSync(path.join(root, 'a.txt'), 'one\n');
   await git(root, 'add', '.');
   await git(root, 'commit', '--quiet', '-m', 'first');
-  return { root, repo: new GitRepository(root) };
+  // Trusted, since a case here writes a hook of its own for git to run
+  return { root, repo: new GitRepository(root, { isTrusted: () => true }) };
 }
 /** Moves the file's time and leaves its content, as a checkout or a formatter that changed nothing does */
 function touch(root: string, seconds: number) {

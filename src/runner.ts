@@ -6,6 +6,7 @@ import { watch } from 'fs'
 import { GitError, LOCKED, classifyGitError, type GitErrorCode } from './errors.ts'
 import { progressReader, withoutProgress } from './progress.ts'
 import { runUnbounded, type RepositoryLog, type RepositoryTies, type RunProcess } from './ties.ts'
+import { TrustGate } from './trust.ts'
 import type { GitProgress } from './types.ts'
 
 /**
@@ -155,12 +156,16 @@ export class GitRunner {
   private readonly run: RunProcess
   private readonly base: () => NodeJS.ProcessEnv
   readonly log: RepositoryLog
+  /** What keeps git from running what an untrusted repository names: every command passes it but its own reads */
+  readonly trust: TrustGate
 
   constructor(readonly workingDirectory: string, ties: RepositoryTies = {}) {
     this.lockPatienceMs = ties.lockPatienceMs ?? LOCK_PATIENCE_MS
     this.run = ties.run ?? runUnbounded
     this.base = ties.environment ?? (() => process.env)
     this.log = ties.log ?? {}
+    // Its reads run beside every other, in no lane, and are not themselves gated
+    this.trust = new TrustGate(workingDirectory, args => this.runGitOnce(args), ties.isTrusted)
   }
 
   /** What every git child of this repository runs with: the engine's own over what the host handed in */
@@ -217,6 +222,7 @@ export class GitRunner {
   executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env }: { refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding; /** Laid over the environment every git runs with, for this one */ env?: NodeJS.ProcessEnv } = {}): Promise<GitCommandResult> {
     // A read allowed to write the index waits its turn among the writes made here, which need the same lock
     return this.enqueueCommand(refreshesIndex ? 'write' : laneOf(args), async () => {
+      await this.trust.pass()
       let refusedAt: number | undefined
       for (;;) {
         const result = await this.runGitOnce(args, refreshesIndex, input, onProgress, encoding, env)
@@ -282,6 +288,7 @@ export class GitRunner {
   /** Execute a git command and return raw binary buffer output. */
   executeGitCommandBinary(args: string[]): Promise<Buffer> {
     return this.enqueueCommand(laneOf(args), async () => {
+      await this.trust.pass()
       // Read as latin1, which maps each byte to one character and back, so the bytes survive a text channel
       const { stdout } = await this.runGit(args, 'latin1')
       return Buffer.from(stdout, 'latin1')

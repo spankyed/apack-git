@@ -7,6 +7,7 @@ import { GitRunner } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
 import type { GitErrorCode } from './errors.ts'
+import type { TrustReading } from './trust.ts'
 import type {
   CommitLogEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
 } from './types.ts'
@@ -29,6 +30,15 @@ export class GitRepository {
 
   getWorkingDir(): string {
     return this.workingDirectory
+  }
+
+  /**
+   * What this repository would have git run, read without running any of it: the settings of its own that are
+   * not known to run nothing, and its hooks. While it names anything and the host has not said the repository
+   * is trusted (`RepositoryTies.isTrusted`), every other command here is refused with an `UntrustedError`.
+   */
+  readTrust(): Promise<TrustReading> {
+    return this.runner.trust.read()
   }
 
   /**

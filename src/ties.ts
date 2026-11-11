@@ -39,6 +39,11 @@ export interface RepositoryTies {
   log?: RepositoryLog
   /** How long a command waits for another git to let go of a lock it needs */
   lockPatienceMs?: number
+  /**
+   * Whether the repository whose git state lives at this real path is one the host trusts to have git run what
+   * its own configuration and hooks name. Without one, no repository is, and one that names anything is refused
+   */
+  isTrusted?: (repository: string) => boolean
 }
 
 /** `execFile` as a promise with its child beside it, unbounded: what runs git when a host hands nothing in */

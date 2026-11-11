@@ -27,6 +27,11 @@ export const GIT_ERROR_CODES = [
   'unknown-ref',
   /** The directory is in no git repository */
   'not-a-repository',
+  /**
+   * The repository would have git run a program and has not been trusted, so the command was not run. The one
+   * code that is not read from what git printed: git was not asked (`trust.ts`)
+   */
+  'untrusted',
 ] as const
 
 export type GitErrorCode = (typeof GIT_ERROR_CODES)[number]

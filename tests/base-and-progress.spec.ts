@@ -147,7 +147,8 @@ it('says each command with how long it took and why it failed to the log it is h
   fs.rmSync(remote, { recursive: true, force: true });
   await repo.pushBranch().catch(() => {});
 
-  expect(logged[0]).toMatch(/^git rev-parse --abbrev-ref HEAD: ok in \d+ ms$/);
+  // Beside the engine's own reads of what the repository would have git run
+  expect(logged.find(line => line.includes('--abbrev-ref'))).toMatch(/^git rev-parse --abbrev-ref HEAD: ok in \d+ ms$/);
   expect(logged.at(-1)).toMatch(/^git push --progress -u origin HEAD: failed \(remote-unreachable\) in \d+ ms$/);
 });
 

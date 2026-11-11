@@ -12,6 +12,9 @@ it is for and the rules that hold it together; this is what to know before chang
   `reads.ts` and `writes.ts` are what the names say.
 - `src/status.ts` reads `git status --porcelain=v2`; `errors.ts` reads why a command failed; `hunks.ts`,
   `objects.ts` and `progress.ts` each hold one mechanism.
+- `src/trust.ts` reads what a repository would have git run and gates every command on it. **A setting is
+  safe only when it is on its list of settings known to run nothing**: a new one git gains asks until it is
+  added there, with a case in `tests/trust.spec.ts`.
 - `src/discards.ts` keeps what a discard removes, as a tree nothing refers to, and puts it back.
 - `src/watcher.ts` turns file events into hints, over `directory-watch.ts`, the platform's watch on a tree.
 - `src/types.ts` holds the shapes the engine answers in, and `ties.ts` what a host hands in.

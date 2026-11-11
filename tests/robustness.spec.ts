@@ -43,7 +43,8 @@ async function repository() {
   write(root, 'a.txt', 'one\n');
   await git(root, 'add', '.');
   await git(root, 'commit', '--quiet', '-m', 'first');
-  return { root, repo: new GitRepository(root) };
+  // Trusted, since cases here write hooks of their own for git to run
+  return { root, repo: new GitRepository(root, { isTrusted: () => true }) };
 }
 
 it('lists the first changed files and says there are more, where git reports more than it lists', async () => {
