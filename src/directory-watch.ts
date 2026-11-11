@@ -4,6 +4,17 @@ import * as path from 'path'
 /** Where under a watched directory something changed, relative to it; `null` when the platform could not say */
 export type WatchedChange = string | null
 
+/** A watch over a tree, as whoever opened it holds it */
+export interface DirectorySubscription {
+  unsubscribe(): Promise<void>
+  /**
+   * Brings the watch in line with the tree as it is now and with the directories to ignore as they are now,
+   * without closing it: for a caller that knows the tree may have moved under it, or that events may have been
+   * lost. A subscription without one is closed and opened again instead.
+   */
+  check?(options: { ignore: string[] }): Promise<void>
+}
+
 /**
  * Watches a directory and everything under it, apart from the directories `ignore` names relative to it.
  * An error means the watch has stopped reporting, or may have.
@@ -12,7 +23,7 @@ export type SubscribeToDirectory = (
   directory: string,
   onChanges: (error: Error | null, changes: WatchedChange[]) => void,
   options: { ignore: string[] },
-) => Promise<{ unsubscribe(): Promise<void> }>
+) => Promise<DirectorySubscription>
 
 /** The part of `fs.watch` a watch over a tree uses */
 export type WatchTree = (
@@ -46,14 +57,19 @@ function under(directories: string[]): (relativePath: string) => boolean {
  * error on Windows.
  */
 export const nodeSubscriber = (watch: WatchTree = fs.watch): SubscribeToDirectory => async (directory, onChanges, { ignore }) => {
-  const ignored = under(ignore)
+  let ignored = under(ignore)
   // Never the reason a process stays alive: whoever opened the watch closes it
   const watcher = watch(directory, { recursive: true, persistent: false }, (_eventType, filename) => {
     if (filename === null) onChanges(null, [null])
     else if (!ignored(filename)) onChanges(null, [filename])
   })
   watcher.on('error', error => onChanges(error, []))
-  return { unsubscribe: async () => watcher.close() }
+  return {
+    unsubscribe: async () => watcher.close(),
+    // The platform's one watch covers whatever the tree holds, and what is ignored is dropped here: nothing to
+    // reopen. Closing and opening it again would lose what the platform had not yet delivered
+    check: async (options) => { ignored = under(options.ignore) },
+  }
 }
 
 /**
@@ -75,7 +91,7 @@ export const nodeSubscriber = (watch: WatchTree = fs.watch): SubscribeToDirector
  * watched, and whoever opened the watch is told so rather than left with part of one.
  */
 export const perDirectorySubscriber = (watch: WatchDirectory = fs.watch): SubscribeToDirectory => async (directory, onChanges, { ignore }) => {
-  const ignored = under(ignore)
+  let ignored = under(ignore)
   /**
    * The open watches, by the directory each is on, relative to the watched one: `''` is the watched one itself.
    * `identity` says which directory that was when the watch was opened
@@ -177,13 +193,51 @@ export const perDirectorySubscriber = (watch: WatchDirectory = fs.watch): Subscr
     if (!closed) onChanges(null, [where])
   }
 
+  /**
+   * Walks the tree as it is now and holds a watch on every directory of it that is not ignored, and on no
+   * other. The kernel drops events when its queue is full and says so to nobody here, so a directory made
+   * then has no watch: this is what finds it. A directory watched here, or found to be another one than its
+   * watch is on, is reported, since what was made in it meanwhile was reported by nothing.
+   */
+  const reconcile = async (): Promise<void> => {
+    const found = new Set<string>([''])
+    const walk = async (relative: string): Promise<void> => {
+      const entries = await fs.promises.readdir(path.join(directory, relative), { withFileTypes: true }).catch((): fs.Dirent[] => [])
+      await Promise.all(entries.filter(entry => entry.isDirectory()).map(async (entry) => {
+        const child = path.join(relative, entry.name)
+        if (closed || ignored(child)) return
+        found.add(child)
+        const held = watches.get(child)
+        if (held && held.identity === await identityAt(path.join(directory, child))) return walk(child)
+        if (held) drop(child)
+        await add(child)
+        // Everything under it was watched by `add`, and may hold what nothing reported
+        for (const watched of watches.keys()) if (watched === child || watched.startsWith(child + path.sep)) found.add(watched)
+        if (!closed) onChanges(null, [child])
+      }))
+    }
+    await walk('')
+    for (const watched of [...watches.keys()]) if (!found.has(watched)) drop(watched)
+  }
+
   try {
     await add('')
   } catch (error) {
     close()
     throw error
   }
-  return { unsubscribe: async () => close() }
+  return {
+    unsubscribe: async () => close(),
+    check: async (options) => {
+      if (closed) return
+      ignored = under(options.ignore)
+      try {
+        await reconcile()
+      } catch (error) {
+        if (!closed) onChanges(error instanceof Error ? error : new Error(String(error)), [])
+      }
+    },
+  }
 }
 
 /**

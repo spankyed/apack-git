@@ -5,7 +5,11 @@
 // (`RepositoryTies`), tells the engine what may have changed, and is told only what really differs.
 export { GitRepository } from './repository.ts'
 export { GitWatcherService, type ChangedPaths } from './watcher.ts'
-export { nodeSubscriber, perDirectorySubscriber, subscribeToDirectory, type SubscribeToDirectory, type WatchDirectory, type WatchTree, type WatchedChange } from './directory-watch.ts'
+export {
+  nodeSubscriber, perDirectorySubscriber, subscribeToDirectory,
+  type DirectorySubscription, type SubscribeToDirectory, type WatchDirectory, type WatchTree, type WatchedChange,
+} from './directory-watch.ts'
+export { followFile, followFileWith, type FileFollower, type FollowFile, type WatchFile } from './file-watch.ts'
 export { GIT_ERROR_CODES, GitError, classifyGitError, type GitErrorCode } from './errors.ts'
 export { StashConflictError } from './writes.ts'
 export { GitObjectReader } from './objects.ts'

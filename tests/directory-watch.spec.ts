@@ -266,3 +266,58 @@ it('closes every watch when unsubscribed, and reports nothing after', async () =
   expect(calls).toEqual([]);
   expect(late).toThrow();
 });
+
+// The kernel drops events when its queue is full and tells nobody here. A directory made then has no watch,
+// and nothing made in it is reported, until the tree is walked again
+it('finds a directory made while events were lost when asked to check, and reports it', async () => {
+  const { root, make } = tree('src/a.ts');
+  const platform = directoryWatches(root);
+  const { calls, onChanges } = told();
+  const subscription = await perDirectorySubscriber(platform.watch)(root, onChanges, { ignore: [] });
+
+  make('lost/inner/b.ts');
+  await subscription.check!({ ignore: [] });
+
+  expect(platform.watched()).toEqual(['', 'lost', path.join('lost', 'inner'), 'src']);
+  expect(calls).toEqual([{ error: null, changes: ['lost'] }]);
+});
+
+it('lets go of the watches on directories that went unreported, and holds the rest as they were', async () => {
+  const { root, remove } = tree('src/deep/', 'docs/');
+  const platform = directoryWatches(root);
+  const { calls, onChanges } = told();
+  const subscription = await perDirectorySubscriber(platform.watch)(root, onChanges, { ignore: [] });
+
+  remove('src');
+  await subscription.check!({ ignore: [] });
+
+  expect(platform.watched()).toEqual(['', 'docs']);
+  expect(platform.opened, 'no watch was opened again').toEqual(['', 'docs', 'src', path.join('src', 'deep')]);
+  expect(calls).toEqual([]);
+});
+
+it('takes the directories to ignore afresh without closing the watches it keeps', async () => {
+  const { root } = tree('src/deep/', 'out/built/', 'docs/');
+  const platform = directoryWatches(root);
+  const subscription = await perDirectorySubscriber(platform.watch)(root, () => {}, { ignore: ['out'] });
+  expect(platform.watched()).toEqual(['', 'docs', 'src', path.join('src', 'deep')]);
+
+  await subscription.check!({ ignore: ['src'] });
+
+  expect(platform.watched()).toEqual(['', 'docs', 'out', path.join('out', 'built')]);
+  expect(platform.opened.filter(watched => watched === '' || watched === 'docs'), 'the ones kept were opened once').toEqual(['', 'docs']);
+});
+
+// Closing the platform's watch and opening it again loses what it had not delivered yet
+it('takes the directories to ignore afresh on the platform\'s one watch, which stays open', async () => {
+  const { platform, watch } = platformWatch();
+  const { calls, onChanges } = told();
+  const subscription = await nodeSubscriber(watch)(directory, onChanges, { ignore: ['out'] });
+
+  await subscription.check!({ ignore: ['src'] });
+  platform.reports(path.join('src', 'a.ts'));
+  platform.reports(path.join('out', 'b.js'));
+
+  expect(platform.closed).toBe(false);
+  expect(calls.map(call => call.changes)).toEqual([[path.join('out', 'b.js')]]);
+});

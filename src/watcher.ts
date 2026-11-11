@@ -1,7 +1,8 @@
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import type { GitRepository } from './repository.ts'
-import { subscribeToDirectory, type SubscribeToDirectory, type WatchedChange } from './directory-watch.ts'
+import { subscribeToDirectory, type DirectorySubscription, type SubscribeToDirectory, type WatchedChange } from './directory-watch.ts'
+import { followFile, type FileFollower, type FollowFile } from './file-watch.ts'
 import type { RepositoryLog } from './ties.ts'
 
 /** How long the repository must go quiet before its change is reported */
@@ -47,7 +48,16 @@ const isLock = (relativePath: string) => relativePath.endsWith('.lock')
  * gaining focus, a terminal command finishing, an agent's turn ending.
  */
 export class GitWatcherService {
-  private subscriptions = new Map<WatchKey, { watch: WantedWatch; signature: string; subscription: { unsubscribe(): Promise<void> } }>()
+  private subscriptions = new Map<WatchKey, { watch: WantedWatch; signature: string; subscription: DirectorySubscription }>()
+  /**
+   * Git's own files that say its state moved, each followed on its own. A watch on one file is another
+   * mechanism than the watch on a tree, and goes on reporting while a flood of file events holds that one up:
+   * the index, HEAD and the packed refs are what a checkout, a commit and a fetch end by writing
+   */
+  private followed = new Map<string, FileFollower>()
+  private readonly subscribe: SubscribeToDirectory
+  private readonly follow: FollowFile
+  private readonly log: RepositoryLog
   /** Every start, stop and check in order, so two never set subscriptions up at once */
   private establishing: Promise<void> = Promise.resolve()
   /** Moves on every start and stop, which is what tells work begun before one that it is no longer wanted */
@@ -63,7 +73,15 @@ export class GitWatcherService {
   private isWatching = false
   private gitRepository?: GitRepository
 
-  constructor(private workingDirectory: string, private subscribe: SubscribeToDirectory = subscribeToDirectory, private log: RepositoryLog = {}) {}
+  /**
+   * `subscribe` and `followFile` are the platform's watches, which a host or a spec can replace; `log` is where
+   * a watch that could not be opened or closed is said
+   */
+  constructor(private workingDirectory: string, { subscribe = subscribeToDirectory, followFile: follow = followFile, log = {} }: { subscribe?: SubscribeToDirectory; followFile?: FollowFile; log?: RepositoryLog } = {}) {
+    this.subscribe = subscribe
+    this.follow = follow
+    this.log = log
+  }
 
   setGitRepository(repo: GitRepository): void {
     this.gitRepository = repo
@@ -123,10 +141,37 @@ export class GitWatcherService {
     }
     if (cancelled()) return
 
+    // The files of git's own that are followed one by one, beside the watch on its directory
+    const files = directories
+      ? [path.join(directories.gitDir, 'index'), path.join(directories.gitDir, 'HEAD'), path.join(directories.commonDir, 'packed-refs')]
+      : []
+    for (const [file, follower] of this.followed) {
+      if (files.includes(file)) continue
+      follower.close()
+      this.followed.delete(file)
+    }
+    for (const file of files) {
+      // One that was not there when it was first followed, as the packed refs are until git packs them, is
+      // followed from here
+      const held = this.followed.get(file)
+      if (held) held.look()
+      else this.followed.set(file, this.follow(file, () => { if (!cancelled()) this.scheduleChange(null) }))
+    }
+
     const signatureOf = (watch: WantedWatch) => JSON.stringify([watch.directory, watch.ignore])
     for (const [key, held] of this.subscriptions) {
       const watch = wanted.get(key)
-      if (watch && held.signature === signatureOf(watch)) continue
+      if (watch && held.signature === signatureOf(watch)) {
+        // Still the watch wanted. Its tree may have moved under it all the same, with events lost on the way
+        await held.subscription.check?.({ ignore: watch.ignore }).catch((error) => { this.log.error?.(`Could not check the ${key} watch`, { error }) })
+        continue
+      }
+      // The same directory with other directories to ignore: taken afresh by the watch that is open, where it can
+      if (watch && watch.directory === held.watch.directory && held.subscription.check) {
+        await held.subscription.check({ ignore: watch.ignore }).catch((error) => { this.log.error?.(`Could not check the ${key} watch`, { error }) })
+        held.signature = signatureOf(watch)
+        continue
+      }
       this.subscriptions.delete(key)
       await held.subscription.unsubscribe().catch((error) => { this.log.error?.(`Could not close the ${key} watch`, { error }) })
     }
@@ -226,6 +271,8 @@ export class GitWatcherService {
     this.awaitingWrite = false
     this.changedPaths = new Set()
 
+    for (const follower of this.followed.values()) follower.close()
+    this.followed.clear()
     this.establishing = this.establishing.catch(() => {}).then(async () => {
       const held = [...this.subscriptions.values()]
       this.subscriptions.clear()

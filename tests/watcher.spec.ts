@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { run } from './_support/process.ts';
+import { settles } from './_support/settles.ts';
 import { GitWatcherService } from '../src/index.ts';
 import type { SubscribeToDirectory, WatchedChange } from '../src/index.ts';
 import { GitRepository } from '../src/index.ts';
@@ -50,7 +51,7 @@ const git = (cwd: string, ...args: string[]) =>
 /** A watcher over a directory, with the fake platform watcher it opens its watches through */
 function watcherOf(workingDirectory: string) {
   const platform = watches();
-  const watcher = new GitWatcherService(workingDirectory, platform.subscribe);
+  const watcher = new GitWatcherService(workingDirectory, { subscribe: platform.subscribe, followFile: () => ({ close: () => {}, look: () => {} }) });
   cleanups.push(() => watcher.stopWatching());
   const repository = new GitRepository(workingDirectory);
   const changed = vi.fn();
@@ -221,4 +222,56 @@ it('reports a failed watch as a change and opens it again when asked to check', 
   expect(repository.hasWatchFailed).toBe(false);
   // Being watched again is something every window shows, so it is reported as a change
   await expect.poll(() => changed.mock.calls.length).toBe(2);
+});
+
+// Closing a tree's watch and opening it again loses what the platform had not delivered, so a watch that can
+// take its ignored directories afresh is kept open, and asked to look over its tree
+it('keeps the working tree\'s watch open when the directories git ignores change, and has it check its tree', async () => {
+  const repo = directory('apack-watch-recheck-');
+  await git(repo, 'init', '--quiet');
+  let opened = 0;
+  const checked: string[][] = [];
+  const subscribe: SubscribeToDirectory = async () => {
+    opened++;
+    return { unsubscribe: async () => {}, check: async ({ ignore }) => { checked.push(ignore); } };
+  };
+  const watcher = new GitWatcherService(repo, { subscribe, followFile: () => ({ close: () => {}, look: () => {} }) });
+  cleanups.push(() => watcher.stopWatching());
+  watcher.setGitRepository(new GitRepository(repo));
+  watcher.setChangeCallback(() => {});
+  await start(watcher);
+  const openedAtStart = opened;
+
+  fs.writeFileSync(path.join(repo, '.gitignore'), 'out/\n');
+  fs.mkdirSync(path.join(repo, 'out'));
+  fs.writeFileSync(path.join(repo, 'out', 'a.js'), '');
+  await watcher.check();
+
+  expect(opened, 'no watch was opened again').toBe(openedAtStart);
+  expect(checked.some(ignore => ignore.includes('out')), 'the tree\'s watch was handed the new ignored directory').toBe(true);
+});
+
+// A flood of file events holds the watch on a tree up, and what a checkout, a commit or a fetch ends by
+// writing is then late or lost. Git's index, HEAD and packed refs are each followed on their own as well
+it('reports the index written by another git from the file itself, when the tree\'s watch says nothing', async () => {
+  const repo = directory('apack-watch-follow-');
+  await git(repo, 'init', '--quiet');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'one\n');
+  await git(repo, 'add', '.');
+  await git(repo, 'commit', '--quiet', '-m', 'first');
+  // The platform's watch on the tree is open and delivers nothing
+  const subscribe: SubscribeToDirectory = async () => ({ unsubscribe: async () => {} });
+  const watcher = new GitWatcherService(repo, { subscribe });
+  cleanups.push(() => watcher.stopWatching());
+  const changed = vi.fn();
+  watcher.setGitRepository(new GitRepository(repo));
+  watcher.setChangeCallback(changed);
+  await start(watcher);
+  // Lets the followers look at the files as they are, so the next change is one to them
+  await new Promise<void>((resolve) => { setTimeout(resolve, 150); });
+
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'two\n');
+  await git(repo, 'add', '.');
+
+  await settles(() => expect(changed).toHaveBeenCalledWith(null));
 });
