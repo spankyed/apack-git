@@ -192,7 +192,7 @@ it('leaves a directory alone that is still the one its watch is on', async () =>
   platform.reports('', 'rename', 'src');
 
   await eventually(() => expect(calls).toEqual([{ error: null, changes: ['src'] }]));
-  expect(platform.opened).toEqual(['', 'src', path.join('src', 'deep')]);
+  expect([...platform.opened].sort()).toEqual(['', 'src', path.join('src', 'deep')]);
 });
 
 it('lets go of a directory\'s watches when a file is found where it was', async () => {
@@ -292,7 +292,8 @@ it('lets go of the watches on directories that went unreported, and holds the re
   await subscription.check!({ ignore: [] });
 
   expect(platform.watched()).toEqual(['', 'docs']);
-  expect(platform.opened, 'no watch was opened again').toEqual(['', 'docs', 'src', path.join('src', 'deep')]);
+  // In the order the platform lists a directory, which is its own
+  expect([...platform.opened].sort(), 'no watch was opened again').toEqual(['', 'docs', 'src', path.join('src', 'deep')]);
   expect(calls).toEqual([]);
 });
 
