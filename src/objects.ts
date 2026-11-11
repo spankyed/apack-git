@@ -5,7 +5,7 @@
 // **For commits only, never the index.** A name like `main:src/a.ts` is resolved when it is asked for, so a branch
 // that moved is read where it is now. `:src/a.ts`, the staged version, is read from the index, which this process
 // loads once and keeps: it would go on answering with what was staged when it started.
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { WatchProcess } from './ties.ts'
 
 /** The largest file handed back; a larger one is read past and answered as not there, as a read by `git show` is */
@@ -17,6 +17,12 @@ const LARGEST_READ = 10 * 1024 * 1024
  * repository nobody is looking at holds no process open.
  */
 const LINGER_MS = 5_000
+
+/**
+ * How long a git whose input was closed is given to end by itself before its process tree is ended. A wait on a
+ * process that was told to go and has nothing left to do: there is no work of its to watch.
+ */
+const STILL_RUNNING_MS = 1_000
 
 interface Pending {
   resolve(content: Buffer | undefined): void
@@ -87,8 +93,20 @@ export class GitObjectReader {
     clearTimeout(this.linger)
     this.child = undefined
     this.fail(why)
+    // Its input closing is what ends it: it has nothing more to read
     child.stdin.end()
-    child.kill()
+    if (process.platform !== 'win32') {
+      child.kill()
+      return
+    }
+    // On Windows `git` is a launcher that starts the git doing the work, and ending the launcher leaves that one
+    // running in the repository's directory, which then cannot be deleted. It is left to end by itself, and the
+    // whole tree under it is ended if it has not
+    const stuck = setTimeout(() => {
+      if (child.exitCode === null && child.pid !== undefined) execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], () => {})
+    }, STILL_RUNNING_MS)
+    stuck.unref()
+    child.once('exit', () => clearTimeout(stuck))
   }
 
   private open(): ChildProcessWithoutNullStreams {
