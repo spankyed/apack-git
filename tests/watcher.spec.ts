@@ -275,3 +275,23 @@ it('reports the index written by another git from the file itself, when the tree
 
   await settles(() => expect(changed).toHaveBeenCalledWith(null));
 });
+
+// Asking an untrusted repository where its state lives is a git it is refused, and the watcher asks at start
+it('watches nothing in a repository that is not trusted, and starts once it is and it is asked to check', async () => {
+  const repo = directory('apack-watch-trust-');
+  await git(repo, 'init', '--quiet');
+  await git(repo, 'config', 'core.sshCommand', '/usr/bin/true');
+  let trusted = false;
+  const platform = watches();
+  const watcher = new GitWatcherService(repo, { subscribe: platform.subscribe, followFile: () => ({ close: () => {}, look: () => {} }) });
+  cleanups.push(() => watcher.stopWatching());
+  watcher.setGitRepository(new GitRepository(repo, { isTrusted: () => trusted }));
+  watcher.setChangeCallback(() => {});
+
+  await start(watcher);
+  expect(platform.open()).toEqual([]);
+
+  trusted = true;
+  await watcher.check();
+  expect(platform.open().map(watch => watch.directory)).toContain(repo);
+});

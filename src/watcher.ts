@@ -120,8 +120,10 @@ export class GitWatcherService {
   private async establish(cancelled: () => boolean): Promise<void> {
     // Git says where its state lives: the working directory may be a subfolder of the checkout or a linked
     // worktree, and neither keeps a `.git` directory of its own holding the refs.
-    const directories = await this.gitRepository?.resolveGitDirectories() ?? null
-    const ignored = directories ? await this.gitRepository!.listIgnoredDirectories() : []
+    // A repository that is not trusted is asked nothing, and is watched once it is: until then there is none
+    // here to watch, as when the directory holds no repository
+    const directories = await this.gitRepository?.resolveGitDirectories().catch(() => null) ?? null
+    const ignored = directories ? await this.gitRepository!.listIgnoredDirectories().catch(() => []) : []
     if (cancelled()) return
 
     const wanted = new Map<WatchKey, WantedWatch>()
