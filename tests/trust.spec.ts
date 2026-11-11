@@ -10,22 +10,24 @@ import { run } from './_support/process.ts';
 import { GitRepository, UntrustedError, settingRunsNothing } from '../src/index.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
 
 const git = async (cwd: string, ...args: string[]) => (await run('git', ['-C', cwd, ...args])).stdout.trim();
 
 /** A repository with one commit and an edit to `a.txt`, and beside it a program that says it ran by making a file */
 async function repository() {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-trust-')));
-  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-trust-programs-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-trust-')));
+  const outside = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-trust-programs-')));
   directories.push(root, outside);
   await git(root, 'init', '--quiet', '--initial-branch=main');
   fs.writeFileSync(path.join(root, 'a.txt'), 'one\n');
   await git(root, 'add', '.');
   await git(root, 'commit', '--quiet', '-m', 'first');
   fs.writeFileSync(path.join(root, 'a.txt'), 'two\n');
-  const ran = path.join(outside, 'ran');
-  const program = path.join(outside, 'program.sh');
+  // With `/` between their parts on every platform: git hands a program's path to a shell, and writes a
+  // configuration file in which `\\` begins an escape
+  const ran = path.join(outside, 'ran').replaceAll('\\', '/');
+  const program = path.join(outside, 'program.sh').replaceAll('\\', '/');
   // Whatever it is asked to be, it says it ran and answers as that program may: nothing changed, the file as it is
   fs.writeFileSync(program, `#!/bin/sh\necho ran >> '${ran}'\n[ -f "$1" ] && cat "$1"\nexit 0\n`);
   fs.chmodSync(program, 0o755);
@@ -140,7 +142,7 @@ it('names a repository by where its git state really lives, which a linked workt
 });
 
 it('says nothing is trusted and nothing asked where there is no repository', async () => {
-  const empty = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-trust-none-')));
+  const empty = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-trust-none-')));
   directories.push(empty);
 
   expect(await new GitRepository(empty).readTrust()).toEqual({ trusted: false, asks: [] });
@@ -166,4 +168,16 @@ it.each([
   ['trailer.sign.command', 'x'], ['interactive.difffilter', 'x'], ['pager.status', 'x'], ['mergetool.x.cmd', 'x'], ['a.setting.nobody.listed', '1'], ['nosection', '1'],
 ])('asks about %s = %s', (key, value) => {
   expect(settingRunsNothing(key, value)).toBe(false);
+});
+
+// A configuration git cannot parse says nothing of what it names, which is not the same as naming nothing. Git
+// itself refuses to run over one, so whichever of the two refuses, nothing the repository names is run
+it('runs nothing a repository names when its configuration cannot be read', async () => {
+  const { root, program, ran } = await repository();
+  fs.appendFileSync(path.join(root, '.git', 'config'), `[core]\n\tfsmonitor = ${program}\n[diff "x"]\n\ttextconv = "unterminated\n`);
+  const repo = new GitRepository(root);
+
+  await expect(repo.readSnapshot()).rejects.toThrow();
+  await expect(repo.stageFiles(['a.txt'])).rejects.toThrow();
+  expect(ran()).toBe(false);
 });

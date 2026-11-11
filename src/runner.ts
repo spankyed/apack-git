@@ -1,6 +1,7 @@
 // Runs git. Every git process the engine starts is started here: with the engine's environment over the host's,
 // in the lane its command waits in, again when another git's lock refused it, and answered as a result that says
 // why it failed.
+import * as path from 'path'
 import * as fs from 'fs/promises'
 import { watch } from 'fs'
 import { GitError, LOCKED, classifyGitError, type GitErrorCode } from './errors.ts'
@@ -98,7 +99,8 @@ function lockReleased(lock: string, patienceMs: number): Promise<boolean> {
 
 /** What is said of a lock another git did not let go of, in place of git's own half page */
 const heldLockMessage = (lock: string) =>
-  `Another git process is using this repository and has not let go of it: ${lock} is still there. `
+  // Git names the lock with `/` between its parts on every platform: said as the platform spells a path
+  `Another git process is using this repository and has not let go of it: ${path.normalize(lock)} is still there. `
   + 'Try again once it has finished. If no git is running, one that stopped part-way left that file behind, and deleting it lets git carry on.'
 
 /**

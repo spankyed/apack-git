@@ -14,13 +14,13 @@ const directories: string[] = [];
 const servers: http.Server[] = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) await new Promise((closed) => { server.close(closed); server.closeAllConnections(); });
-  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
+  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
 });
 
 const git = async (cwd: string, ...args: string[]) =>
   (await run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args])).stdout.trim();
 function scratch(prefix: string): string {
-  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  const directory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   directories.push(directory);
   return directory;
 }
@@ -95,7 +95,7 @@ it('says a pull was refused because both sides moved on and git may only fast-fo
 
 it('says the remote could not be reached when it is gone', async () => {
   const { root, remote } = await sharedWithAnotherClone();
-  fs.rmSync(remote, { recursive: true, force: true });
+  fs.rmSync(remote, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
 
   expect(await refusal(new GitRepository(root).pushBranch())).toMatchObject({ code: 'remote-unreachable' });
 });

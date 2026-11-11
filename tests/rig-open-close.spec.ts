@@ -9,14 +9,14 @@ import { cleanUp, platformWatch } from './_support/rig.ts';
 afterEach(cleanUp);
 
 function tree(): string {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-rig-close-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-rig-close-')));
   for (const directory of ['a/b/c', 'a/d', 'e/f/g/h', 'i']) {
     fs.mkdirSync(path.join(root, directory), { recursive: true });
     fs.writeFileSync(path.join(root, directory, 'file.txt'), '');
   }
   return root;
 }
-const remove = (target: string) => fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+const remove = (target: string) => fs.rmSync(target, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
 
 const ORDERS: Record<string, (root: string, subscribe: ReturnType<typeof platformWatch>['subscribe']) => Promise<void>> = {
   'deleted, then closed': async (root, subscribe) => {

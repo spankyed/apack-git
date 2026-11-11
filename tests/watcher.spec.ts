@@ -41,8 +41,8 @@ afterEach(async () => {
 });
 
 function directory(prefix: string): string {
-  const created = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-  cleanups.push(() => fs.rmSync(created, { recursive: true, force: true }));
+  const created = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  cleanups.push(() => fs.rmSync(created, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }));
   return created;
 }
 const git = (cwd: string, ...args: string[]) =>
@@ -163,7 +163,7 @@ it('watches the refs a linked worktree shares with its main checkout', async () 
   await git(main, 'commit', '--quiet', '--allow-empty', '-m', 'first');
   const worktree = `${main}-linked`;
   await git(main, 'worktree', 'add', '--quiet', worktree);
-  cleanups.push(() => fs.rmSync(worktree, { recursive: true, force: true }));
+  cleanups.push(() => fs.rmSync(worktree, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }));
   const { watcher, changed, platform } = watcherOf(worktree);
   await start(watcher);
   vi.useFakeTimers();

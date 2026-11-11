@@ -33,6 +33,15 @@ export class GitRepository {
   }
 
   /**
+   * Lets go of what is held open for this repository: the git kept running while files are read from commits.
+   * It is used again as before, and that git is started again by the next such read. On a platform that will
+   * not delete a directory a process is in, this is what lets the repository's be deleted at once.
+   */
+  close(): void {
+    this.reads.close()
+  }
+
+  /**
    * What this repository would have git run, read without running any of it: the settings of its own that are
    * not known to run nothing, and its hooks. While it names anything and the host has not said the repository
    * is trusted (`RepositoryTies.isTrusted`), every other command here is refused with an `UntrustedError`.

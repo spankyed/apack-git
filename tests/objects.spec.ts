@@ -24,7 +24,7 @@ const directories: string[] = [];
 const readers: GitObjectReader[] = [];
 afterEach(() => {
   for (const reader of readers.splice(0)) reader.close();
-  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
+  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
 });
 
 const git = async (cwd: string, ...args: string[]) =>
@@ -36,7 +36,7 @@ const write = (root: string, file: string, content: string | Buffer) => {
 
 /** A repository with these files committed on `main` */
 async function repository(files: Record<string, string | Buffer>) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-objects-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-objects-')));
   directories.push(root);
   await git(root, 'init', '--quiet', '--initial-branch=main');
   for (const [file, content] of Object.entries(files)) write(root, file, content);
@@ -107,7 +107,8 @@ it('reads the staged version as it is now, after a file was staged by another gi
   expect(await repo.getFileContent('a.txt', 'HEAD'), 'and the commit is as it was').toBe('one\n');
 });
 
-it('reads a file whose name one line cannot carry, by a git of its own', async () => {
+// Windows allows no line break in a file's name, so there is none there to read
+it.skipIf(process.platform === 'win32')('reads a file whose name one line cannot carry, by a git of its own', async () => {
   const root = await repository({ 'a\nb.txt': 'odd\n', 'with:colon.txt': 'colon\n' });
   const repo = new GitRepository(root);
 
@@ -139,9 +140,10 @@ it('fails what was being read when its git is ended, and reads again after', asy
 });
 
 // Reads are answered in order, so a git that stops answering holds every read asked after it
-it('ends a git that owes an answer and does no work, failing what it owed, and reads again after', async () => {
+// The git that stops answering is stood in for by a shell script named `git`, which Windows does not run by that name
+it.skipIf(process.platform === 'win32')('ends a git that owes an answer and does no work, failing what it owed, and reads again after', async () => {
   const root = await repository({ 'a.txt': 'one\n' });
-  const bin = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-objects-bin-')));
+  const bin = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-objects-bin-')));
   directories.push(bin);
   // A git that reads what it is asked and answers nothing; it ends when its input closes
   fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\nexec cat > /dev/null\n');

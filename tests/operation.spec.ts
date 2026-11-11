@@ -9,7 +9,7 @@ import { run } from './_support/process.ts';
 import { GitRepository } from '../src/index.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
 
 const git = async (cwd: string, ...args: string[]) =>
   (await run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args])).stdout.trim();
@@ -21,7 +21,7 @@ const read = (root: string, file: string) => fs.readFileSync(path.join(root, fil
  * `d.txt`, which `main` changed. `side` has a second commit that changes `m.txt` again. Left on `main`.
  */
 async function disagreeing() {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-operation-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-operation-')));
   directories.push(root);
   await git(root, 'init', '--quiet', '--initial-branch=main');
   write(root, 'm.txt', 'base\n');

@@ -35,8 +35,8 @@ const UNTIL_RELEASED = 'while [ ! -f ./release ] && [ -e ./.git ]; do sleep 0.1;
 
 /** A repository on `main` with one commit, whose commits need no user configuration */
 async function repository() {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-git-robust-')));
-  cleanups.push(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-git-robust-')));
+  cleanups.push(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }));
   await git(root, 'init', '--quiet', '--initial-branch=main');
   await git(root, 'config', 'user.name', 'spec');
   await git(root, 'config', 'user.email', 'spec@example.com');
@@ -72,7 +72,7 @@ it('lists branches by name, whatever git would draw beside them', async () => {
   await git(root, 'branch', 'plain');
   const worktree = `${root}-worktree`;
   await git(root, 'worktree', 'add', '--quiet', worktree, 'feature/in-a-worktree');
-  cleanups.push(() => fs.rmSync(worktree, { recursive: true, force: true }));
+  cleanups.push(() => fs.rmSync(worktree, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }));
   // A detached HEAD, which `git branch` lists as a line of its own
   await git(root, 'checkout', '--quiet', '--detach');
 

@@ -10,7 +10,7 @@ import {
 } from '../src/index.ts';
 
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
 
 const directory = path.resolve('checkout');
 
@@ -70,7 +70,7 @@ it('closes the platform’s watch when unsubscribed', async () => {
 
 /** A tree on disk, made of these directories and files, which the per-directory subscriber reads for real */
 function tree(...paths: string[]) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-watch-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-watch-')));
   roots.push(root);
   const make = (relative: string) => {
     const absolute = path.join(root, relative);
@@ -78,7 +78,7 @@ function tree(...paths: string[]) {
     else { fs.mkdirSync(path.dirname(absolute), { recursive: true }); fs.writeFileSync(absolute, ''); }
   };
   paths.forEach(make);
-  return { root, make, remove: (relative: string) => fs.rmSync(path.join(root, relative), { recursive: true, force: true }) };
+  return { root, make, remove: (relative: string) => fs.rmSync(path.join(root, relative), { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }) };
 }
 
 /** Stands in for `fs.watch` on one directory at a time: a case says what each directory's watch reports */

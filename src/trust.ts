@@ -19,6 +19,9 @@ export type TrustAsk =
   /** A hook the repository holds, which git runs at the moment the hook is named for */
   | { kind: 'hook'; name: string; file: string }
 
+/** The key an ask is given when a repository's configuration could not be read, with what git said of it as its value */
+export const UNREADABLE = '(its configuration could not be read)'
+
 /** What a repository asks to be trusted for, and whether a host has said it is */
 export interface TrustReading {
   trusted: boolean
@@ -130,7 +133,7 @@ function settingsOf(output: string): { scope: string; origin: string; key: strin
 }
 
 /** Runs one git that reads and runs nothing: `rev-parse` for where the repository is, `config --list` for what it says */
-export type ReadGit = (args: string[]) => Promise<{ success: boolean; output?: string }>
+export type ReadGit = (args: string[]) => Promise<{ success: boolean; output?: string; error?: string }>
 
 export class TrustGate {
   /**
@@ -175,6 +178,9 @@ export class TrustGate {
     const asks: TrustAsk[] = own
       .filter(setting => !settingRunsNothing(setting.key, setting.value))
       .map(setting => ({ kind: 'setting', key: setting.key, value: setting.value, file: fileOf(setting.origin) }))
+    // What it says could not be read, so what it names is not known: it asks, rather than passing for a
+    // repository that names nothing
+    if (!listed.success) asks.push({ kind: 'setting', key: UNREADABLE, value: (listed.error ?? '').trim().split('\n')[0] ?? '', file: path.join(common, 'config') })
     // A hook is a file in the hooks directory under the name git runs it by: the samples git writes there are
     // not, and on a platform with no executable bit every other file is
     const entries = await fs.readdir(hooks, { withFileTypes: true }).catch(() => [])

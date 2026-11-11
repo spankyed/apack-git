@@ -9,7 +9,7 @@ import { run } from './_support/process.ts';
 import { GitRepository, UNTRACKED_LISTED_LIMIT } from '../src/index.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
 
 const git = async (cwd: string, ...args: string[]) =>
   (await run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args])).stdout;
@@ -20,7 +20,7 @@ const write = (root: string, file: string, content = '') => {
 
 /** A repository tracking `src/a.ts` and ignoring `*.log`, with these files written and not tracked */
 async function repository(untracked: string[]) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-folders-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-folders-')));
   directories.push(root);
   await git(root, 'init', '--quiet', '--initial-branch=main');
   write(root, '.gitignore', '*.log\n');

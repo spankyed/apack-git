@@ -9,13 +9,13 @@ import { GitRepository, progressReader, withoutProgress } from '../src/index.ts'
 
 const directories: string[] = [];
 afterEach(() => {
-  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
+  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
 });
 
 const git = async (cwd: string, ...args: string[]) =>
   (await run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args])).stdout.trim();
 function scratch(prefix: string): string {
-  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  const directory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   directories.push(directory);
   return directory;
 }
@@ -113,7 +113,7 @@ it('says how far along a pull is', async () => {
 // Asked for progress, git writes it to the stream it says why it failed on
 it('says why a push failed without the progress git printed before it', async () => {
   const { root, remote } = await repositoryWithRemote();
-  fs.rmSync(remote, { recursive: true, force: true });
+  fs.rmSync(remote, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
 
   const failure = await new GitRepository(root).pushBranch(() => {}).then(() => undefined, (error: Error) => error.message);
 
@@ -144,7 +144,7 @@ it('says each command with how long it took and why it failed to the log it is h
   const repo = new GitRepository(root, { log: { command: line => logged.push(line) } });
 
   await repo.getCurrentBranch();
-  fs.rmSync(remote, { recursive: true, force: true });
+  fs.rmSync(remote, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
   await repo.pushBranch().catch(() => {});
 
   // Beside the engine's own reads of what the repository would have git run

@@ -11,7 +11,7 @@ import { GitRepository } from '../src/index.ts';
 import { withStaged, withUnstaged } from '../src/staging.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
 
 const git = (cwd: string, ...args: string[]) =>
   run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args]);
@@ -25,7 +25,7 @@ const LONG = 'a file that will be renamed, long enough for git to follow it\n';
 type Step = (root: string) => unknown;
 /** A repository on `main` with one commit holding `kept.txt`, `gone.txt`, `other.txt` and `old name.txt`, then changed */
 async function repository(change: Step) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-staging-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-staging-')));
   directories.push(root);
   await git(root, 'init', '--quiet', '--initial-branch=main');
   for (const file of ['kept.txt', 'gone.txt', 'other.txt']) write(root, file, 'one\n');

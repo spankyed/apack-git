@@ -8,7 +8,7 @@ import { run } from './_support/process.ts';
 import { GitRepository, KEPT_FILE_LIMIT } from '../src/index.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
 
 const git = async (cwd: string, ...args: string[]) => (await run('git', ['-C', cwd, ...args])).stdout;
 const write = (root: string, file: string, content: string | Buffer) => {
@@ -19,7 +19,7 @@ const read = (root: string, file: string) => fs.readFileSync(path.join(root, fil
 
 /** A repository with `kept.txt` and `src/a.ts` committed, and `ignored/` ignored */
 async function repository() {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-discards-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-discards-')));
   directories.push(root);
   await git(root, 'init', '--quiet', '--initial-branch=main');
   write(root, 'kept.txt', 'one\n');

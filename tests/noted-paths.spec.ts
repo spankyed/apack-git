@@ -11,7 +11,7 @@ import { run } from './_support/process.ts';
 import { GitRepository } from '../src/index.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
 
 const git = (cwd: string, ...args: string[]) =>
   run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', '-c', 'protocol.file.allow=always', ...args]);
@@ -19,19 +19,19 @@ const write = (root: string, file: string, content: string) => {
   fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
   fs.writeFileSync(path.join(root, file), content);
 };
-const remove = (root: string, file: string) => fs.rmSync(path.join(root, file), { recursive: true, force: true });
+const remove = (root: string, file: string) => fs.rmSync(path.join(root, file), { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
 
 type Step = (root: string) => unknown;
 /** A committed checkout, changed by `before`, that a watcher reports on and that has been read once */
 async function watched(before?: Step, workingDirectory = '') {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-noted-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-noted-')));
   directories.push(root, `${root}-sub`);
   await git(root, 'init', '--quiet', '--initial-branch=main');
   write(root, '.gitignore', '*.log\nignored/\n');
   write(root, 'kept.txt', 'one\n');
   write(root, 'src/a.ts', 'a\n');
   write(root, 'src/deep/b.ts', 'b\n');
-  write(root, 'we[i]rd*.txt', 'x\n');
+  write(root, WEIRD, 'x\n');
   write(root, 'docs/old.md', 'a file that will be renamed, long enough for git to follow it\n');
   write(root, 'caf\u00e9.txt', 'composed\n');
   if (process.platform !== 'win32') write(root, ':/inside.txt', 'x\n');
@@ -48,6 +48,9 @@ async function watched(before?: Step, workingDirectory = '') {
 
 /** Every git command each repository made here ran, as it logs them */
 const commands = new WeakMap<GitRepository, string[]>();
+
+/** A name holding what git reads as a pattern, as far as the platform's file names can: Windows allows no `*` in one */
+const WEIRD = process.platform === 'win32' ? 'we[i]rd!.txt' : 'we[i]rd*.txt';
 
 type Read = 'the paths' | 'everything';
 /** What was asked of git for a status since: only the paths named, or everything */
@@ -89,7 +92,7 @@ const cases: Record<string, Case> = {
   'a directory deleted, named by itself': { change: root => remove(root, 'src'), noted: ['src'], read: 'the paths' },
   'a file git ignores written': { change: root => write(root, 'build.log', 'noise\n'), noted: ['build.log'], read: 'the paths' },
   'a file under a directory git ignores written': { change: root => write(root, 'ignored/out/a.js', ''), noted: ['ignored/out/a.js'], read: 'the paths' },
-  'a name holding characters git reads as a pattern': { change: root => write(root, 'we[i]rd*.txt', 'y\n'), noted: ['we[i]rd*.txt'], read: 'the paths' },
+  'a name holding characters git reads as a pattern': { change: root => write(root, WEIRD, 'y\n'), noted: [WEIRD], read: 'the paths' },
   // A path is asked for by its name and nothing else: `:/` before a name asks git for that name at the top of
   // the checkout. Where git ignores case the path is already marked as a name, so this is held where it does not
   ...(process.platform !== 'win32' && {

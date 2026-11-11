@@ -38,6 +38,11 @@ export class GitReads {
     return this.runner.workingDirectory
   }
 
+  /** Ends the git kept open for reading files, which the next read of one starts again */
+  close(): void {
+    this.objects.close()
+  }
+
   /** Forgets what was kept of reads that do not change often, without saying the repository changed */
   forget(): void {
     this.cache.clear()

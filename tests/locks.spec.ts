@@ -12,14 +12,14 @@ import type { ChildProcess } from 'node:child_process';
 import { GitRepository, runUnbounded, type RepositoryTies, type RunProcess } from '../src/index.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
 
 const git = (cwd: string, ...args: string[]) =>
   run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args]);
 
 /** A repository with one commit and an edit to `a.txt` that is not staged */
 async function repository(ties: RepositoryTies = {}) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-locks-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-locks-')));
   directories.push(root);
   await git(root, 'init', '--quiet', '--initial-branch=main');
   fs.writeFileSync(path.join(root, 'a.txt'), 'one\n');

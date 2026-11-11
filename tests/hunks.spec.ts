@@ -8,7 +8,7 @@ import { run } from './_support/process.ts';
 import { GitRepository } from '../src/index.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
 
 const git = async (cwd: string, ...args: string[]) =>
   (await run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args])).stdout;
@@ -17,7 +17,7 @@ const lines = (count: number, changed: Record<number, string> = {}) =>
 
 /** A repository with a forty-line file committed, and two edits far apart in it that are not staged */
 async function repositoryWithTwoEdits(file = 'a.txt') {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-hunks-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-hunks-')));
   directories.push(root);
   await git(root, 'init', '--quiet', '--initial-branch=main');
   fs.writeFileSync(path.join(root, file), lines(40));

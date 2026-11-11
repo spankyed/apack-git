@@ -100,9 +100,13 @@ export const perDirectorySubscriber = (watch: WatchDirectory = fs.watch): Subscr
   /** The directories whose watch is being opened, so that two reports of one directory open one watch */
   const opening = new Set<string>()
   let closed = false
-  /** Which directory is at a path: another one made under the same name is a different one */
-  const identityOf = (stats: fs.Stats): string => `${stats.dev}:${stats.ino}`
-  const identityAt = (absolute: string) => fs.promises.stat(absolute).then(identityOf, () => undefined)
+  /**
+   * Which directory is at a path: another one made under the same name is a different one. By when it was made
+   * as well as by its number, since a file system hands the number of a directory just deleted to the next one
+   * made, which is the one made again at its path
+   */
+  const identityOf = (stats: fs.BigIntStats): string => `${stats.dev}:${stats.ino}:${stats.birthtimeNs}`
+  const identityAt = (absolute: string) => fs.promises.stat(absolute, { bigint: true }).then(identityOf, () => undefined)
 
   const close = () => {
     closed = true
@@ -166,7 +170,7 @@ export const perDirectorySubscriber = (watch: WatchDirectory = fs.watch): Subscr
     onChanges(null, [where])
     // Only a path made, deleted or moved can be a directory that came or went
     if (eventType !== 'rename') return
-    const found = await fs.promises.lstat(path.join(directory, where)).catch(() => undefined)
+    const found = await fs.promises.lstat(path.join(directory, where), { bigint: true }).catch(() => undefined)
     if (closed) return
     if (!found) {
       drop(where)

@@ -12,8 +12,8 @@ const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 function followed(content?: string) {
-  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-follow-')));
-  cleanups.push(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const directory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-follow-')));
+  cleanups.push(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }));
   const file = path.join(directory, 'index');
   if (content !== undefined) fs.writeFileSync(file, content);
   let reports = 0;
