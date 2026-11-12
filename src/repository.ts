@@ -352,6 +352,11 @@ export class GitRepository {
     return this.previews.preview(target)
   }
 
+  /** A commit's whole message, its subject and its body, as it was written */
+  commitMessage(commit: string): Promise<string> {
+    return this.reads.commitMessage(commit)
+  }
+
   /** Whether each of these names a commit in this repository */
   commitsExist(...refs: string[]): Promise<boolean> {
     return this.reads.commitsExist(...refs)

@@ -98,3 +98,15 @@ it('refuses to rewrite commits a remote branch holds, until told to go on', asyn
   await repo.rewrite(await commit(2), steps, { evenIfPublished: true });
   expect(await git('log', '-1', '--format=%s')).toBe('four, reworded');
 });
+
+it('reads a commit\'s whole message, so a reword can keep its body', async () => {
+  const { root, git, commit, repo } = await repository();
+  fs.writeFileSync(path.join(root, 'five.txt'), 'five\n');
+  await git('add', '.');
+  await git('commit', '--quiet', '-m', 'five', '-m', 'Why it was made,\nover two lines.');
+  const five = await commit(0);
+
+  expect(await repo.commitMessage(five)).toBe('five\n\nWhy it was made,\nover two lines.');
+  expect(await repo.commitMessage(await commit(1)), 'and one with no body is its subject').toBe('four');
+  await expect(repo.commitMessage('none-such'), 'a name that names no commit is refused').rejects.toThrow();
+});
