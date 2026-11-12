@@ -11,7 +11,7 @@ import { Journal } from './journal.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  Checkpoint, CheckpointChange, CommitLogEntry, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
+  Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
 } from './types.ts'
 
 export class GitRepository {
@@ -226,8 +226,17 @@ export class GitRepository {
     return this.reads.fileExistsInHead(filePath)
   }
 
-  resolveConflict(filePath: string, strategy: 'ours' | 'theirs'): Promise<void> {
-    return this.writes.resolveConflict(filePath, strategy)
+  /** The three sides of a conflicted file, the working file and where its conflicts are marked (`ConflictSides`) */
+  conflictSides(filePath: string): Promise<ConflictSides> {
+    return this.reads.conflictSides(filePath)
+  }
+
+  /**
+   * Resolves a conflicted file with one side, or with content written in its place, and marks it resolved. A side
+   * that deleted the file resolves it by deleting it
+   */
+  resolveConflict(filePath: string, answer: ConflictAnswer): Promise<void> {
+    return this.writes.resolveConflict(filePath, answer)
   }
 
   /**

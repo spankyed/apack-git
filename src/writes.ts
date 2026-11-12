@@ -10,7 +10,7 @@ import { GitError, type GitErrorCode } from './errors.ts'
 import type { RepositoryModel } from './model.ts'
 import { BASE_KEY, type GitReads } from './reads.ts'
 import { failure, type GitCommandResult, type GitRunner } from './runner.ts'
-import type { DiscardKept, DiscardRestored, GitProgress, OperationMove } from './types.ts'
+import type { ConflictAnswer, DiscardKept, DiscardRestored, GitProgress, OperationMove } from './types.ts'
 
 /** Thrown when a stash apply/pop succeeds partially but leaves conflicts. */
 export class StashConflictError extends Error {
@@ -246,13 +246,30 @@ export class GitWrites {
     return this.withWriteFlag(() => this.discards.restore(id))
   }
 
-  async resolveConflict(filePath: string, strategy: 'ours' | 'theirs'): Promise<void> {
+  /**
+   * Resolves a conflicted file: with one side as it is, or with `content` written in its place, then marks it
+   * resolved. A side that deleted the file resolves it by deleting it. The path is from the top of the checkout.
+   */
+  async resolveConflict(filePath: string, answer: ConflictAnswer): Promise<void> {
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['checkout', `--${strategy}`, '--', filePath])
-      if (!result.success) {
-        throw failure(result, `Failed to resolve conflict with ${strategy}`)
+      const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+      const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
+      const spec = rowSpec(filePath)
+      if (typeof answer === 'object') {
+        await fs.writeFile(path.join(top, filePath), answer.content)
+      } else {
+        const sides = await this.reads.conflictSides(filePath)
+        if ((answer === 'ours' ? sides.ours : sides.theirs) === null) {
+          const removed = await this.runner.executeGitCommand(['-C', top, 'rm', '--quiet', '--force', '--', spec])
+          if (!removed.success) throw failure(removed, `Failed to resolve conflict with ${answer}`)
+          this.model.markSnapshotStale()
+          return
+        }
+        const result = await this.runner.executeGitCommand(['-C', top, 'checkout', `--${answer}`, '--', spec])
+        if (!result.success) throw failure(result, `Failed to resolve conflict with ${answer}`)
       }
-      await this.runner.executeGitCommand(['add', '--', filePath])
+      const added = await this.runner.executeGitCommand(['-C', top, 'add', '--', spec])
+      if (!added.success) throw failure(added, `Failed to mark ${filePath} resolved`)
       this.model.markSnapshotStale()
     })
   }

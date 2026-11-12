@@ -23,6 +23,25 @@ export interface GitStatusFile {
 export const CONFLICT_KINDS = ['both-modified', 'both-added', 'both-deleted', 'added-by-us', 'added-by-them', 'deleted-by-us', 'deleted-by-them'] as const
 export type ConflictKind = (typeof CONFLICT_KINDS)[number]
 
+/**
+ * The three sides of a conflicted file, read from the index: the version both started from, ours and theirs, each
+ * absent where that side has no such file. Beside them the working file, and where git marked the conflicts in it.
+ */
+export interface ConflictSides {
+  base: string | null
+  ours: string | null
+  theirs: string | null
+  /** The file as it is in the working tree, with git's markers in it; absent when it is not there */
+  working: string | null
+  /** Each conflict git marked in the working file, by line from 1: where it opens, where ours ends, where it closes */
+  regions: { start: number; separator: number; end: number }[]
+  /** Whether any side holds a byte that is not text, in which case the sides are not read as text and are empty */
+  binary: boolean
+}
+
+/** What a conflicted file is resolved with: one side as it is, or content written in its place */
+export type ConflictAnswer = 'ours' | 'theirs' | { content: string }
+
 /** What git can be in the middle of in a checkout, each of which ends when it is carried on with or given up */
 export const OPERATION_KINDS = ['merge', 'rebase', 'cherry-pick', 'revert'] as const
 export type OperationKind = (typeof OPERATION_KINDS)[number]
