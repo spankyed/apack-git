@@ -80,6 +80,20 @@ it('goes on from where the first page stood when a ref moves between pages', asy
   expect(read.map(commit => commit.hash)).toEqual(stood);
 });
 
+it('reads from several refs at once, each commit once, a branch that has moved on among them', async () => {
+  const { root, git, repo } = await repository();
+  await git('checkout', '--quiet', '-b', 'later', 'topic');
+  fs.writeFileSync(path.join(root, 'c.txt'), 'c\n');
+  await git('add', 'c.txt');
+  await git('commit', '--quiet', '-m', 'eight, on later');
+  await git('checkout', '--quiet', 'main');
+
+  const read = (await allPages(repo, { refs: ['main', 'later', 'topic'] }, 3)).flat();
+
+  expect(read.map(commit => commit.hash)).toEqual((await git('rev-list', '--topo-order', 'main', 'later')).split('\n'));
+  await expect(repo.history({ refs: ['main', 'none-such'] }), 'and one that names nothing is refused').rejects.toThrow();
+});
+
 it('reads a file\'s history across its rename', async () => {
   const { repo } = await repository();
 
