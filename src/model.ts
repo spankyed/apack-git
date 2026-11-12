@@ -166,6 +166,7 @@ export class RepositoryModel {
       stashes: now.stashes !== before.stashes,
       // A worktree is listed with the commit it is on, which moves with its branch
       worktrees: history || now.worktrees !== before.worktrees,
+      refs: now.refs !== before.refs,
       ...(diffs && differingFiles(before.files, now.files)),
     }
   }
@@ -241,10 +242,14 @@ export class RepositoryModel {
     // Refs move without the status moving: a fetch, a branch made or deleted, a stash
     const refs = ((await this.runner.executeGitCommand(['for-each-ref', '--format=%(objectname) %(refname)'])).output ?? '').split('\n')
     const isStash = (ref: string) => ref.endsWith(' refs/stash')
+    const isLocalBranch = (ref: string) => ref.includes(' refs/heads/')
     const directories = this.gitDirectories ?? await this.resolveGitDirectories()
 
     return this.snapshotOver({ headers, entries, untracked, ignoreCase, operation: await this.readOperation(directories, refs) }, {
-      history: [...headers.filter(isBranch), ...refs.filter(ref => !isStash(ref))].join('\n'),
+      // What is checked out, and the local branches: a remote's branch moving, as a fetch moves it, is not history
+      history: [...headers.filter(isBranch), ...refs.filter(isLocalBranch)].join('\n'),
+      // Every ref but the stash, and the settings that name the remotes, read from the file and not by running git
+      refs: [...refs.filter(ref => !isStash(ref)), await this.readConfigIdentity(directories)].join('\n'),
       // The count as well as the ref: dropping a stash below the newest moves only the count
       stashes: [...headers.filter(isStashCount), ...refs.filter(isStash)].join('\n'),
       worktrees: await this.readWorktreesIdentity(directories),
@@ -344,7 +349,7 @@ export class RepositoryModel {
    */
   async snapshotOver(
     read: Pick<LoadedSnapshot, 'headers' | 'entries' | 'untracked' | 'ignoreCase' | 'operation'>,
-    rest: Pick<SnapshotIdentity, 'history' | 'stashes' | 'worktrees'>,
+    rest: Pick<SnapshotIdentity, 'history' | 'stashes' | 'worktrees' | 'refs'>,
     { directories, truncated, held }: { directories: GitDirectories | null; truncated: boolean; held?: { files?: Map<string, string>; kept: Set<StatusEntry> } },
   ): Promise<LoadedSnapshot> {
     const { headers, entries } = read
@@ -382,6 +387,7 @@ export class RepositoryModel {
         history: rest.history,
         stashes: rest.stashes,
         worktrees: rest.worktrees,
+        refs: rest.refs,
         files,
       },
     }
@@ -421,6 +427,12 @@ export class RepositoryModel {
   /** How a file in the working tree looks without reading it, which tells a later edit from none */
   fileSignature(file: string): Promise<string> {
     return fs.stat(file).then(stat => `${stat.mtimeMs}:${stat.size}`, () => 'gone')
+  }
+
+  /** What says the remotes changed, read from the repository's settings file and without running git: all of it */
+  async readConfigIdentity(directories: GitDirectories | null): Promise<string> {
+    if (!directories) return ''
+    return fs.readFile(path.join(directories.commonDir, 'config'), 'utf8').catch(() => '')
   }
 
   /**
