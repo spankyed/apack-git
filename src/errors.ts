@@ -28,6 +28,11 @@ export const GIT_ERROR_CODES = [
   /** The directory is in no git repository */
   'not-a-repository',
   /**
+   * The directory is in a repository git will not read, because another user owns it and it is not one of the
+   * user's `safe.directory` entries (`UnsafeOwnershipError`)
+   */
+  'unsafe-ownership',
+  /**
    * The repository would have git run a program and has not been trusted, so the command was not run. The one
    * code that is not read from what git printed: git was not asked (`trust.ts`)
    */
@@ -38,6 +43,9 @@ export type GitErrorCode = (typeof GIT_ERROR_CODES)[number]
 
 /** What git says when another process holds a lock it needs, with the lock's path */
 export const LOCKED = /Unable to create '(.+\.lock)': File exists/
+
+/** What git says of a repository another user owns, with its path as git will match it in `safe.directory` */
+const OWNED_BY_ANOTHER = /^fatal: detected dubious ownership in repository at '(.+)'$/m
 
 /**
  * What git prints for each, most telling first: a refused key prints "Permission denied (publickey)" and then
@@ -62,6 +70,7 @@ const SIGNS: readonly (readonly [GitErrorCode, RegExp])[] = [
   ['local-changes', /^error: Your local changes/m],
   ['unknown-ref', /^(error|fatal): pathspec '.*' did not match|^fatal: invalid reference: |^fatal: .*cannot be resolved|^fatal: .*unknown revision/m],
   ['not-a-repository', /^fatal: not a git repository/im],
+  ['unsafe-ownership', OWNED_BY_ANOTHER],
 ]
 
 /** Why git failed, from everything it printed; nothing when it does not say, or says something not known here */
@@ -75,4 +84,22 @@ export class GitError extends Error {
     super(message)
     this.name = 'GitError'
   }
+}
+
+/**
+ * A repository git will not read because another user owns it: on a shared or external drive, in a container,
+ * in a folder made under `sudo`. `directory` is the path as git printed it, which is the one git matches against
+ * the user's `safe.directory` entries (`GitRepository.trustOwnership`).
+ */
+export class UnsafeOwnershipError extends GitError {
+  constructor(readonly directory: string) {
+    super(`Git will not use the repository at ${directory}, because another user owns it.`, 'unsafe-ownership')
+    this.name = 'UnsafeOwnershipError'
+  }
+}
+
+/** The repository git refused for who owns it, when that is what it printed */
+export function ownershipRefusal(printed: string): UnsafeOwnershipError | undefined {
+  const directory = OWNED_BY_ANOTHER.exec(printed)?.[1]
+  return directory === undefined ? undefined : new UnsafeOwnershipError(directory)
 }

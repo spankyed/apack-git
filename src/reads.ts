@@ -7,6 +7,7 @@ import { hunksOf, type CutHunk } from './hunks.ts'
 import type { RepositoryModel } from './model.ts'
 import { GitObjectReader } from './objects.ts'
 import { GIT_NOT_INSTALLED, failure, type GitRunner } from './runner.ts'
+import { ownershipRefusal } from './errors.ts'
 import { statusOf } from './status.ts'
 import type { RepositoryTies } from './ties.ts'
 import type { CommitLogEntry, DiffHunk, GitStatusFile, StashEntry, WorktreeEntry } from './types.ts'
@@ -479,10 +480,15 @@ export class GitReads {
     return result.success
   }
 
-  /** Whether the working directory is in a repository. Rejects when there is no git to ask. */
+  /**
+   * Whether the working directory is in a repository. Rejects when there is no git to ask, and with an
+   * `UnsafeOwnershipError` when it is in one git will not read for who owns it.
+   */
   async isGitRepository(): Promise<boolean> {
     const result = await this.runner.executeGitCommand(['rev-parse', '--git-dir'])
     if (result.missing) throw new Error(GIT_NOT_INSTALLED)
+    const refused = result.success ? undefined : ownershipRefusal(result.error ?? '')
+    if (refused) throw refused
     return result.success
   }
 
