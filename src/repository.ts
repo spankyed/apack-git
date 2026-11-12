@@ -3,7 +3,7 @@
 import * as path from 'path'
 import { GitReads } from './reads.ts'
 import { RepositoryModel } from './model.ts'
-import { GitRunner, failure } from './runner.ts'
+import { GitRunner, failure, fetchingMissing } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
 import type { GitErrorCode } from './errors.ts'
@@ -289,6 +289,15 @@ export class GitRepository {
 
   getFileContentFromBranch(filePath: string, branch: string): Promise<string> {
     return this.reads.getFileContentFromBranch(filePath, branch)
+  }
+
+  /**
+   * Runs `read`, whose reads of this repository may fetch what a partial clone has not: what a read answers with
+   * `content-missing` otherwise. They wait in line with the fetches and pushes while they do, since they reach the
+   * remote. Only what `read` calls is let fetch; every other read goes on fetching nothing.
+   */
+  fetchingMissing<T>(read: () => Promise<T>): Promise<T> {
+    return fetchingMissing(read)
   }
 
   fetchRemoteBranch(branch: string): Promise<void> {

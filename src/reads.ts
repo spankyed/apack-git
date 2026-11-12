@@ -6,9 +6,9 @@ import { recordsOf, refArgument, rowSpec } from './arguments.ts'
 import { hunksOf, type CutHunk } from './hunks.ts'
 import type { RepositoryModel } from './model.ts'
 import { GitObjectReader } from './objects.ts'
-import { failure, type GitRunner } from './runner.ts'
+import { failure, mayFetch, type GitRunner } from './runner.ts'
 import { GitUnusableError } from './git-check.ts'
-import { ownershipRefusal } from './errors.ts'
+import { GitError, ownershipRefusal } from './errors.ts'
 import { statusOf } from './status.ts'
 import type { RepositoryTies } from './ties.ts'
 import type { CommitLogEntry, DiffHunk, GitStatusFile, StashEntry, WorktreeEntry } from './types.ts'
@@ -54,18 +54,26 @@ export class GitReads {
    * The file a commit has under a name like `HEAD:src/a.ts`, or nothing when it has none. Through the git kept
    * open for it, and by a process of its own when that one cannot be asked: a name it cannot carry, or a git
    * that ended. Never for the index (`:src/a.ts`), which that git would go on answering from as it first read it.
+   *
+   * In a partial clone, always by a process of its own: the git kept open answers "missing" alike for a file the
+   * commit does not have and for one it has whose content was never fetched, where `git show` tells them apart.
+   * The second is a `GitError` with `content-missing`, unless reads may fetch (`GitRepository.fetchingMissing`).
    */
   async fileInCommit(name: string): Promise<Buffer | undefined> {
     // The git kept open is a git like any other: none is started in a repository that is not trusted
     await this.runner.trust.pass()
-    try {
-      return await this.objects.read(name)
-    } catch {
+    if (!mayFetch() && !await this.runner.isPartialClone()) {
       try {
-        return await this.runner.executeGitCommandBinary(['show', name])
+        return await this.objects.read(name)
       } catch {
-        return undefined
+        // Read by a process of its own, below
       }
+    }
+    try {
+      return await this.runner.executeGitCommandBinary(['show', name])
+    } catch (error) {
+      if (error instanceof GitError && error.code === 'content-missing') throw error
+      return undefined
     }
   }
 

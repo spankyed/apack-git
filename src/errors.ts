@@ -59,12 +59,24 @@ export const GIT_ERROR_CODES = [
    * code that is not read from what git printed: git was not asked (`trust.ts`)
    */
   'untrusted',
+  /**
+   * A read needed content a partial clone has not fetched, and reads do not fetch (`GIT_NO_LAZY_FETCH`): it is
+   * fetched when whoever asked says so (`GitRepository.fetchingMissing`)
+   */
+  'content-missing',
 ] as const
 
 export type GitErrorCode = (typeof GIT_ERROR_CODES)[number]
 
 /** What git says when another process holds a lock it needs, with the lock's path */
 export const LOCKED = /Unable to create '(.+\.lock)': File exists/
+
+/**
+ * What git prints when a read needed content a partial clone never fetched and was told not to fetch it: the
+ * warning, then why the read failed. `git show rev:path` says only that the object is bad, having found its id in
+ * a tree it holds and no content under that id; a bad object named without a path is not this, and gets no code.
+ */
+export const CONTENT_MISSING = /^warning: lazy fetching disabled|^fatal: could not fetch \S+ from promisor remote|^fatal: bad object [^\s:]*:/m
 
 /** What git says of a repository another user owns, with its path as git will match it in `safe.directory` */
 const OWNED_BY_ANOTHER = /^fatal: detected dubious ownership in repository at '(.+)'$/m
@@ -101,6 +113,7 @@ const SIGNS: readonly (readonly [GitErrorCode, RegExp])[] = [
   ['nothing-to-commit', /^nothing (added )?to commit\b/m],
   // Before git 2.37 the sentence began with a capital
   ['branch-exists', /^fatal: a branch named '.+' already exists/im],
+  ['content-missing', CONTENT_MISSING],
 ]
 
 /** Why git failed, from everything it printed; nothing when it does not say, or says something not known here */

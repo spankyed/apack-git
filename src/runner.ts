@@ -5,7 +5,8 @@ import * as path from 'path'
 import * as fs from 'fs/promises'
 import { watch } from 'fs'
 import { execFile, type ChildProcess } from 'node:child_process'
-import { GitError, LOCKED, classifyGitError, type GitErrorCode } from './errors.ts'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { CONTENT_MISSING, GitError, LOCKED, classifyGitError, type GitErrorCode } from './errors.ts'
 import { GitUnusableError, checkGit, type GitUnusable } from './git-check.ts'
 import { progressReader, withoutProgress } from './progress.ts'
 import { runUnbounded, type RepositoryLog, type RepositoryTies, type RunProcess } from './ties.ts'
@@ -158,6 +159,38 @@ function descendantsOf(root: number, listed: string): number[] {
   return found
 }
 
+/**
+ * The first release on each line of git that can be told not to fetch what a partial clone lacks
+ * (`GIT_NO_LAZY_FETCH`), by minor version. The switch came with the security releases of May 2024, onto every line
+ * then maintained, and is in every release from 2.46.0; 2.45.0 and each line's earlier releases do not have it.
+ * Read from `promisor-remote.c` at each release's tag.
+ */
+const NO_LAZY_FETCH_FROM: Readonly<Record<number, number>> = { 39: 4, 40: 2, 41: 1, 42: 2, 43: 4, 44: 1, 45: 1 }
+
+/**
+ * Whether a git of this version can be told not to fetch. A read on one that cannot, in a partial clone, may reach
+ * the network, so there it waits in line with the commands that do.
+ */
+export function refusesLazyFetch(version: string): boolean {
+  const [major = 0, minor = 0, patch = 0] = version.split('.').map(Number)
+  if (major !== 2) return major > 2
+  if (minor >= 46) return true
+  const first = NO_LAZY_FETCH_FROM[minor]
+  return first !== undefined && patch >= first
+}
+
+/** Set while reads may fetch what a partial clone lacks: inside `GitRepository.fetchingMissing` */
+const fetching = new AsyncLocalStorage<true>()
+
+/** Runs `read` with its reads allowed to fetch what a partial clone lacks, in line with the remote commands */
+export const fetchingMissing = <T>(read: () => Promise<T>): Promise<T> => fetching.run(true, read)
+
+/** Whether reads made from here may fetch what a partial clone lacks */
+export const mayFetch = (): boolean => fetching.getStore() === true
+
+/** What a read is told so it never fetches: what it lacks is answered as `content-missing` */
+const NO_LAZY_FETCH = { GIT_NO_LAZY_FETCH: '1' }
+
 /** Subcommands that only read, which wait for nothing: no lock is taken, as `GIT_OPTIONAL_LOCKS` says */
 const READS = new Set(['status', 'rev-parse', 'for-each-ref', 'ls-files', 'check-attr', 'diff', 'show', 'cat-file', 'rev-list', 'symbolic-ref', 'log', 'branch', 'reflog', 'show-ref'])
 /** Subcommands that talk to a remote and touch no index, which wait only for each other */
@@ -219,8 +252,10 @@ export class GitRunner {
   private readonly run: RunProcess
   /** The git every command runs */
   readonly git: string
-  /** Whether that git can be used, asked once, before the first command */
-  private usable: Promise<GitUnusable | undefined> | undefined
+  /** Whether that git can be used, and which it is, asked once, before the first command */
+  private usable: Promise<GitUnusable | { version: string }> | undefined
+  /** Whether this repository is a partial clone, which may lack content a read needs; asked once */
+  private partial: Promise<boolean> | undefined
   private readonly base: () => NodeJS.ProcessEnv
   readonly log: RepositoryLog
   /** What keeps git from running what an untrusted repository names: every command passes it but its own reads */
@@ -252,11 +287,44 @@ export class GitRunner {
     return lane === 'write' ? op.finally(() => { this.writesInLine-- }) : op
   }
 
-  /** Refuses a command when the git it would run cannot be used, asking only the first time */
-  async passUsableGit(): Promise<void> {
+  /** Refuses a command when the git it would run cannot be used, asking only the first time; answers its version */
+  async passUsableGit(): Promise<string> {
     this.usable ??= checkGit(this.git, this.run, this.environment())
-    const unusable = await this.usable
-    if (unusable) throw new GitUnusableError(unusable)
+    const usable = await this.usable
+    if ('code' in usable) throw new GitUnusableError(usable)
+    return usable.version
+  }
+
+  /**
+   * Whether this repository is a partial clone, one whose remote was asked for less than everything and promised
+   * the rest: read once, from its config, which a read can do without fetching anything
+   */
+  isPartialClone(): Promise<boolean> {
+    this.partial ??= this.runGitOnce(['config', '--get-regexp', '^(extensions\\.partialclone|remote\\..*\\.promisor)$']).then(
+      result => result.success && /^(extensions\.partialclone \S|remote\..+\.promisor true$)/mi.test(result.output ?? ''),
+    )
+    return this.partial
+  }
+
+  /**
+   * Which line a read waits in: none, unless it may reach the network. It may when whoever asked said it may
+   * fetch, and on a git too old to be told not to, in a partial clone.
+   */
+  private async readLane(fetches: boolean): Promise<'read' | 'network'> {
+    if (fetches) return 'network'
+    if (refusesLazyFetch(await this.passUsableGit())) return 'read'
+    return await this.isPartialClone() ? 'network' : 'read'
+  }
+
+  /**
+   * Runs `run` in the line `args` waits in. A read's line is known only once git's version is, so it is chosen
+   * when that is; every other line is joined at once, so a write is in line from when it was asked.
+   */
+  private inLane<T>(args: string[], refreshesIndex: boolean, fetches: boolean, run: () => Promise<T>): Promise<T> {
+    // A read allowed to write the index waits its turn among the writes made here, which need the same lock
+    const lane = refreshesIndex ? 'write' : laneOf(args)
+    if (lane !== 'read') return this.enqueueCommand(lane, run)
+    return this.untilEnded(this.readLane(fetches).then(chosen => this.enqueueCommand(chosen, run)))
   }
 
   /**
@@ -315,9 +383,11 @@ export class GitRunner {
    * of: a git in a terminal, or an agent's, holds the index for moments, and the user who staged a file in
    * those moments meant it. The lane waits with it, since what is queued behind needs the same lock.
    */
-  executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env, signal }: { signal?: AbortSignal; refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding; /** Laid over the environment every git runs with, for this one */ env?: NodeJS.ProcessEnv } = {}): Promise<GitCommandResult> {
-    // A read allowed to write the index waits its turn among the writes made here, which need the same lock
-    return this.enqueueCommand(refreshesIndex ? 'write' : laneOf(args), async () => {
+  executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env: given, signal }: { signal?: AbortSignal; refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding; /** Laid over the environment every git runs with, for this one */ env?: NodeJS.ProcessEnv } = {}): Promise<GitCommandResult> {
+    const fetches = mayFetch()
+    // A read fetches nothing unless it was said it may: a write (a checkout, a merge) fetches what it needs
+    const env = laneOf(args) === 'read' && !fetches ? { ...NO_LAZY_FETCH, ...given } : given
+    return this.inLane(args, refreshesIndex, fetches, async () => {
       await this.passUsableGit()
       await this.trust.pass()
       // Stopped while it waited its turn: it is not started
@@ -351,14 +421,17 @@ export class GitRunner {
     try {
       // Ended when it stops working, not when a clock runs out: a fetch stalled on the network would
       // otherwise hold its lane, and every later remote command with it, until the app restarts
-      const { stdout } = await this.runGit(args, encoding, refreshesIndex, input, onProgress, env, signal)
-
+      const { stdout, stderr } = await this.runGit(args, encoding, refreshesIndex, input, onProgress, env, signal)
+      // A read that went without content it lacked may still exit cleanly, having answered with less
+      if (CONTENT_MISSING.test(stderr)) return { success: false, error: stderr.trim(), output: stdout, code: 'content-missing' }
       return { success: true, output: stdout }
     } catch (error) {
       const gitError = error as GitCommandError
 
       // Ended because whoever asked for it said to stop: that is no failure of git's to report
       if (signal?.aborted) return STOPPED
+      // Ahead of the exits read as answers below: `show` says only "bad object" of content it does not have
+      if (CONTENT_MISSING.test(gitError.stderr ?? '')) return { success: false, error: gitError.stderr!.trim(), output: gitError.stdout, code: 'content-missing' }
       if (gitError.code === 'ENOENT') {
         return { success: false, error: GIT_NOT_INSTALLED, missing: true }
       }
@@ -388,11 +461,15 @@ export class GitRunner {
 
   /** Execute a git command and return raw binary buffer output. */
   executeGitCommandBinary(args: string[]): Promise<Buffer> {
-    return this.enqueueCommand(laneOf(args), async () => {
+    const fetches = mayFetch()
+    return this.inLane(args, false, fetches, async () => {
       await this.passUsableGit()
       await this.trust.pass()
       // Read as latin1, which maps each byte to one character and back, so the bytes survive a text channel
-      const { stdout } = await this.runGit(args, 'latin1')
+      const { stdout, stderr } = await this.runGit(args, 'latin1', false, undefined, undefined, fetches ? undefined : NO_LAZY_FETCH).catch((error: GitCommandError) => {
+        throw CONTENT_MISSING.test(error.stderr ?? '') ? new GitError(String(error.stderr).trim(), 'content-missing') : error
+      })
+      if (CONTENT_MISSING.test(stderr)) throw new GitError(stderr.trim(), 'content-missing')
       return Buffer.from(stdout, 'latin1')
     })
   }
