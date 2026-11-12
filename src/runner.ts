@@ -6,7 +6,8 @@ import * as fs from 'fs/promises'
 import { watch } from 'fs'
 import { execFile, type ChildProcess } from 'node:child_process'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { CONTENT_MISSING, GitError, LOCKED, classifyGitError, type GitErrorCode } from './errors.ts'
+import { CONTENT_MISSING, GitError, HookRefusedError, LOCKED, classifyGitError, type GitErrorCode } from './errors.ts'
+import { hooksIn, traceFile, type HookRun } from './trace.ts'
 import { GitUnusableError, checkGit, type GitUnusable } from './git-check.ts'
 import { progressReader, withoutProgress } from './progress.ts'
 import { runUnbounded, type RepositoryLog, type RepositoryTies, type RunProcess } from './ties.ts'
@@ -216,10 +217,13 @@ export interface GitCommandResult {
   missing?: boolean
   /** Why it failed, where what git printed says */
   code?: GitErrorCode
+  /** The hook that refused it, from git's event stream, when one did (`hook-refused`) */
+  hook?: HookRun
 }
 
-/** A failed command as an error, carrying why it failed for whoever shows it */
-export const failure = (result: GitCommandResult, otherwise: string): GitError => new GitError(result.error || otherwise, result.code)
+/** A failed command as an error, carrying why it failed for whoever shows it: a refusing hook's, as the hook's */
+export const failure = (result: GitCommandResult, otherwise: string): GitError =>
+  result.hook ? new HookRefusedError(result.hook.name, result.hook.exitCode, result.error ?? '') : new GitError(result.error || otherwise, result.code)
 
 interface GitCommandError extends Error {
   code?: number | string
@@ -412,9 +416,15 @@ export class GitRunner {
 
   async runGitOnce(args: string[], refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, encoding: BufferEncoding = 'utf8', env?: NodeJS.ProcessEnv, signal?: AbortSignal, onOutput?: (chunk: string) => void): Promise<GitCommandResult> {
     const started = performance.now()
-    const result = await this.runGitAnswered(args, refreshesIndex, input, onProgress, encoding, env, signal, onOutput)
+    // A command that may run a hook writes git's account of it, which says which hook refused it: a read runs none
+    const trace = laneOf(args) === 'read' ? undefined : traceFile()
+    const answered = await this.runGitAnswered(args, refreshesIndex, input, onProgress, encoding, trace ? { ...env, GIT_TRACE2_EVENT: trace } : env, signal, onOutput)
+    const hooks = trace ? await hooksIn(trace) : []
+    const refused = answered.success ? undefined : hooks.find(hook => hook.exitCode !== 0)
+    const result: GitCommandResult = refused ? { ...answered, code: 'hook-refused', hook: refused } : answered
     // A reading for whoever is looking into what the panel is doing: nothing is decided with it
-    this.log.command?.(`git ${args.join(' ').slice(0, 300)}: ${result.success ? 'ok' : `failed${result.code ? ` (${result.code})` : ''}`} in ${Math.round(performance.now() - started)} ms`)
+    const ran = hooks.length > 0 ? `, hooks ${hooks.map(hook => `${hook.name} ${hook.exitCode}`).join(', ')}` : ''
+    this.log.command?.(`git ${args.join(' ').slice(0, 300)}: ${result.success ? 'ok' : `failed${result.code ? ` (${result.code})` : ''}`} in ${Math.round(performance.now() - started)} ms${ran}`)
     return result
   }
 
