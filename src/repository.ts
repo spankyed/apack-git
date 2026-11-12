@@ -8,10 +8,11 @@ import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
 import { CheckpointStore } from './checkpoints.ts'
 import { Journal } from './journal.ts'
+import { DiffData } from './diff-data.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
+  ChangedFile, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
 } from './types.ts'
 
 export class GitRepository {
@@ -21,6 +22,7 @@ export class GitRepository {
   private readonly writes: GitWrites
   private readonly checkpoints: CheckpointStore
   private readonly journal: Journal
+  private readonly diffs: DiffData
 
   constructor(private workingDirectory: string, ties: RepositoryTies = {}) {
     if (!path.isAbsolute(workingDirectory)) {
@@ -32,6 +34,7 @@ export class GitRepository {
     this.checkpoints = new CheckpointStore(this.runner, this.model, ties.checkpointDirectory)
     this.journal = new Journal(this.runner, this.model, this.checkpoints)
     this.writes = new GitWrites(this.runner, this.model, this.reads, this.checkpoints, this.journal)
+    this.diffs = new DiffData(this.runner)
   }
 
   getWorkingDir(): string {
@@ -304,6 +307,28 @@ export class GitRepository {
 
   getFileContentFromBranch(filePath: string, branch: string): Promise<string> {
     return this.reads.getFileContentFromBranch(filePath, branch)
+  }
+
+  /**
+   * How many lines each changed file adds and removes, as git counts them: what is staged against the last commit,
+   * and the working tree against what is staged. A file git does not track yet has no count.
+   */
+  lineCounts(): Promise<(LineCount & { staged: boolean })[]> {
+    return this.diffs.lineCounts()
+  }
+
+  /** The files a commit changed against its first parent, each with its count */
+  changesIn(commit: string): Promise<ChangedFile[]> {
+    return this.diffs.changesIn(commit)
+  }
+
+  /**
+   * The files a stash holds against the commit it was made on, each with its count, its untracked files among
+   * them as added: what applying it would bring, read without applying it. A file's two sides are
+   * `getFileContentFromBranch(path, 'stash@{n}^1')` and `(path, 'stash@{n}')`, or `'stash@{n}^3'` for an untracked one
+   */
+  stashChanges(index: number): Promise<ChangedFile[]> {
+    return this.diffs.stashChanges(index)
   }
 
   /**
