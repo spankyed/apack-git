@@ -9,6 +9,11 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      budget_sizes:
+        description: The sizes the budgets jobs read, by hand; a push reads 1000 and 100000
+        type: string
+        default: '1000 100000'
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -96,7 +101,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm run budgets -- 1000 100000
+      - run: npm run budgets -- ${{ inputs.budget_sizes || '1000 100000' }}
 
   ci-pass:
     if: always()
