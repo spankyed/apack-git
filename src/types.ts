@@ -153,6 +153,12 @@ export interface RepositorySnapshot {
    * a commit is refused, asking who the user is
    */
   hasIdentity: boolean
+  /**
+   * Whether live updates have stopped arriving here: checks with nothing to go by keep finding changes the watcher
+   * never reported, as a watch on a network drive or past the system's limit on watches does. A host says the
+   * view may be behind, and goes on checking when the window is looked at
+   */
+  watchSilent?: true
   /** What git is in the middle of here, when it is in the middle of anything */
   operation?: RepositoryOperation
 }
