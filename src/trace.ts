@@ -21,8 +21,11 @@ export async function hooksIn(file: string): Promise<HookRun[]> {
   const ran: HookRun[] = []
   for (const line of text.split('\n')) {
     if (!line.includes('"child_')) continue
-    let event: { event?: string; child_id?: number; child_class?: string; hook_name?: string; argv?: string[]; code?: number }
+    let event: { event?: string; sid?: string; child_id?: number; child_class?: string; hook_name?: string; argv?: string[]; code?: number }
     try { event = JSON.parse(line) } catch { continue }
+    // Only the command's own process: a git it started writes here too, under a session id that extends its
+    // parent's with `/`, and the hook of a remote reached through a folder is that remote's, not this repository's
+    if (event.sid?.includes('/')) continue
     if (event.event === 'child_start' && event.child_class === 'hook' && event.child_id !== undefined) {
       // Named by git from 2.36; before, by the program it ran, which is the hook's file
       started.set(event.child_id, event.hook_name ?? path.basename(event.argv?.[0] ?? 'hook'))
