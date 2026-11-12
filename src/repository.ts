@@ -6,6 +6,7 @@ import { RepositoryModel } from './model.ts'
 import { GitRunner, failure, fetchingMissing } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
+import { repositoriesUnder } from './repositories-under.ts'
 import { History } from './history.ts'
 import { Blame } from './blame.ts'
 import { Refs } from './refs.ts'
@@ -16,10 +17,19 @@ import { DiffData } from './diff-data.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  ChangedFile, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview,
+  ChangedFile, FoundRepository, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview,
 } from './types.ts'
 
 export class GitRepository {
+  /**
+   * Every repository under a folder: its own, or the one it is in, first, then the repositories nested in it,
+   * submodules and linked worktrees, by path. Each opens as a `GitRepository` of its own, with its own trust and its
+   * own watcher. `truncated` when the walk stopped at its bound (`FIND_DEPTH`, `FIND_FOLDERS`).
+   */
+  static repositoriesUnder(folder: string): Promise<{ repositories: FoundRepository[]; truncated: boolean }> {
+    return repositoriesUnder(folder)
+  }
+
   private readonly runner: GitRunner
   private readonly model: RepositoryModel
   private readonly reads: GitReads

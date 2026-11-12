@@ -14,6 +14,24 @@ export interface GitStatusFile {
   conflict?: ConflictKind
   /** An untracked folder, listed as one row: git tracks nothing in it. Its path ends with `/` */
   isDirectory?: boolean
+  /**
+   * For a submodule's row, how it differs, as git says in its parent's status: it is on another commit, files it
+   * tracks changed, or it has files it does not track. Each is news of the submodule's own status as well
+   */
+  submodule?: { commit: boolean; modified: boolean; untracked: boolean }
+}
+
+/** A repository found under a folder (`GitRepository.repositoriesUnder`) */
+export interface FoundRepository {
+  /** Its working tree, as a path on this machine */
+  path: string
+  /** From the folder: the folder's own (empty), or the folder it is in */
+  relative: string
+  /**
+   * `top`: the folder's own, or the repository it is in. `nested`: a repository of its own inside another's tree.
+   * `submodule`: one its parent records as one. `worktree`: a linked worktree of another
+   */
+  kind: 'top' | 'nested' | 'submodule' | 'worktree'
 }
 
 /** How many lines a changed file adds and removes, as git counts them; none for a file that is not text */
