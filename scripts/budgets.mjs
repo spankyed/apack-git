@@ -19,17 +19,25 @@ if (sizes.length === 0) {
 const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { maxBuffer: 1 << 30, stdio: ['ignore', 'pipe', 'pipe'] }).toString()
 const ms = (since) => Math.round(performance.now() - since)
 
-/** A repository of `size` files, a hundred to a folder, committed */
+/**
+ * A repository of `size` files, a hundred to a folder, committed and checked out. Git writes them: a commit is
+ * streamed to `git fast-import` and checked out, which at a million files is minutes where writing each file from
+ * here and adding them is hours
+ */
 function generate(size) {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), `apack-budget-${size}-`)))
   git(root, 'init', '--quiet', '--initial-branch=main')
+  const stream = path.join(root, '.git', 'import')
+  const out = fs.openSync(stream, 'w')
+  fs.writeSync(out, 'commit refs/heads/main\ncommitter budget <budget@example.com> 0 +0000\ndata 5\nfiles\n')
   for (let file = 0; file < size; file++) {
-    const folder = path.join(root, `d${Math.floor(file / 100)}`)
-    if (file % 100 === 0) fs.mkdirSync(folder)
-    fs.writeFileSync(path.join(folder, `f${file % 100}.txt`), `file ${file}\n`)
+    const content = `file ${file}\n`
+    fs.writeSync(out, `M 100644 inline d${Math.floor(file / 100)}/f${file % 100}.txt\ndata ${Buffer.byteLength(content)}\n${content}\n`)
   }
-  git(root, 'add', '--all')
-  git(root, '-c', 'user.name=budget', '-c', 'user.email=budget@example.com', 'commit', '--quiet', '-m', 'files')
+  fs.closeSync(out)
+  execFileSync('git', ['-C', root, 'fast-import', '--quiet'], { stdio: [fs.openSync(stream, 'r'), 'ignore', 'pipe'] })
+  fs.rmSync(stream)
+  git(root, 'checkout', '--quiet', '--force', 'main')
   return root
 }
 
