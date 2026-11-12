@@ -5,6 +5,7 @@ import * as fs from 'fs/promises'
 import { commitArgument, refArgument, rowSpec, stashArgument } from './arguments.ts'
 import { DiscardStore } from './discards.ts'
 import type { CheckpointStore } from './checkpoints.ts'
+import type { Journal } from './journal.ts'
 import { GitError, type GitErrorCode } from './errors.ts'
 import type { RepositoryModel } from './model.ts'
 import { BASE_KEY, type GitReads } from './reads.ts'
@@ -26,8 +27,30 @@ export class GitWrites {
 
   private readonly discards: DiscardStore
 
-  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly reads: GitReads, checkpoints: CheckpointStore) {
+  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly reads: GitReads, private readonly checkpoints: CheckpointStore, private readonly journal: Journal) {
     this.discards = new DiscardStore(runner, model, checkpoints)
+  }
+
+  /** Where a ref points, or `null` when there is none: `HEAD` before the first commit has none */
+  private async revisionOf(ref: string): Promise<string | null> {
+    const result = await this.runner.executeGitCommand(['rev-parse', '--verify', '--quiet', ref])
+    return result.success ? (result.output ?? '').trim() || null : null
+  }
+
+  /** The branch `HEAD` is on, as a full ref, or `HEAD` itself when it is on none */
+  private async headRef(): Promise<string> {
+    const result = await this.runner.executeGitCommand(['symbolic-ref', '--quiet', 'HEAD'])
+    return result.success ? (result.output ?? '').trim() || 'HEAD' : 'HEAD'
+  }
+
+  /** The stashes there are, newest first, each with the commit it is and its message */
+  private async stashes(): Promise<{ commit: string; message: string }[]> {
+    const result = await this.runner.executeGitCommand(['stash', 'list', '-z', '--format=%H%x00%gs'])
+    if (!result.success) return []
+    const fields = (result.output ?? '').split('\0')
+    const stashes: { commit: string; message: string }[] = []
+    for (let at = 0; at + 1 < fields.length; at += 2) if (fields[at]) stashes.push({ commit: fields[at]!.trim(), message: fields[at + 1]! })
+    return stashes
   }
 
   private get workingDirectory(): string {
@@ -258,10 +281,34 @@ export class GitWrites {
       throw new Error('Commit message cannot be empty')
     }
     return this.withWriteFlag(async () => {
+      const ref = await this.headRef()
+      const before = await this.revisionOf('HEAD')
       const result = await this.runner.executeGitCommand(['commit', '-m', message])
       if (!result.success) {
         throw failure(result, 'Failed to commit')
       }
+      const subject = message.trim().split('\n')[0]!
+      await this.journal.record({ operation: 'commit', summary: `commit "${subject}"`, refs: [{ ref, before, after: await this.revisionOf('HEAD') }] })
+    })
+  }
+
+  /**
+   * Deletes a local branch, whether or not it was merged, and writes down where it pointed and what it followed,
+   * so that `undo` can make it again
+   */
+  async deleteBranch(name: string): Promise<void> {
+    return this.withWriteFlag(async () => {
+      const ref = `refs/heads/${refArgument(name, 'branch')}`
+      const before = await this.revisionOf(ref)
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const settings = await this.runner.executeGitCommand(['config', '--get-regexp', `^branch\\.${escaped}\\.`])
+      const config = (settings.output ?? '').split('\n').filter(Boolean).map((line) => {
+        const space = line.indexOf(' ')
+        return [line.slice(0, space), line.slice(space + 1)] as [string, string]
+      })
+      const result = await this.runner.executeGitCommand(['branch', '--delete', '--force', '--', refArgument(name, 'branch')])
+      if (!result.success) throw failure(result, `Failed to delete branch ${name}`)
+      await this.journal.record({ operation: 'delete-branch', summary: `deleting branch ${name}`, refs: [{ ref, before, after: null }], config })
     })
   }
 
@@ -443,19 +490,23 @@ export class GitWrites {
 
   async stashDrop(index: number): Promise<void> {
     return this.withWriteFlag(async () => {
+      const dropped = (await this.stashes())[index]
       const result = await this.runner.executeGitCommand(['stash', 'drop', stashArgument(index)])
       if (!result.success) {
         throw failure(result, 'Failed to drop stash')
       }
+      if (dropped) await this.journal.record({ operation: 'drop-stash', summary: `dropping stash "${dropped.message}"`, refs: [], stashes: [dropped] })
     })
   }
 
   async stashClear(): Promise<void> {
     return this.withWriteFlag(async () => {
+      const cleared = await this.stashes()
       const result = await this.runner.executeGitCommand(['stash', 'clear'])
       if (!result.success) {
         throw failure(result, 'Failed to clear stashes')
       }
+      if (cleared.length > 0) await this.journal.record({ operation: 'clear-stashes', summary: `clearing ${cleared.length === 1 ? 'a stash' : `${cleared.length} stashes`}`, refs: [], stashes: cleared })
     })
   }
 
@@ -503,11 +554,16 @@ export class GitWrites {
 
   async resetToCommit(hash: string): Promise<void> {
     return this.withWriteFlag(async () => {
+      const ref = await this.headRef()
+      const before = await this.revisionOf('HEAD')
+      // A copy of the working tree first: the reset leaves the files as they are, and anything after it may not
+      const { id: checkpoint } = await this.checkpoints.checkpoint()
       const result = await this.runner.executeGitCommand(['reset', commitArgument(hash)])
       if (!result.success) {
         throw failure(result, `Failed to reset to commit ${hash}`)
       }
       this.reads.clearCache()
+      await this.journal.record({ operation: 'reset', summary: `resetting to ${hash.slice(0, 7)}`, refs: [{ ref, before, after: await this.revisionOf('HEAD') }], checkpoint })
     })
   }
 

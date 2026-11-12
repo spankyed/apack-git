@@ -146,6 +146,25 @@ export interface CheckpointChange {
   change: 'added' | 'modified' | 'deleted'
 }
 
+/** A write the engine made that can be taken back (`GitRepository.undo`) */
+export interface JournalEntry {
+  id: string
+  /** What was done */
+  operation: 'commit' | 'reset' | 'delete-branch' | 'drop-stash' | 'clear-stashes'
+  /** When, in milliseconds since the epoch */
+  at: number
+  /** What it was, in a few words: `commit "Fix the parser"`, `deleting branch topic` */
+  summary: string
+  /** Each ref it moved, where it was and where it was left: `null` for no such ref */
+  refs: { ref: string; before: string | null; after: string | null }[]
+  /** Settings it removed with what it removed, as `[key, value]`: a deleted branch's upstream */
+  config?: [string, string][]
+  /** Stashes it removed, newest first */
+  stashes?: { commit: string; message: string }[]
+  /** The checkpoint taken before it, of the whole working tree */
+  checkpoint?: string
+}
+
 /** What putting a discard back did, by path from the top of the checkout */
 export interface DiscardRestored {
   restored: string[]

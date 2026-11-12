@@ -7,10 +7,11 @@ import { GitRunner, failure, fetchingMissing } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
 import { CheckpointStore } from './checkpoints.ts'
+import { Journal } from './journal.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  Checkpoint, CheckpointChange, CommitLogEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
+  Checkpoint, CheckpointChange, CommitLogEntry, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
 } from './types.ts'
 
 export class GitRepository {
@@ -19,6 +20,7 @@ export class GitRepository {
   private readonly reads: GitReads
   private readonly writes: GitWrites
   private readonly checkpoints: CheckpointStore
+  private readonly journal: Journal
 
   constructor(private workingDirectory: string, ties: RepositoryTies = {}) {
     if (!path.isAbsolute(workingDirectory)) {
@@ -28,7 +30,8 @@ export class GitRepository {
     this.model = new RepositoryModel(this.runner, () => this.runner.writesInLine > 0 || this.writes.isWriteInProgress)
     this.reads = new GitReads(this.runner, this.model, ties)
     this.checkpoints = new CheckpointStore(this.runner, this.model, ties.checkpointDirectory)
-    this.writes = new GitWrites(this.runner, this.model, this.reads, this.checkpoints)
+    this.journal = new Journal(this.runner, this.model, this.checkpoints)
+    this.writes = new GitWrites(this.runner, this.model, this.reads, this.checkpoints, this.journal)
   }
 
   getWorkingDir(): string {
@@ -324,6 +327,29 @@ export class GitRepository {
    */
   restoreCheckpoint(id: string, paths?: string[]): Promise<CheckpointChange[]> {
     return this.checkpoints.restore(id, paths)
+  }
+
+  /** Deletes a local branch, merged or not; `undo` makes it again where it was, with what it followed */
+  deleteBranch(name: string): Promise<void> {
+    return this.writes.deleteBranch(name)
+  }
+
+  /**
+   * The last write made here that `undo` would take back: a commit, a reset to a commit, a deleted branch, a
+   * dropped or cleared stash. Nothing when there is none in the last 14 days
+   */
+  lastUndoable(): Promise<JournalEntry | undefined> {
+    return this.journal.last()
+  }
+
+  /**
+   * Takes back the last write `lastUndoable` names, and answers it. A commit is taken off its branch with what it
+   * held left staged; a reset puts the branch and the index back; a branch is made again; a stash is put back on
+   * top. Refused with a `GitError` when a ref it moved has moved since, and with `published` for a commit a remote
+   * branch already holds, unless `evenIfPublished`.
+   */
+  undo(options?: { evenIfPublished?: boolean }): Promise<JournalEntry> {
+    return this.journal.undo(options)
   }
 
   fetchRemoteBranch(branch: string): Promise<void> {
