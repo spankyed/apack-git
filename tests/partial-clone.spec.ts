@@ -49,10 +49,8 @@ const refusesToFetch = !olderThan(version, NO_LAZY_FETCH_FROM);
 const refusal = (attempt: Promise<unknown>) => attempt.then(() => { throw new Error('it was not refused'); }, (error: unknown) => error);
 
 it.runIf(refusesToFetch)('answers a read of content the clone never fetched as missing, and fetches nothing', async () => {
-  const { remote, has, repo } = await partialClone();
-  // A remote that is gone is one a fetch would fail on, so a read that answered at all reached nothing
-  fs.renameSync(remote, `${remote}-gone`);
-  directories.push(`${remote}-gone`);
+  // The remote is there to be fetched from, so a read that reached it would answer with the content
+  const { has, repo } = await partialClone();
 
   const refused = await refusal(repo.getFileContentFromBranch('a.txt', 'HEAD~1'));
 
