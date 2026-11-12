@@ -192,7 +192,7 @@ export const mayFetch = (): boolean => fetching.getStore() === true
 const NO_LAZY_FETCH = { GIT_NO_LAZY_FETCH: '1' }
 
 /** Subcommands that only read, which wait for nothing: no lock is taken, as `GIT_OPTIONAL_LOCKS` says */
-const READS = new Set(['status', 'rev-parse', 'for-each-ref', 'ls-files', 'check-attr', 'diff', 'show', 'cat-file', 'rev-list', 'symbolic-ref', 'log', 'branch', 'reflog', 'show-ref'])
+const READS = new Set(['status', 'rev-parse', 'for-each-ref', 'ls-files', 'check-attr', 'diff', 'show', 'cat-file', 'rev-list', 'symbolic-ref', 'log', 'branch', 'reflog', 'show-ref', 'blame'])
 /** Subcommands that talk to a remote and touch no index, which wait only for each other */
 const NETWORK = new Set(['fetch', 'push'])
 
@@ -339,7 +339,7 @@ export class GitRunner {
    * Runs git, answering once it has exited and its output has gone quiet, without waiting for its pipes to
    * close: a process a hook left behind holds them open for as long as it lives.
    */
-  runGit(args: string[], encoding: BufferEncoding, refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, env?: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
+  runGit(args: string[], encoding: BufferEncoding, refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, env?: NodeJS.ProcessEnv, signal?: AbortSignal, onOutput?: (chunk: string) => void): Promise<{ stdout: string; stderr: string }> {
     const running = this.run(this.git, ['-c', 'color.ui=never', ...args], {
       cwd: this.workingDirectory,
       // The one read that may write: it lets git take its optional lock and keep what it learns of the files
@@ -367,6 +367,7 @@ export class GitRunner {
       child.stdin?.end(input)
     }
     if (onProgress) child.stderr?.on('data', progressReader(onProgress))
+    if (onOutput) child.stdout?.on('data', (chunk: Buffer | string) => onOutput(chunk.toString()))
     let grace: NodeJS.Timeout | undefined
     const giveUpOnPipes = () => { child.stdout?.destroy(); child.stderr?.destroy() }
     const quiet = () => { clearTimeout(grace); grace = setTimeout(giveUpOnPipes, EXIT_GRACE_MS) }
@@ -383,7 +384,7 @@ export class GitRunner {
    * of: a git in a terminal, or an agent's, holds the index for moments, and the user who staged a file in
    * those moments meant it. The lane waits with it, since what is queued behind needs the same lock.
    */
-  executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env: given, signal }: { signal?: AbortSignal; refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding; /** Laid over the environment every git runs with, for this one */ env?: NodeJS.ProcessEnv } = {}): Promise<GitCommandResult> {
+  executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env: given, signal, onOutput }: { signal?: AbortSignal; refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding; /** Laid over the environment every git runs with, for this one */ env?: NodeJS.ProcessEnv; /** Handed what git writes as it writes it, beside the whole of it in the answer */ onOutput?: (chunk: string) => void } = {}): Promise<GitCommandResult> {
     const fetches = mayFetch()
     // A read fetches nothing unless it was said it may: a write (a checkout, a merge) fetches what it needs
     const env = laneOf(args) === 'read' && !fetches ? { ...NO_LAZY_FETCH, ...given } : given
@@ -394,7 +395,7 @@ export class GitRunner {
       if (signal?.aborted) return STOPPED
       let refusedAt: number | undefined
       for (;;) {
-        const result = await this.runGitOnce(args, refreshesIndex, input, onProgress, encoding, env, signal)
+        const result = await this.runGitOnce(args, refreshesIndex, input, onProgress, encoding, env, signal, onOutput)
         const lock = result.code === 'locked' ? LOCKED.exec(result.error ?? '')?.[1] : undefined
         if (!lock) return result
         // A stash is several steps to git, and one refused part-way has done the steps before it: run again, it
@@ -409,19 +410,19 @@ export class GitRunner {
     })
   }
 
-  async runGitOnce(args: string[], refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, encoding: BufferEncoding = 'utf8', env?: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<GitCommandResult> {
+  async runGitOnce(args: string[], refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, encoding: BufferEncoding = 'utf8', env?: NodeJS.ProcessEnv, signal?: AbortSignal, onOutput?: (chunk: string) => void): Promise<GitCommandResult> {
     const started = performance.now()
-    const result = await this.runGitAnswered(args, refreshesIndex, input, onProgress, encoding, env, signal)
+    const result = await this.runGitAnswered(args, refreshesIndex, input, onProgress, encoding, env, signal, onOutput)
     // A reading for whoever is looking into what the panel is doing: nothing is decided with it
     this.log.command?.(`git ${args.join(' ').slice(0, 300)}: ${result.success ? 'ok' : `failed${result.code ? ` (${result.code})` : ''}`} in ${Math.round(performance.now() - started)} ms`)
     return result
   }
 
-  async runGitAnswered(args: string[], refreshesIndex: boolean, input: string | Buffer | undefined, onProgress: ((progress: GitProgress) => void) | undefined, encoding: BufferEncoding, env?: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<GitCommandResult> {
+  async runGitAnswered(args: string[], refreshesIndex: boolean, input: string | Buffer | undefined, onProgress: ((progress: GitProgress) => void) | undefined, encoding: BufferEncoding, env?: NodeJS.ProcessEnv, signal?: AbortSignal, onOutput?: (chunk: string) => void): Promise<GitCommandResult> {
     try {
       // Ended when it stops working, not when a clock runs out: a fetch stalled on the network would
       // otherwise hold its lane, and every later remote command with it, until the app restarts
-      const { stdout, stderr } = await this.runGit(args, encoding, refreshesIndex, input, onProgress, env, signal)
+      const { stdout, stderr } = await this.runGit(args, encoding, refreshesIndex, input, onProgress, env, signal, onOutput)
       // A read that went without content it lacked may still exit cleanly, having answered with less
       if (CONTENT_MISSING.test(stderr)) return { success: false, error: stderr.trim(), output: stdout, code: 'content-missing' }
       return { success: true, output: stdout }

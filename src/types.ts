@@ -168,6 +168,21 @@ export interface HistoryPage {
   cursor?: string
 }
 
+/** Who last changed one line of a file, as `git blame` answers it */
+export interface BlameLine {
+  /** The line, from 1, in the file as it was asked for */
+  line: number
+  commit: string
+  author: string
+  authorEmail: string
+  /** When the commit was written, as ISO 8601 */
+  date: string
+  summary: string
+  /** Where the line was in the file as that commit had it, and what the file was called there */
+  originalLine: number
+  originalPath: string
+}
+
 export interface CommitLogEntry {
   hash: string
   shortHash: string
