@@ -32,6 +32,20 @@ export const GIT_ERROR_CODES = [
    * user's `safe.directory` entries (`UnsafeOwnershipError`)
    */
   'unsafe-ownership',
+  /** A commit was to be signed and the signing program failed, or could not be run */
+  'signing-failed',
+  /** A pull or a merge of a branch that shares no commit with this one */
+  'unrelated-histories',
+  /** A commit with nothing staged */
+  'nothing-to-commit',
+  /** A branch was to be made under a name a branch already has */
+  'branch-exists',
+  /**
+   * The hosting service refused a push for a rule of its own: a file too large, a protected branch, an email
+   * address the user keeps private, a secret found in it. What it said is in git's words, on lines it begins
+   * with `remote:`
+   */
+  'host-refused',
   /**
    * The repository would have git run a program and has not been trusted, so the command was not run. The one
    * code that is not read from what git printed: git was not asked (`trust.ts`)
@@ -59,6 +73,8 @@ const OWNED_BY_ANOTHER = /^fatal: detected dubious ownership in repository at '(
  */
 const SIGNS: readonly (readonly [GitErrorCode, RegExp])[] = [
   ['locked', LOCKED],
+  // The host's reason, ahead of git's own lines after it: a refused push also ends `[remote rejected]`
+  ['host-refused', /^remote: error: GH0(01|06|07|13):/m],
   ['authentication', /^fatal: Authentication failed|^fatal: could not read (Username|Password)|^\S+: Permission denied \(publickey|^remote: Invalid username or (password|token)/m],
   ['permission', /^(remote: |ERROR: )?Permission to \S+ denied|^fatal: unable to access .*The requested URL returned error: 403/m],
   ['remote-unreachable', /^fatal: unable to access .*(Could not resolve host|Failed to connect|Couldn't connect|Connection refused|Connection timed out|Network is unreachable)|^fatal: Could not read from remote repository|^ssh: .*(Could not resolve hostname|Connection refused|Connection timed out|Network is unreachable)|^fatal: unable to (connect to|look up) /m],
@@ -71,6 +87,11 @@ const SIGNS: readonly (readonly [GitErrorCode, RegExp])[] = [
   ['unknown-ref', /^(error|fatal): pathspec '.*' did not match|^fatal: invalid reference: |^fatal: .*cannot be resolved|^fatal: .*unknown revision/m],
   ['not-a-repository', /^fatal: not a git repository/im],
   ['unsafe-ownership', OWNED_BY_ANOTHER],
+  ['signing-failed', /^error: gpg failed to sign the data/m],
+  ['unrelated-histories', /^fatal: refusing to merge unrelated histories/m],
+  // On stdout, with exit 1: `git commit` says it on the stream it reports a commit on
+  ['nothing-to-commit', /^nothing (added )?to commit\b/m],
+  ['branch-exists', /^fatal: a branch named '.+' already exists/m],
 ]
 
 /** Why git failed, from everything it printed; nothing when it does not say, or says something not known here */
