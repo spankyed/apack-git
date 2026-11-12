@@ -7,13 +7,14 @@ import { GitRunner, failure, fetchingMissing } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
 import { History } from './history.ts'
+import { Blame } from './blame.ts'
 import { CheckpointStore } from './checkpoints.ts'
 import { Journal } from './journal.ts'
 import { DiffData } from './diff-data.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  ChangedFile, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage,
+  ChangedFile, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage, BlameLine,
 } from './types.ts'
 
 export class GitRepository {
@@ -22,6 +23,7 @@ export class GitRepository {
   private readonly reads: GitReads
   private readonly writes: GitWrites
   private readonly histories: History
+  private readonly blames: Blame
   private readonly checkpoints: CheckpointStore
   private readonly journal: Journal
   private readonly diffs: DiffData
@@ -35,6 +37,7 @@ export class GitRepository {
     this.reads = new GitReads(this.runner, this.model, ties)
     this.checkpoints = new CheckpointStore(this.runner, this.model, ties.checkpointDirectory)
     this.journal = new Journal(this.runner, this.model, this.checkpoints)
+    this.blames = new Blame(this.runner, this.model)
     this.writes = new GitWrites(this.runner, this.model, this.reads, this.checkpoints, this.journal)
     this.diffs = new DiffData(this.runner)
     this.histories = new History(this.runner)
@@ -342,6 +345,16 @@ export class GitRepository {
    */
   history(options?: { refs?: string[]; cursor?: string; path?: string; limit?: number }): Promise<HistoryPage> {
     return this.histories.page(options)
+  }
+
+  /**
+   * Who last changed each line of a file, at `revision` or as the working tree has it, in line order, leaving out
+   * the commits the repository lists to be ignored. `onLines` is handed each group of lines as git finds it. Blame
+   * runs the conversion programs a repository names, as a diff does, so it is refused like any other command in a
+   * repository not trusted to.
+   */
+  blame(filePath: string, options?: { revision?: string; onLines?: (lines: BlameLine[]) => void }): Promise<BlameLine[]> {
+    return this.blames.blame(filePath, options)
   }
 
   /**
