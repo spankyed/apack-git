@@ -9,6 +9,11 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      budget_sizes:
+        description: The sizes the budgets jobs read, by hand; a push reads 1000 and 100000
+        type: string
+        default: '1000 100000'
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -76,6 +81,31 @@ jobs:
       - run: git --version
       - run: npm ci
       - run: npm test
+
+  # What the engine's work costs at 1,000 and 100,000 files, printed with the machine's conditions beside it. It
+  # fails on no reading: the readings inform the budgets the README states (`npm run budgets`, README "Budgets").
+  # A million files is read by hand.
+  budgets:
+    name: budgets (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # Through the environment, so what was typed into the dispatch is read as sizes and never run as a command
+      - run: npm run budgets -- $BUDGET_SIZES
+        shell: bash
+        env:
+          BUDGET_SIZES: ${{ inputs.budget_sizes || '1000 100000' }}
 
   ci-pass:
     if: always()
