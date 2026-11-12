@@ -10,9 +10,10 @@ import { run } from './_support/process.ts';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import { GitRepository, runUnbounded, type RepositoryTies, type RunProcess } from '../src/index.ts';
+import { removeDirectory } from './_support/remove.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
+afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });
 
 const git = (cwd: string, ...args: string[]) =>
   run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args]);
@@ -25,7 +26,9 @@ async function repository(ties: RepositoryTies = {}) {
   fs.writeFileSync(path.join(root, 'a.txt'), 'one\n');
   await git(root, 'add', '.');
   await git(root, 'commit', '--quiet', '-m', 'first');
-  fs.writeFileSync(path.join(root, 'a.txt'), 'two\n');
+  // Longer than what was committed: an edit of the same size made in the clock tick the index recorded is one
+  // git tells apart only by the index being no newer than the file, and a case here replaces the index
+  fs.writeFileSync(path.join(root, 'a.txt'), 'two, and longer\n');
   const seam: Seam = { run: runUnbounded };
   return { root, seam, repo: new GitRepository(root, { ...ties, run: (file, args, options) => seam.run(file, args, options) }) };
 }

@@ -7,13 +7,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { run } from './_support/process.ts';
 import { GitRepository } from '../src/index.ts';
+import { removeDirectory } from './_support/remove.ts';
 
 const directories: string[] = [];
 const repositories: GitRepository[] = [];
 afterEach(async () => {
   // A repository read from a commit keeps a git open in its directory, which is deleted once that git has gone
   await Promise.all(repositories.splice(0).map(repository => repository.close()));
-  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
+  for (const directory of directories.splice(0)) await removeDirectory(directory);
 });
 
 const git = async (cwd: string, ...args: string[]) =>

@@ -33,13 +33,15 @@ export class GitRepository {
   }
 
   /**
-   * Lets go of what is held open for this repository: the git kept running while files are read from commits.
-   * It is used again as before, and that git is started again by the next such read. Settles once that git has
-   * gone: on a platform that will not delete a directory a process is in, the repository's can be deleted then
-   * and not before.
+   * Lets go of what is held open for this repository, and waits for what it was asked: the git kept running
+   * while files are read from commits is ended, and every command already running or waiting its turn runs to
+   * its end. It is used again as before, and that git is started again by the next read of a file from a commit.
+   *
+   * Settles once no git of this repository is left running. On a platform that will not delete a directory a
+   * process is in, the repository's can be deleted then and not before.
    */
-  close(): Promise<void> {
-    return this.reads.close()
+  async close(): Promise<void> {
+    await Promise.all([this.reads.close(), this.runner.idle()])
   }
 
   /**

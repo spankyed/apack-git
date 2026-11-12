@@ -7,13 +7,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { settles } from './_support/settles.ts';
 import { followFile } from '../src/index.ts';
+import { removeDirectory } from './_support/remove.ts';
 
-const cleanups: Array<() => void> = [];
-afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
+const cleanups: Array<() => Promise<void> | void> = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
 function followed(content?: string) {
   const directory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-follow-')));
-  cleanups.push(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }));
+  cleanups.push(() => removeDirectory(directory));
   const file = path.join(directory, 'index');
   if (content !== undefined) fs.writeFileSync(file, content);
   let reports = 0;

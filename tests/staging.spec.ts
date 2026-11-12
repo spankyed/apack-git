@@ -9,9 +9,10 @@ import * as path from 'node:path';
 import { run } from './_support/process.ts';
 import { GitRepository } from '../src/index.ts';
 import { withStaged, withUnstaged } from '../src/staging.ts';
+import { removeDirectory } from './_support/remove.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
+afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });
 
 const git = (cwd: string, ...args: string[]) =>
   run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args]);

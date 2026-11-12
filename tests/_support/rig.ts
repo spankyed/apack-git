@@ -8,6 +8,7 @@ import {
   type RepositorySnapshot, type SubscribeToDirectory, type WatchDirectory, type WatchTree,
 } from '../../src/index.ts'
 import { run } from './process.ts'
+import { removeDirectory } from './remove.ts'
 
 /** Whether this platform has no watch over a tree, and holds one on each directory instead */
 export const PER_DIRECTORY = process.platform !== 'darwin' && process.platform !== 'win32'
@@ -64,7 +65,7 @@ const git = (cwd: string, ...args: string[]) => run('git', ['-C', cwd, '-c', 'us
  */
 export async function watchedRepository({ subscribe }: { subscribe?: SubscribeToDirectory } = {}) {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-rig-')))
-  cleanups.push(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }))
+  cleanups.push(() => removeDirectory(root))
   await git(root, 'init', '--quiet', '--initial-branch=main')
   await git(root, 'config', 'status.showUntrackedFiles', 'all')
   for (const file of ['src/a.ts', 'src/deep/b.ts', 'docs/readme.md', 'lib/util/c.ts']) {
@@ -139,7 +140,7 @@ export async function catchesUp<T>(check: () => T | Promise<T>, withinMs = 30_00
 export function churn(root: string, random: ReturnType<typeof seeded>, operations: number): string[] {
   const made: string[] = []
   const outside = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-rig-outside-')))
-  cleanups.push(() => fs.rmSync(outside, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }))
+  cleanups.push(() => removeDirectory(outside))
   const name = (kind: string) => `${kind}-${made.length}`
   const directories = () => directoriesOf(root)
   const files = (directory: string) => fs.readdirSync(path.join(root, directory), { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => path.join(directory, entry.name))
@@ -161,7 +162,7 @@ export function churn(root: string, random: ReturnType<typeof seeded>, operation
         fs.mkdirSync(deep, { recursive: true })
         fs.writeFileSync(path.join(deep, 'leaf.txt'), `${step}\n`)
       } else if (kind === 'remove-directory') {
-        if (directory !== '') fs.rmSync(absolute, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 })
+        if (directory !== '') fs.rmSync(absolute, { recursive: true, force: true })
       } else if (kind === 'rename-directory') {
         if (directory !== '') fs.renameSync(absolute, path.join(path.dirname(absolute), name('renamed')))
       } else if (kind === 'move-in') {
@@ -171,7 +172,7 @@ export function churn(root: string, random: ReturnType<typeof seeded>, operation
         fs.renameSync(staged, path.join(absolute, path.basename(staged)))
       } else if (kind === 'remake') {
         if (directory !== '') {
-          fs.rmSync(absolute, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 })
+          fs.rmSync(absolute, { recursive: true, force: true })
           fs.mkdirSync(absolute)
           fs.writeFileSync(path.join(absolute, `${name('remade')}.txt`), `${step}\n`)
         }
@@ -183,7 +184,8 @@ export function churn(root: string, random: ReturnType<typeof seeded>, operation
       }
       made.push(`${kind} ${directory || '.'}`)
     } catch (error) {
-      // A directory picked may have gone under an earlier operation's rename: the next one picks afresh
+      // A directory picked may have gone under an earlier operation's rename, or the system may refuse to remove
+      // one for the moment: the operation is noted as not made, and the next one picks afresh
       made.push(`${kind} ${directory || '.'} (${(error as NodeJS.ErrnoException).code ?? 'failed'})`)
     }
   }

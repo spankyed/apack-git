@@ -9,9 +9,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { run } from './_support/process.ts';
 import { GitRepository } from '../src/index.ts';
+import { removeDirectory } from './_support/remove.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
+afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });
 
 const git = (cwd: string, ...args: string[]) =>
   run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', '-c', 'protocol.file.allow=always', ...args]);
@@ -19,7 +20,7 @@ const write = (root: string, file: string, content: string) => {
   fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
   fs.writeFileSync(path.join(root, file), content);
 };
-const remove = (root: string, file: string) => fs.rmSync(path.join(root, file), { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
+const remove = (root: string, file: string) => removeDirectory(path.join(root, file));
 
 type Step = (root: string) => unknown;
 /** A committed checkout, changed by `before`, that a watcher reports on and that has been read once */

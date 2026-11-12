@@ -9,6 +9,7 @@ import { settles } from './_support/settles.ts';
 import { GitWatcherService } from '../src/index.ts';
 import type { SubscribeToDirectory, WatchedChange } from '../src/index.ts';
 import { GitRepository } from '../src/index.ts';
+import { removeDirectory } from './_support/remove.ts';
 
 interface FakeWatch {
   directory: string;
@@ -42,7 +43,7 @@ afterEach(async () => {
 
 function directory(prefix: string): string {
   const created = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-  cleanups.push(() => fs.rmSync(created, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }));
+  cleanups.push(() => removeDirectory(created));
   return created;
 }
 const git = (cwd: string, ...args: string[]) =>
@@ -163,7 +164,7 @@ it('watches the refs a linked worktree shares with its main checkout', async () 
   await git(main, 'commit', '--quiet', '--allow-empty', '-m', 'first');
   const worktree = `${main}-linked`;
   await git(main, 'worktree', 'add', '--quiet', worktree);
-  cleanups.push(() => fs.rmSync(worktree, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }));
+  cleanups.push(() => removeDirectory(worktree));
   const { watcher, changed, platform } = watcherOf(worktree);
   await start(watcher);
   vi.useFakeTimers();

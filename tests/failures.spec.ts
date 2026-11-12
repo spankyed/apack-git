@@ -9,12 +9,13 @@ import * as path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { run } from './_support/process.ts';
 import { GitRepository, classifyGitError } from '../src/index.ts';
+import { removeDirectory } from './_support/remove.ts';
 
 const directories: string[] = [];
 const servers: http.Server[] = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) await new Promise((closed) => { server.close(closed); server.closeAllConnections(); });
-  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
+  for (const directory of directories.splice(0)) await removeDirectory(directory);
 });
 
 const git = async (cwd: string, ...args: string[]) =>
@@ -95,7 +96,7 @@ it('says a pull was refused because both sides moved on and git may only fast-fo
 
 it('says the remote could not be reached when it is gone', async () => {
   const { root, remote } = await sharedWithAnotherClone();
-  fs.rmSync(remote, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
+  await removeDirectory(remote);
 
   expect(await refusal(new GitRepository(root).pushBranch())).toMatchObject({ code: 'remote-unreachable' });
 });

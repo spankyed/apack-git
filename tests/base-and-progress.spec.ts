@@ -6,10 +6,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { run } from './_support/process.ts';
 import { GitRepository, progressReader, withoutProgress } from '../src/index.ts';
+import { removeDirectory } from './_support/remove.ts';
 
 const directories: string[] = [];
-afterEach(() => {
-  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
+afterEach(async () => {
+  for (const directory of directories.splice(0)) await removeDirectory(directory);
 });
 
 const git = async (cwd: string, ...args: string[]) =>
@@ -113,7 +114,7 @@ it('says how far along a pull is', async () => {
 // Asked for progress, git writes it to the stream it says why it failed on
 it('says why a push failed without the progress git printed before it', async () => {
   const { root, remote } = await repositoryWithRemote();
-  fs.rmSync(remote, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
+  await removeDirectory(remote);
 
   const failure = await new GitRepository(root).pushBranch(() => {}).then(() => undefined, (error: Error) => error.message);
 
@@ -144,7 +145,7 @@ it('says each command with how long it took and why it failed to the log it is h
   const repo = new GitRepository(root, { log: { command: line => logged.push(line) } });
 
   await repo.getCurrentBranch();
-  fs.rmSync(remote, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
+  await removeDirectory(remote);
   await repo.pushBranch().catch(() => {});
 
   // Beside the engine's own reads of what the repository would have git run

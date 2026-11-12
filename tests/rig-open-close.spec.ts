@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { cleanUp, platformWatch } from './_support/rig.ts';
+import { removeDirectory, removeDirectoryNow } from './_support/remove.ts';
 
 afterEach(cleanUp);
 
@@ -16,7 +17,8 @@ function tree(): string {
   }
   return root;
 }
-const remove = (target: string) => fs.rmSync(target, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
+// At once and without a turn of the loop: each order below is about what the watch is doing at that moment
+const remove = removeDirectoryNow;
 
 const ORDERS: Record<string, (root: string, subscribe: ReturnType<typeof platformWatch>['subscribe']) => Promise<void>> = {
   'deleted, then closed': async (root, subscribe) => {
@@ -63,7 +65,7 @@ it.each(Object.keys(ORDERS))('survives its tree %s, and leaves no watch open', a
     try {
       await ORDERS[order]!(root, platform.subscribe);
     } finally {
-      remove(root);
+      await removeDirectory(root);
     }
     expect(platform.watched(), `round ${round}`).toEqual([]);
   }

@@ -153,6 +153,19 @@ export class GitRunner {
   /** How many commands are in the line of writes, running or waiting */
   writesInLine = 0
 
+  /**
+   * What is still to end: every command asked for, from when it was asked, and every git started, until it has
+   * gone. Both, because a command is not a git yet while it waits its turn or for the repository to be read as
+   * trusted, and a git read for that trust is no command.
+   */
+  private readonly unended = new Set<Promise<unknown>>()
+  private untilEnded<T>(ending: Promise<T>): Promise<T> {
+    const settled = ending.then(() => {}, () => {})
+    this.unended.add(settled)
+    void settled.then(() => this.unended.delete(settled))
+    return ending
+  }
+
   /** How long a command waits for another git to let go of a lock it needs */
   private readonly lockPatienceMs: number
   private readonly run: RunProcess
@@ -179,11 +192,19 @@ export class GitRunner {
    * each takes the index lock, and remote commands one at a time beside them.
    */
   enqueueCommand<T>(lane: 'read' | 'network' | 'write', fn: () => Promise<T>): Promise<T> {
-    if (lane === 'read') return fn()
+    if (lane === 'read') return this.untilEnded(fn())
     if (lane === 'write') this.writesInLine++
-    const op = this.lanes[lane].then(fn, fn)
+    const op = this.untilEnded(this.lanes[lane].then(fn, fn))
     this.lanes[lane] = op.then(() => {}, () => {})
     return lane === 'write' ? op.finally(() => { this.writesInLine-- }) : op
+  }
+
+  /**
+   * Settles once nothing asked of this repository is left to run and no git of its is left running: its
+   * directory has no process of its in it. A command asked for meanwhile is waited for too.
+   */
+  async idle(): Promise<void> {
+    while (this.unended.size > 0) await Promise.all(this.unended)
   }
 
   /**
@@ -199,6 +220,13 @@ export class GitRunner {
       encoding,
     })
     const { child } = running
+    // Gone once its output has closed and not when it exits: on Windows `git` starts the git doing the work,
+    // which holds the output until it has ended too, and one ended by the host outlives the first by a moment.
+    // A process a hook left holding the output is given up on below, which closes it
+    void this.untilEnded(new Promise<void>((resolve) => {
+      child.once('close', () => resolve())
+      child.once('error', () => resolve())
+    }))
     if (input !== undefined) {
       // A git that ends before it has read all it was handed is reported by its exit, not by the pipe
       child.stdin?.on('error', () => {})

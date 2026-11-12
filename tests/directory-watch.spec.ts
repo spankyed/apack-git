@@ -8,9 +8,10 @@ import { settles } from './_support/settles.ts';
 import {
   nodeSubscriber, perDirectorySubscriber, type WatchDirectory, type WatchedChange, type WatchTree,
 } from '../src/index.ts';
+import { removeDirectory } from './_support/remove.ts';
 
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
+afterEach(async () => { for (const root of roots.splice(0)) await removeDirectory(root); });
 
 const directory = path.resolve('checkout');
 
@@ -78,7 +79,7 @@ function tree(...paths: string[]) {
     else { fs.mkdirSync(path.dirname(absolute), { recursive: true }); fs.writeFileSync(absolute, ''); }
   };
   paths.forEach(make);
-  return { root, make, remove: (relative: string) => fs.rmSync(path.join(root, relative), { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }) };
+  return { root, make, remove: (relative: string) => removeDirectory(path.join(root, relative)) };
 }
 
 /** Stands in for `fs.watch` on one directory at a time: a case says what each directory's watch reports */
@@ -156,7 +157,7 @@ it('lets go of the watches on a directory that is gone, and on everything that w
   const { calls, onChanges } = told();
   await perDirectorySubscriber(platform.watch)(root, onChanges, { ignore: [] });
 
-  remove('src');
+  await remove('src');
   platform.reports('', 'rename', 'src');
 
   await eventually(() => expect(platform.watched()).toEqual(['', 'docs']));
@@ -171,7 +172,7 @@ it('watches a directory deleted and made again at once in place of the one that 
   const { calls, onChanges } = told();
   await perDirectorySubscriber(platform.watch)(root, onChanges, { ignore: [] });
 
-  remove('dist');
+  await remove('dist');
   make('dist/fresh/b.js');
   platform.reports('', 'rename', 'dist');
   platform.reports('', 'rename', 'dist');
@@ -200,7 +201,7 @@ it('lets go of a directory\'s watches when a file is found where it was', async 
   const platform = directoryWatches(root);
   await perDirectorySubscriber(platform.watch)(root, () => {}, { ignore: [] });
 
-  remove('out');
+  await remove('out');
   make('out');
   platform.reports('', 'rename', 'out');
 
@@ -214,7 +215,7 @@ it('says the watch ended when the watched directory itself is deleted', async ()
   const { calls, onChanges } = told();
   await perDirectorySubscriber(platform.watch)(root, onChanges, { ignore: [] });
 
-  remove('');
+  await remove('');
   platform.reports('', 'rename', path.basename(root));
 
   await eventually(() => expect(calls.at(-1)?.error?.message).toBe(`${root} was deleted`));
@@ -288,7 +289,7 @@ it('lets go of the watches on directories that went unreported, and holds the re
   const { calls, onChanges } = told();
   const subscription = await perDirectorySubscriber(platform.watch)(root, onChanges, { ignore: [] });
 
-  remove('src');
+  await remove('src');
   await subscription.check!({ ignore: [] });
 
   expect(platform.watched()).toEqual(['', 'docs']);

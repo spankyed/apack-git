@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import { run } from './_support/process.ts';
 import { settles } from './_support/settles.ts';
 import { GitObjectReader, GitRepository, type WatchProcess } from '../src/index.ts';
+import { removeDirectory } from './_support/remove.ts';
 
 /**
  * What a host hands in to watch a git kept open. A host watches the work the process does; this one, for a
@@ -25,7 +26,7 @@ const directories: string[] = [];
 const readers: { close(): Promise<void> }[] = [];
 afterEach(async () => {
   await Promise.all(readers.splice(0).map(reader => reader.close()));
-  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
+  for (const directory of directories.splice(0)) await removeDirectory(directory);
 });
 
 const git = async (cwd: string, ...args: string[]) =>

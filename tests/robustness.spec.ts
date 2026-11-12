@@ -6,9 +6,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { run } from './_support/process.ts';
 import { GitRepository, STATUS_LIMIT } from '../src/index.ts';
+import { removeDirectory } from './_support/remove.ts';
 
-const cleanups: Array<() => void> = [];
-afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
+const cleanups: Array<() => Promise<void> | void> = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
 const git = async (cwd: string, ...args: string[]) =>
   (await run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args])).stdout.trim();
@@ -36,7 +37,7 @@ const UNTIL_RELEASED = 'while [ ! -f ./release ] && [ -e ./.git ]; do sleep 0.1;
 /** A repository on `main` with one commit, whose commits need no user configuration */
 async function repository() {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-git-robust-')));
-  cleanups.push(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }));
+  cleanups.push(() => removeDirectory(root));
   await git(root, 'init', '--quiet', '--initial-branch=main');
   await git(root, 'config', 'user.name', 'spec');
   await git(root, 'config', 'user.email', 'spec@example.com');
@@ -72,7 +73,7 @@ it('lists branches by name, whatever git would draw beside them', async () => {
   await git(root, 'branch', 'plain');
   const worktree = `${root}-worktree`;
   await git(root, 'worktree', 'add', '--quiet', worktree, 'feature/in-a-worktree');
-  cleanups.push(() => fs.rmSync(worktree, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }));
+  cleanups.push(() => removeDirectory(worktree));
   // A detached HEAD, which `git branch` lists as a line of its own
   await git(root, 'checkout', '--quiet', '--detach');
 
