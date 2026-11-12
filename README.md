@@ -62,20 +62,34 @@ and Windows (the `budgets` jobs); a million files is read by hand.
 
 | Files | Opening | A whole status | A status of one noted path | A checkpoint of the whole tree |
 |---|---|---|---|---|
-| 1,000 | 200 ms | 100 ms | 100 ms | 500 ms |
-| 100,000 | 1 s | 1 s | 1 s | 3 s |
-| 1,000,000 | 10 s | 5 s | 5 s | 30 s |
+| 1,000 | 500 ms | 200 ms | 200 ms | 1.5 s |
+| 100,000 | 1 s | 1 s | 1 s | 5 s |
+| 1,000,000 | 3 s | 3 s | 3 s | 60 s |
+
+Each is about twice the slowest reading on an unloaded machine below, so a machine that is not busy keeps to it. A
+busy one does not, as the macOS readings taken under load show, and a whole status over its budget is what the
+snapshot's `slowStatus` reports (`STATUS_BUDGET_MS`).
 
 A status of one path costs about what a whole one does at 100,000 files and more: git matches the path against every
 file in the index. What the engine saves there is the process for each path, not git's walk.
 
 ### Readings
 
-Each with the machine it was taken on, as the command printed it.
+Each with the machine it was taken on, as the command printed it. The 1,000 and 100,000 rows are CI's `budgets`
+jobs; the million is a dispatch of CI by hand (`budget_sizes: 1000000`) and a run on a developer's Mac.
 
-- **2026-11-12, macOS** (darwin arm64, 10 cores, Apple M1 Pro, load 10.36 21.35 32.41, git 2.38.1, Node 24.16.0):
-  1,000 files: open 54 ms, whole status 22 ms, one noted path 23 ms, checkpoint 59 ms. 100,000 files: open 237 ms,
-  whole status 204 ms, one noted path 181 ms, checkpoint 547 ms.
+| Taken | Machine | git | Files | Opening | Whole status | One noted path | Checkpoint |
+|---|---|---|---|---|---|---|---|
+| CI, 2026-11-12 | Linux x64, 4 cores, load 0.34 | 2.56.1 | 1,000 | 42 ms | 16 ms | 16 ms | 67 ms |
+| | | | 100,000 | 200 ms | 165 ms | 165 ms | 469 ms |
+| CI, 2026-11-12 | macOS arm64 (virtual), 3 cores, load 113 | 2.56.0 | 1,000 | 68 ms | 31 ms | 31 ms | 75 ms |
+| | | | 100,000 | 317 ms | 263 ms | 361 ms | 1,393 ms |
+| CI, 2026-11-12 | Windows x64, 4 cores | 2.56.0.windows.4 | 1,000 | 421 ms | 148 ms | 140 ms | 1,172 ms |
+| | | | 100,000 | 392 ms | 276 ms | 201 ms | 3,472 ms |
+| CI by hand, 2026-11-12 | Linux x64, 4 cores, load 0.35 | 2.56.0 | 1,000,000 | 1,763 ms | 1,067 ms | 1,129 ms | 4,809 ms |
+| CI by hand, 2026-11-12 | macOS arm64 (virtual), 3 cores, load 85.6 | 2.56.0 | 1,000,000 | 11,874 ms | 34,961 ms | 13,301 ms | 32,850 ms |
+| CI by hand, 2026-11-12 | Windows x64, 4 cores | 2.56.0.windows.4 | 1,000,000 | 1,384 ms | 1,009 ms | 958 ms | 25,812 ms |
+| By hand, 2026-11-12 | macOS arm64, Apple M1 Pro, 10 cores, loaded | 2.38.1 | 1,000,000 | 11,054 ms | 12,273 ms | 12,564 ms | 47,189 ms |
 
 ## Using it
 
