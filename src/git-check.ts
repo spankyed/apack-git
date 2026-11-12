@@ -50,8 +50,8 @@ export function olderThan(a: string, b: string): boolean {
   return false
 }
 
-/** Why `git` cannot be used, or nothing when it can */
-export async function checkGit(git: string, run: RunProcess, env: NodeJS.ProcessEnv): Promise<GitUnusable | undefined> {
+/** Why `git` cannot be used, or the version it is when it can */
+export async function checkGit(git: string, run: RunProcess, env: NodeJS.ProcessEnv): Promise<GitUnusable | { version: string }> {
   const options = { cwd: process.cwd(), env, maxBuffer: 1024 * 1024, encoding: 'utf8' as const }
   // The placeholder is the one git that does something when merely asked its version, so it is not asked first
   if (process.platform === 'darwin' && git === '/usr/bin/git') {
@@ -65,5 +65,5 @@ export async function checkGit(git: string, run: RunProcess, env: NodeJS.Process
   if (printed === undefined) return { code: 'git-not-found', git }
   const version = gitVersionOf(printed)
   if (version === undefined || olderThan(version, GIT_FLOOR)) return { code: 'git-too-old', git, version: version ?? printed.trim() }
-  return undefined
+  return { version }
 }
