@@ -20,6 +20,18 @@ const GIT_DIR_IGNORED = ['objects', 'logs', 'hooks', 'lfs', 'modules', 'worktree
 const MAX_IGNORED_DIRECTORIES = 2000
 /** The most paths one report names: past these it says only that the checkout may have changed */
 const MAX_NAMED_PATHS = 32
+/**
+ * How many events the platform delivers in one burst before what it reported is no longer taken to be all
+ * there was. A platform drops events once its queue is full and says so to nobody, and Linux's holds 16,384:
+ * a burst a sixteenth of that is one a full queue is not far from, and far more than a save or a small
+ * checkout makes.
+ */
+const FLOOD_EVENTS = 1000
+/**
+ * How long the platform must deliver nothing for a burst to be over. A wait on this process's own state, with
+ * nothing to watch but the absence of an event
+ */
+const FLOOD_QUIET_MS = 500
 
 /**
  * What a report says changed: paths in the working tree, relative to the working directory with `/` between
@@ -70,6 +82,12 @@ export class GitWatcherService {
   private pendingSince?: number
   /** Whether a callback is already waiting on the repository's write in progress */
   private awaitingWrite = false
+  /**
+   * The burst of platform events under way: how many there have been, when the last arrived, and when the
+   * checkout was last reported as one in which anything may have changed
+   */
+  private burst = { events: 0, lastAt: 0, saidAnythingAt: 0 }
+  private burstTimeout?: NodeJS.Timeout
   private isWatching = false
   private gitRepository?: GitRepository
 
@@ -180,7 +198,10 @@ export class GitWatcherService {
     for (const [key, watch] of wanted) {
       if (this.subscriptions.has(key)) continue
       try {
-        const subscription = await this.subscribe(watch.directory, (error, changes) => this.handleChanges(key, watch, error, changes), { ignore: watch.ignore })
+        const subscription = await this.subscribe(watch.directory, (error, changes) => this.handleChanges(key, watch, error, changes), {
+          ignore: watch.ignore,
+          onEvent: () => this.countEvent(),
+        })
         if (cancelled()) {
           await subscription.unsubscribe()
           return
@@ -224,6 +245,40 @@ export class GitWatcherService {
     this.scheduleChange(named ? relevant.map(change => change!.split(path.sep).join('/')) : null)
   }
 
+  /**
+   * Counts an event of the platform's towards the burst under way, and once the burst is over reports the
+   * checkout as one in which anything may have changed, if it was a flood and its last report named files.
+   *
+   * **A report that names files is believed only while the platform can be taken to have delivered every
+   * event.** A read of the files a report names is all a window reads, so an event the platform dropped is a
+   * change nothing shows until something else has the whole checkout read. Neither of Node's watches says when
+   * it dropped one. What is known is how many events arrived: a flood is when a queue fills, most of all one in
+   * a directory git ignores, whose events are dropped here and never counted towards a report. So a flood ends
+   * with the whole checkout read once, after the last event, unless a report since that event already asked
+   * for that.
+   */
+  private countEvent() {
+    this.burst.events++
+    this.burst.lastAt = Date.now()
+    if (this.burstTimeout) return
+    const generation = this.generation
+    const settle = () => {
+      this.burstTimeout = undefined
+      if (generation !== this.generation) return
+      const quietFor = Date.now() - this.burst.lastAt
+      if (quietFor < FLOOD_QUIET_MS) {
+        this.burstTimeout = setTimeout(settle, FLOOD_QUIET_MS - quietFor)
+        this.burstTimeout.unref()
+        return
+      }
+      const { events, lastAt, saidAnythingAt } = this.burst
+      this.burst.events = 0
+      if (events >= FLOOD_EVENTS && saidAnythingAt < lastAt) this.scheduleChange(null)
+    }
+    this.burstTimeout = setTimeout(settle, FLOOD_QUIET_MS)
+    this.burstTimeout.unref()
+  }
+
   /** One report for every change that arrives close together */
   private scheduleChange(paths: ChangedPaths) {
     if (!this.onChangeCallback) return
@@ -259,6 +314,7 @@ export class GitWatcherService {
       this.pendingSince = undefined
       const paths = this.changedPaths
       this.changedPaths = new Set()
+      if (paths === null) this.burst.saidAnythingAt = Date.now()
       this.onChangeCallback?.(paths && [...paths])
     }, Math.max(0, Math.min(quietMs, MAX_WAIT_MS - waited)))
   }
@@ -269,6 +325,9 @@ export class GitWatcherService {
     this.onChangeCallback = undefined
     clearTimeout(this.quietTimeout)
     this.quietTimeout = undefined
+    clearTimeout(this.burstTimeout)
+    this.burstTimeout = undefined
+    this.burst = { events: 0, lastAt: 0, saidAnythingAt: 0 }
     this.pendingSince = undefined
     this.awaitingWrite = false
     this.changedPaths = new Set()

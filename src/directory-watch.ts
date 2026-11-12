@@ -18,11 +18,15 @@ export interface DirectorySubscription {
 /**
  * Watches a directory and everything under it, apart from the directories `ignore` names relative to it.
  * An error means the watch has stopped reporting, or may have.
+ *
+ * `onEvent` is called for every event the platform delivers, the ones under an ignored directory included,
+ * which `onChanges` never hears of. How many arrive is the one thing known here about how hard the platform's
+ * queue is being pressed: it drops events when the queue is full and says so to nobody.
  */
 export type SubscribeToDirectory = (
   directory: string,
   onChanges: (error: Error | null, changes: WatchedChange[]) => void,
-  options: { ignore: string[] },
+  options: { ignore: string[]; onEvent?: () => void },
 ) => Promise<DirectorySubscription>
 
 /** The part of `fs.watch` a watch over a tree uses */
@@ -56,10 +60,11 @@ function under(directories: string[]): (relativePath: string) => boolean {
  * the directory does not end the watch on macOS, where one made again at the path is reported on, and is an
  * error on Windows.
  */
-export const nodeSubscriber = (watch: WatchTree = fs.watch): SubscribeToDirectory => async (directory, onChanges, { ignore }) => {
+export const nodeSubscriber = (watch: WatchTree = fs.watch): SubscribeToDirectory => async (directory, onChanges, { ignore, onEvent }) => {
   let ignored = under(ignore)
   // Never the reason a process stays alive: whoever opened the watch closes it
   const watcher = watch(directory, { recursive: true, persistent: false }, (_eventType, filename) => {
+    onEvent?.()
     if (filename === null) onChanges(null, [null])
     else if (!ignored(filename)) onChanges(null, [filename])
   })
@@ -90,7 +95,7 @@ export const nodeSubscriber = (watch: WatchTree = fs.watch): SubscribeToDirector
  * read fails the subscription, and running out later is reported as an error: either way the tree is not all
  * watched, and whoever opened the watch is told so rather than left with part of one.
  */
-export const perDirectorySubscriber = (watch: WatchDirectory = fs.watch): SubscribeToDirectory => async (directory, onChanges, { ignore }) => {
+export const perDirectorySubscriber = (watch: WatchDirectory = fs.watch): SubscribeToDirectory => async (directory, onChanges, { ignore, onEvent }) => {
   let ignored = under(ignore)
   /**
    * The open watches, by the directory each is on, relative to the watched one: `''` is the watched one itself.
@@ -134,7 +139,7 @@ export const perDirectorySubscriber = (watch: WatchDirectory = fs.watch): Subscr
         if (closed) return
         let watcher: ReturnType<WatchDirectory>
         try {
-          watcher = watch(absolute, { persistent: false }, (eventType, filename) => { void changed(relative, eventType, filename) })
+          watcher = watch(absolute, { persistent: false }, (eventType, filename) => { onEvent?.(); void changed(relative, eventType, filename) })
         } catch (error) {
           // Gone between being listed and being watched: nothing is there to report on
           const code = (error as NodeJS.ErrnoException).code

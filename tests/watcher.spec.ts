@@ -16,16 +16,19 @@ interface FakeWatch {
   ignore: string[];
   closed: boolean;
   events(...changes: WatchedChange[]): void;
+  /** Events of the platform's that are reported to nobody, as those under an ignored directory are */
+  unreported(count: number): void;
   fail(error: Error): void;
 }
 
 /** Stands in for the platform's watcher: records each directory watched and lets a case deliver its events */
 function watches() {
   const opened: FakeWatch[] = [];
-  const subscribe: SubscribeToDirectory = async (directory, onChanges, { ignore }) => {
+  const subscribe: SubscribeToDirectory = async (directory, onChanges, { ignore, onEvent }) => {
     const watch: FakeWatch = {
       directory, ignore, closed: false,
-      events: (...changes) => onChanges(null, changes),
+      events: (...changes) => { for (const _change of changes) onEvent?.(); onChanges(null, changes); },
+      unreported: (count) => { for (let event = 0; event < count; event++) onEvent?.(); },
       fail: error => onChanges(error, []),
     };
     opened.push(watch);
@@ -295,4 +298,41 @@ it('watches nothing in a repository that is not trusted, and starts once it is a
   trusted = true;
   await watcher.check();
   expect(platform.open().map(watch => watch.directory)).toContain(repo);
+});
+
+// A platform drops events once its queue is full and tells nobody. A report that names files has a window read
+// those files alone, so after a flood the whole checkout is read once, where the last report named files
+it('has the whole checkout read once a flood of the platform\'s events is over, when its last report named files', async () => {
+  const repo = directory('apack-watch-flood-');
+  await git(repo, 'init', '--quiet');
+  const { watcher, changed, platform } = watcherOf(repo);
+  await start(watcher);
+  const tree = platform.of(repo)!;
+
+  // A flood under a directory git ignores, which is reported to nobody, and one file named beside it
+  tree.unreported(5000);
+  tree.events('src/a.ts');
+
+  await settles(() => expect(changed.mock.calls).toEqual([[['src/a.ts']], [null]]));
+});
+
+it('reads the files a report names and no more after a few events, or after a flood whose last report already said anything may have changed', async () => {
+  const repo = directory('apack-watch-no-flood-');
+  await git(repo, 'init', '--quiet');
+  const { watcher, changed, platform } = watcherOf(repo);
+  await start(watcher);
+  const tree = platform.of(repo)!;
+
+  tree.unreported(20);
+  tree.events('src/a.ts');
+  await settles(() => expect(changed.mock.calls).toEqual([[['src/a.ts']]]));
+
+  // More files than a report names: it says anything may have changed, after the flood's last event
+  changed.mockClear();
+  tree.events(...Array.from({ length: 2000 }, (_, index) => `src/f${index}.ts`));
+  await settles(() => expect(changed.mock.calls).toEqual([[null]]));
+
+  // Longer than a burst takes to be over
+  await new Promise<void>((resolve) => { setTimeout(resolve, 900); });
+  expect(changed.mock.calls).toEqual([[null]]);
 });
