@@ -64,6 +64,11 @@ export const GIT_ERROR_CODES = [
    * fetched when whoever asked says so (`GitRepository.fetchingMissing`)
    */
   'content-missing',
+  /**
+   * A commit to be undone is already on a remote branch, so undoing it here leaves it there: undone only when whoever
+   * asked says so. Not read from what git printed: the engine asks before it runs anything
+   */
+  'published',
 ] as const
 
 export type GitErrorCode = (typeof GIT_ERROR_CODES)[number]

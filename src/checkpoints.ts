@@ -57,6 +57,11 @@ export class CheckpointStore {
     private readonly locate: (commonDir: string) => string = temporaryCheckpointDirectory,
   ) {}
 
+  /** The store's directory, made the first time it is asked for */
+  async directory(): Promise<string> {
+    return (await this.open()).store
+  }
+
   private inLine<T>(work: () => Promise<T>): Promise<T> {
     const done = this.line.then(work, work)
     this.line = done.then(() => {}, () => {})
