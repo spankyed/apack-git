@@ -16,12 +16,12 @@ export { UNREADABLE, UntrustedError, settingRunsNothing, type TrustAsk, type Tru
 export { StashConflictError } from './writes.ts'
 export { GitObjectReader } from './objects.ts'
 export { progressReader, withoutProgress } from './progress.ts'
-export { KEPT_FILE_LIMIT } from './discards.ts'
+export { CHECKPOINT_MAX_AGE_MS, CHECKPOINT_STORE_LIMIT, KEPT_FILE_LIMIT } from './checkpoints.ts'
 export { UNTRACKED_LISTED_LIMIT } from './reads.ts'
 export { NOTHING_CHANGED, STATUS_LIMIT, changedAnything, parseStatus } from './status.ts'
 export { runUnbounded, type RepositoryLog, type RepositoryTies, type RunOptions, type RunProcess, type WatchProcess } from './ties.ts'
 export {
   CONFLICT_KINDS, OPERATION_KINDS, OPERATION_MOVES, REPOSITORY_PARTS,
-  type CommitLogEntry, type ConflictKind, type DiffHunk, type DiscardKept, type DiscardRestored, type GitDirectories, type GitProgress, type GitStatusFile, type OperationKind, type OperationMove,
+  type Checkpoint, type CheckpointChange, type CommitLogEntry, type ConflictKind, type DiffHunk, type DiscardKept, type DiscardRestored, type GitDirectories, type GitProgress, type GitStatusFile, type OperationKind, type OperationMove,
   type RepositoryChange, type RepositoryOperation, type RepositoryPart, type RepositorySnapshot, type StashEntry, type WorktreeEntry,
 } from './types.ts'

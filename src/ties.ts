@@ -49,6 +49,12 @@ export interface RepositoryTies {
    * its own configuration and hooks name. Without one, no repository is, and one that names anything is refused
    */
   isTrusted?: (repository: string) => boolean
+  /**
+   * Where the store that keeps copies of this repository's working tree is (`GitRepository.checkpoint`), for the
+   * repository whose common git directory is at this real path. Under the system's temporary directory when not
+   * given, which the system may empty
+   */
+  checkpointDirectory?: (commonDir: string) => string
 }
 
 /** `execFile` as a promise with its child beside it, unbounded: what runs git when a host hands nothing in */

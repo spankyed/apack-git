@@ -131,6 +131,21 @@ export interface DiscardKept {
   notKept: string[]
 }
 
+/** A copy of the working tree, kept outside the repository (`GitRepository.checkpoint`) */
+export interface Checkpoint {
+  /** Names it, for `changedSince` and `restoreCheckpoint` */
+  id: string
+  /** The paths left out, each larger than a checkpoint keeps: from the top of the checkout */
+  notKept: string[]
+}
+
+/** A file that differs from a checkpoint, by path from the top of the checkout */
+export interface CheckpointChange {
+  path: string
+  /** `added`: there now and not in the checkpoint. `deleted`: in the checkpoint and not there now */
+  change: 'added' | 'modified' | 'deleted'
+}
+
 /** What putting a discard back did, by path from the top of the checkout */
 export interface DiscardRestored {
   restored: string[]
