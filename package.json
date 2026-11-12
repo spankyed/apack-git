@@ -38,7 +38,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "soak:sequences": "vitest run --config vitest.soak.config.ts"
+    "soak:sequences": "vitest run --config vitest.soak.config.ts",
+    "budgets": "node scripts/budgets.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",

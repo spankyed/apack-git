@@ -53,6 +53,30 @@ await repo.stageFiles(paths)         // resolves, or rejects with a `GitError` c
 - `apack-git/staging` is where a file will be listed once it is staged or unstaged, worked out before git
   answers. It imports nothing of Node's, so a window can use it.
 
+## Budgets
+
+What the engine's work should cost, by the number of files a repository tracks. They are statements, not gates:
+`npm run budgets -- <sizes>` prints a reading of each against a repository it generates, with the machine's
+conditions beside it, and fails on none of them. CI prints the readings for 1,000 and 100,000 files on Linux, macOS
+and Windows (the `budgets` jobs); a million files is read by hand.
+
+| Files | Opening | A whole status | A status of one noted path | A checkpoint of the whole tree |
+|---|---|---|---|---|
+| 1,000 | 200 ms | 100 ms | 100 ms | 500 ms |
+| 100,000 | 1 s | 1 s | 1 s | 3 s |
+| 1,000,000 | 10 s | 5 s | 5 s | 30 s |
+
+A status of one path costs about what a whole one does at 100,000 files and more: git matches the path against every
+file in the index. What the engine saves there is the process for each path, not git's walk.
+
+### Readings
+
+Each with the machine it was taken on, as the command printed it.
+
+- **2026-11-12, macOS** (darwin arm64, 10 cores, Apple M1 Pro, load 10.36 21.35 32.41, git 2.38.1, Node 24.16.0):
+  1,000 files: open 54 ms, whole status 22 ms, one noted path 23 ms, checkpoint 59 ms. 100,000 files: open 237 ms,
+  whole status 204 ms, one noted path 181 ms, checkpoint 547 ms.
+
 ## Using it
 
 It is not published to a registry. A consumer depends on a checkout of this repository at a pinned commit and
