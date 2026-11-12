@@ -452,24 +452,28 @@ export class GitRepository {
 
   /** Adds a remote by its name and address */
   async addRemote(name: string, url: string): Promise<void> {
-    await this.remoteCommand(['add', '--', refArgument(name, 'remote'), addressArgument(url)], `add the remote ${name}`)
+    await this.remoteCommand(['add', refArgument(name, 'remote'), addressArgument(url)], `add the remote ${name}`)
   }
 
   /** Renames a remote, and the branches of it git keeps with it */
   async renameRemote(name: string, to: string): Promise<void> {
-    await this.remoteCommand(['rename', '--', refArgument(name, 'remote'), refArgument(to, 'remote')], `rename the remote ${name}`)
+    await this.remoteCommand(['rename', refArgument(name, 'remote'), refArgument(to, 'remote')], `rename the remote ${name}`)
   }
 
   /** Removes a remote, and the branches of it git keeps */
   async removeRemote(name: string): Promise<void> {
-    await this.remoteCommand(['remove', '--', refArgument(name, 'remote')], `remove the remote ${name}`)
+    await this.remoteCommand(['remove', refArgument(name, 'remote')], `remove the remote ${name}`)
   }
 
   /** Changes where a remote is fetched from, or with `push` where it is pushed to */
   async setRemoteUrl(name: string, url: string, { push = false }: { push?: boolean } = {}): Promise<void> {
-    await this.remoteCommand(['set-url', ...(push ? ['--push'] : []), '--', refArgument(name, 'remote'), addressArgument(url)], `change the address of ${name}`)
+    await this.remoteCommand(['set-url', ...(push ? ['--push'] : []), refArgument(name, 'remote'), addressArgument(url)], `change the address of ${name}`)
   }
 
+  /**
+   * A `git remote` subcommand. Its names and addresses are refused when they start like an option, so none is
+   * marked off with `--`, which `git remote rename` before 2.36 does not take
+   */
   private async remoteCommand(args: string[], what: string): Promise<void> {
     const result = await this.runner.executeGitCommand(['remote', ...args])
     if (!result.success) throw failure(result, `Failed to ${what}`)
