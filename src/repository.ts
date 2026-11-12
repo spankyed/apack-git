@@ -6,6 +6,10 @@ import { RepositoryModel } from './model.ts'
 import { GitRunner, failure, fetchingMissing } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
+import { olderThan } from './git-check.ts'
+
+/** The first git with a file monitor of its own, on macOS and Windows */
+export const FILE_MONITOR_FROM = '2.37.0'
 import { repositoriesUnder } from './repositories-under.ts'
 import { addressArgument, cloneInto, initIn } from './clone.ts'
 import { refArgument } from './arguments.ts'
@@ -514,6 +518,22 @@ export class GitRepository {
     const result = await this.runner.executeGitCommand(['remote', ...args])
     if (!result.success) throw failure(result, `Failed to ${what}`)
     this.model.markSnapshotStale()
+  }
+
+  /**
+   * Turns on what makes a whole status faster in this repository's own settings: git's untracked cache, and its own
+   * file monitor where git has one (macOS and Windows, from 2.37). It writes the user's git settings, so a host does
+   * it only when the user asks. Answers what is on now
+   */
+  async speedUpStatus(): Promise<{ fileMonitor: boolean; untrackedCache: boolean }> {
+    const version = await this.runner.passUsableGit()
+    const monitor = (process.platform === 'darwin' || process.platform === 'win32') && !olderThan(version, FILE_MONITOR_FROM)
+    for (const [key, value] of [['core.untrackedCache', 'true'], ...(monitor ? [['core.fsmonitor', 'true']] : [])] as const) {
+      const set = await this.runner.executeGitCommand(['config', '--local', key, value])
+      if (!set.success) throw failure(set, `Failed to set ${key}`)
+    }
+    this.model.markSnapshotStale()
+    return { fileMonitor: monitor, untrackedCache: true }
   }
 
   /** Deletes a local branch, merged or not; `undo` makes it again where it was, with what it followed */

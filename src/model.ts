@@ -238,7 +238,7 @@ export class RepositoryModel {
     // when told nothing: a folder of thousands of files nobody ignored is then one line and not walked. The user
     // may have told git to list every file, or none, which is theirs to decide. And whether two spellings of a
     // name that differ by case are one file
-    const config = await this.runner.executeGitCommand(['config', '--get-regexp', '^(status\\.showuntrackedfiles|core\\.ignorecase|user\\.name|user\\.email)$'])
+    const config = await this.runner.executeGitCommand(['config', '--get-regexp', '^(status\\.showuntrackedfiles|core\\.ignorecase|user\\.name|user\\.email|core\\.fsmonitor|core\\.untrackedcache)$'])
     const told = new Map((config.success ? config.output ?? '' : '').split('\n').filter(Boolean).map((line): [string, string] => {
       const space = line.indexOf(' ')
       return [line.slice(0, space), line.slice(space + 1).trim()]
@@ -258,7 +258,15 @@ export class RepositoryModel {
     // Another git holding the index is why git would skip the write, silently: the index is as suspect after
     const gitDir = refreshesIndex ? (this.gitDirectories ?? await this.resolveGitDirectories())?.gitDir : undefined
     const heldElsewhere = gitDir !== undefined && await fs.stat(path.join(gitDir, 'index.lock')).then(() => true, () => false)
+    const statusStarted = performance.now()
     const status = await this.runner.executeGitCommand(['status', '--porcelain=v2', '--branch', '--show-stash', `--untracked-files=${untracked}`, '-z'], { refreshesIndex })
+    const statusMs = Math.round(performance.now() - statusStarted)
+    const on = (key: string) => /^(true|yes|on|1)$/i.test(told.get(key) ?? '')
+    const fileMonitor = on('core.fsmonitor')
+    const untrackedCache = on('core.untrackedcache')
+    const slowStatus = statusMs > this.runner.statusBudgetMs && !(fileMonitor && untrackedCache)
+      ? { ms: statusMs, budgetMs: this.runner.statusBudgetMs, fileMonitor, untrackedCache }
+      : undefined
     if (!status.success && !status.truncated) {
       throw failure(status, 'Failed to get git status')
     }
@@ -277,7 +285,7 @@ export class RepositoryModel {
     const isLocalBranch = (ref: string) => ref.includes(' refs/heads/')
     const directories = this.gitDirectories ?? await this.resolveGitDirectories()
 
-    return this.snapshotOver({ headers, entries, untracked, ignoreCase, hasIdentity, operation: await this.readOperation(directories, refs) }, {
+    return this.snapshotOver({ headers, entries, untracked, ignoreCase, hasIdentity, slowStatus, operation: await this.readOperation(directories, refs) }, {
       // What is checked out, and the local branches: a remote's branch moving, as a fetch moves it, is not history
       history: [...headers.filter(isBranch), ...refs.filter(isLocalBranch)].join('\n'),
       // Every ref but the stash, and the settings that name the remotes, read from the file and not by running git
@@ -380,13 +388,14 @@ export class RepositoryModel {
    * the snapshot this one was made from by reading some paths again: how its other files looked is kept, not read.
    */
   async snapshotOver(
-    read: Pick<LoadedSnapshot, 'headers' | 'entries' | 'untracked' | 'ignoreCase' | 'hasIdentity' | 'operation'>,
+    read: Pick<LoadedSnapshot, 'headers' | 'entries' | 'untracked' | 'ignoreCase' | 'hasIdentity' | 'slowStatus' | 'operation'>,
     rest: Pick<SnapshotIdentity, 'history' | 'stashes' | 'worktrees' | 'refs'>,
     { directories, truncated, held }: { directories: GitDirectories | null; truncated: boolean; held?: { files?: Map<string, string>; kept: Set<StatusEntry> } },
   ): Promise<LoadedSnapshot> {
     const { headers, entries } = read
     const value = snapshotOf({ headers, entries })
     value.hasIdentity = read.hasIdentity
+    if (read.slowStatus) value.slowStatus = read.slowStatus
     if (read.operation) value.operation = read.operation
     if (truncated || value.files.length > STATUS_LIMIT) {
       value.files = value.files.slice(0, STATUS_LIMIT)
@@ -415,7 +424,8 @@ export class RepositoryModel {
       value,
       identity: {
         // What git is in the middle of is shown with the status, so it is part of it
-        status: [JSON.stringify(read.operation ?? null), `identity ${read.hasIdentity}`, ...headers.filter(header => !isCommit(header) && !isStashCount(header)), ...entries.map(entry => entry.record)].join('\0'),
+        // Whether a status is slow, and what would help, is news; how long this one took is not
+        status: [JSON.stringify(read.operation ?? null), `identity ${read.hasIdentity}`, `slow ${JSON.stringify(read.slowStatus ? { ...read.slowStatus, ms: 0 } : null)}`, ...headers.filter(header => !isCommit(header) && !isStashCount(header)), ...entries.map(entry => entry.record)].join('\0'),
         diffs: [...files.values()].join('\0'),
         history: rest.history,
         stashes: rest.stashes,

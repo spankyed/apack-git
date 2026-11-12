@@ -111,8 +111,9 @@ export function settingRunsNothing(key: string, value: string): boolean {
   const subsection = first === last ? undefined : key.slice(first + 1, last)
   // An empty helper is how a repository says to ask none: it clears the list, and runs nothing
   if (section === 'credential' && variable === 'helper') return value === ''
-  // Named as a program, git runs it at every status; said to be off, it runs nothing
-  if (key === 'core.fsmonitor') return /^(false|no|off|0)$/i.test(value)
+  // Named as a program, git runs it at every status. Said to be off it runs nothing, and said to be on it is git's
+  // own monitor, which is git: no program the repository names
+  if (key === 'core.fsmonitor') return /^(false|no|off|0|true|yes|on|1)$/i.test(value)
   // How a submodule is updated is a strategy by name, or a command when it starts with `!`
   if (section === 'submodule' && subsection !== undefined && variable === 'update') return /^(checkout|rebase|merge|none)$/.test(value)
   const allowed = RUNS_NOTHING[section]?.[subsection === undefined ? 'plain' : 'sub']

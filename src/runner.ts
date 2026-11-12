@@ -32,6 +32,12 @@ export const gitEnvironment = (base: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
   LANG: 'en_US.UTF-8',
 })
 
+/**
+ * How long a whole status may take before the snapshot says it is slow: the README's budget for 100,000 files. A
+ * reading compared with a declared edge, so it is never a gate: it decides only whether the snapshot offers to help
+ */
+export const STATUS_BUDGET_MS = 1_000
+
 /** What a caller is told when there is no git to run */
 export const GIT_NOT_INSTALLED = 'Git is not installed. Please install Git to use version control features.'
 
@@ -253,6 +259,8 @@ export class GitRunner {
 
   /** How long a command waits for another git to let go of a lock it needs */
   private readonly lockPatienceMs: number
+  /** How long a whole status may take before the snapshot says it is slow */
+  readonly statusBudgetMs: number
   private readonly run: RunProcess
   /** The git every command runs */
   readonly git: string
@@ -267,6 +275,7 @@ export class GitRunner {
 
   constructor(readonly workingDirectory: string, ties: RepositoryTies = {}) {
     this.lockPatienceMs = ties.lockPatienceMs ?? LOCK_PATIENCE_MS
+    this.statusBudgetMs = ties.statusBudgetMs ?? STATUS_BUDGET_MS
     this.run = ties.run ?? runUnbounded
     this.git = ties.git ?? 'git'
     this.base = ties.environment ?? (() => process.env)
