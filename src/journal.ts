@@ -95,7 +95,7 @@ export class Journal {
   }
 
   private async reverse(entry: JournalEntry): Promise<void> {
-    if (entry.operation === 'merge' || entry.operation === 'rebase' || entry.operation === 'cherry-pick') {
+    if (entry.operation === 'merge' || entry.operation === 'rebase' || entry.operation === 'cherry-pick' || entry.operation === 'rewrite') {
       // The branch back where it was, and the files that changed with it, keeping what the user changed since: git
       // refuses rather than overwrite a change of theirs
       const before = entry.refs[0]!.before!

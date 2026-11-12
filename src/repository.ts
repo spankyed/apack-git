@@ -19,7 +19,7 @@ import { DiffData } from './diff-data.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  ChangedFile, FoundRepository, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview,
+  ChangedFile, FoundRepository, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep,
 } from './types.ts'
 
 export class GitRepository {
@@ -457,6 +457,23 @@ export class GitRepository {
   /** Renames a local branch, and what it follows with it; refused with `branch-exists` when the name is taken */
   renameBranch(name: string, to: string): Promise<void> {
     return this.writes.renameBranch(name, to)
+  }
+
+  /**
+   * Amends the last commit with what is staged, and with `message` when given. Refused with `published` for a commit
+   * a remote branch already holds unless `evenIfPublished`; `undo` takes it back, leaving what it took in staged
+   */
+  amend(options?: { message?: string; evenIfPublished?: boolean }): Promise<void> {
+    return this.writes.amend(options)
+  }
+
+  /**
+   * Rewrites the commits after `base` by the steps given, in the order they are to stand: each kept, reworded,
+   * folded into the one before, or dropped. Refused with `published` for a range a remote branch already holds part
+   * of unless `evenIfPublished`; checkpointed first, and undone with `undo`
+   */
+  rewrite(base: string, steps: RewriteStep[], options?: { evenIfPublished?: boolean }): Promise<void> {
+    return this.writes.rewrite(base, steps, options)
   }
 
   /** Replays what is checked out onto a branch or a commit, as `merge` does its work: checkpointed, and undone the same */
