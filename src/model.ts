@@ -210,7 +210,7 @@ export class RepositoryModel {
     // when told nothing: a folder of thousands of files nobody ignored is then one line and not walked. The user
     // may have told git to list every file, or none, which is theirs to decide. And whether two spellings of a
     // name that differ by case are one file
-    const config = await this.runner.executeGitCommand(['config', '--get-regexp', '^(status\\.showuntrackedfiles|core\\.ignorecase)$'])
+    const config = await this.runner.executeGitCommand(['config', '--get-regexp', '^(status\\.showuntrackedfiles|core\\.ignorecase|user\\.name|user\\.email)$'])
     const told = new Map((config.success ? config.output ?? '' : '').split('\n').filter(Boolean).map((line): [string, string] => {
       const space = line.indexOf(' ')
       return [line.slice(0, space), line.slice(space + 1).trim()]
@@ -218,6 +218,10 @@ export class RepositoryModel {
     const said = told.get('status.showuntrackedfiles')
     const untracked = said === 'no' || said === 'all' ? said : 'normal'
     const ignoreCase = /^(true|yes|on|1)$/i.test(told.get('core.ignorecase') ?? '')
+    // Who a commit is by, from the settings or from what git's own environment says: a name and an email each
+    const environment = this.runner.environment()
+    const hasIdentity = !!(told.get('user.name') || (environment.GIT_AUTHOR_NAME && environment.GIT_COMMITTER_NAME))
+      && !!(told.get('user.email') || (environment.GIT_AUTHOR_EMAIL && environment.GIT_COMMITTER_EMAIL) || environment.EMAIL)
     // Not while a write made here is running or waiting: the status would wait its turn behind it, and every
     // read asked meanwhile behind the status. A git of ours running is also not the moment this was chosen for.
     // The index stays marked as it was, and the next such check writes it
@@ -245,7 +249,7 @@ export class RepositoryModel {
     const isLocalBranch = (ref: string) => ref.includes(' refs/heads/')
     const directories = this.gitDirectories ?? await this.resolveGitDirectories()
 
-    return this.snapshotOver({ headers, entries, untracked, ignoreCase, operation: await this.readOperation(directories, refs) }, {
+    return this.snapshotOver({ headers, entries, untracked, ignoreCase, hasIdentity, operation: await this.readOperation(directories, refs) }, {
       // What is checked out, and the local branches: a remote's branch moving, as a fetch moves it, is not history
       history: [...headers.filter(isBranch), ...refs.filter(isLocalBranch)].join('\n'),
       // Every ref but the stash, and the settings that name the remotes, read from the file and not by running git
@@ -348,12 +352,13 @@ export class RepositoryModel {
    * the snapshot this one was made from by reading some paths again: how its other files looked is kept, not read.
    */
   async snapshotOver(
-    read: Pick<LoadedSnapshot, 'headers' | 'entries' | 'untracked' | 'ignoreCase' | 'operation'>,
+    read: Pick<LoadedSnapshot, 'headers' | 'entries' | 'untracked' | 'ignoreCase' | 'hasIdentity' | 'operation'>,
     rest: Pick<SnapshotIdentity, 'history' | 'stashes' | 'worktrees' | 'refs'>,
     { directories, truncated, held }: { directories: GitDirectories | null; truncated: boolean; held?: { files?: Map<string, string>; kept: Set<StatusEntry> } },
   ): Promise<LoadedSnapshot> {
     const { headers, entries } = read
     const value = snapshotOf({ headers, entries })
+    value.hasIdentity = read.hasIdentity
     if (read.operation) value.operation = read.operation
     if (truncated || value.files.length > STATUS_LIMIT) {
       value.files = value.files.slice(0, STATUS_LIMIT)
@@ -382,7 +387,7 @@ export class RepositoryModel {
       value,
       identity: {
         // What git is in the middle of is shown with the status, so it is part of it
-        status: [JSON.stringify(read.operation ?? null), ...headers.filter(header => !isCommit(header) && !isStashCount(header)), ...entries.map(entry => entry.record)].join('\0'),
+        status: [JSON.stringify(read.operation ?? null), `identity ${read.hasIdentity}`, ...headers.filter(header => !isCommit(header) && !isStashCount(header)), ...entries.map(entry => entry.record)].join('\0'),
         diffs: [...files.values()].join('\0'),
         history: rest.history,
         stashes: rest.stashes,

@@ -15,6 +15,10 @@
     "./staging": {
       "types": "./dist/staging.d.ts",
       "import": "./dist/staging.js"
+    },
+    "./availability": {
+      "types": "./dist/availability.d.ts",
+      "import": "./dist/availability.js"
     }
   },
   "files": [
