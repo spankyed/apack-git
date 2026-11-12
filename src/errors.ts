@@ -70,6 +70,11 @@ export const GIT_ERROR_CODES = [
    */
   'hook-refused',
   /**
+   * A path whose name is not text (not valid UTF-8, which Linux allows): it is listed, and refused by name before
+   * git is run, since a command naming it as the engine read it would name a file that is not there
+   */
+  'name-not-text',
+  /**
    * A commit to be undone is already on a remote branch, so undoing it here leaves it there: undone only when whoever
    * asked says so. Not read from what git printed: the engine asks before it runs anything
    */

@@ -180,8 +180,13 @@ export function snapshotOf({ headers, entries }: { headers: string[]; entries: S
       if (worktree !== '.') snapshot.files.push({ path: filePath, status: statusOf(worktree), staged: false, originalPath: undefined, ...submodule })
     }
   }
+  // A name that is not text read as text holds U+FFFD where its bytes were: the row stands for a file it cannot name
+  for (const file of snapshot.files) if (file.path.includes(NOT_TEXT)) file.nameNotText = true
   return snapshot
 }
+
+/** What a byte that is not part of any UTF-8 character reads as */
+export const NOT_TEXT = '\uFFFD'
 
 /** Reads `git status --porcelain=v2 --branch -z`: the branch headers and one record per changed path */
 export function parseStatus(output: string): RepositorySnapshot {

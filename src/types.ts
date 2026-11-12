@@ -15,6 +15,11 @@ export interface GitStatusFile {
   /** An untracked folder, listed as one row: git tracks nothing in it. Its path ends with `/` */
   isDirectory?: boolean
   /**
+   * The file's name is not text, so `path` is not the name it has and nothing can be done to it here: listed so it
+   * is not lost from sight, and refused by name (`name-not-text`) when asked for
+   */
+  nameNotText?: true
+  /**
    * For a submodule's row, how it differs, as git says in its parent's status: it is on another commit, files it
    * tracks changed, or it has files it does not track. Each is news of the submodule's own status as well
    */

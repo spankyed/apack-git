@@ -7,6 +7,7 @@ import { DiscardStore } from './discards.ts'
 import type { CheckpointStore } from './checkpoints.ts'
 import type { Journal } from './journal.ts'
 import { GitError, type GitErrorCode } from './errors.ts'
+import { NOT_TEXT } from './status.ts'
 import type { RepositoryModel } from './model.ts'
 import { BASE_KEY, type GitReads } from './reads.ts'
 import { failure, type GitCommandResult, type GitRunner } from './runner.ts'
@@ -18,6 +19,12 @@ export class StashConflictError extends Error {
     super(message)
     this.name = 'StashConflictError'
   }
+}
+
+/** Refuses paths whose names are not text, naming them: git would be handed a name that is not theirs */
+function refuseNamesNotText(paths: string[]): void {
+  const unnamed = paths.filter(file => file.includes(NOT_TEXT))
+  if (unnamed.length > 0) throw new GitError(`${unnamed.join(', ')}: ${unnamed.length === 1 ? 'its name is' : 'their names are'} not text, so ${unnamed.length === 1 ? 'it' : 'they'} cannot be named to git from here. Rename ${unnamed.length === 1 ? 'it' : 'them'} in a terminal.`, 'name-not-text')
 }
 
 export class GitWrites {
@@ -102,6 +109,7 @@ export class GitWrites {
   }
 
   async stageFiles(filePaths: string[]): Promise<void> {
+    refuseNamesNotText(filePaths)
     if (filePaths.length === 0) return
     return this.withWriteFlag(async () => {
       const result = await this.runner.executeGitCommand(['add', '--', ...filePaths.map(rowSpec)])
@@ -113,6 +121,7 @@ export class GitWrites {
   }
 
   async unstageFiles(filePaths: string[]): Promise<void> {
+    refuseNamesNotText(filePaths)
     if (filePaths.length === 0) return
     return this.withWriteFlag(async () => {
       const result = await this.runner.executeGitCommand(['reset', 'HEAD', '--', ...filePaths.map(rowSpec)])
@@ -128,6 +137,7 @@ export class GitWrites {
    * removed (`restoreDiscarded`). Nothing is removed when the copy could not be taken.
    */
   async revertFile(filePath: string): Promise<DiscardKept> {
+    refuseNamesNotText([filePath])
     return this.withWriteFlag(async () => {
       const status = await this.model.getStatus()
       const fileStatus = status.find(f => f.path === filePath)
@@ -182,6 +192,7 @@ export class GitWrites {
 
   /** The same for several at once, kept as one */
   async revertFiles(filePaths: string[]): Promise<DiscardKept> {
+    refuseNamesNotText(filePaths)
     if (filePaths.length === 0) return { notKept: [] }
     return this.withWriteFlag(async () => {
       const status = await this.model.getStatus()
