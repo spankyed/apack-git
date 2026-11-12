@@ -147,6 +147,27 @@ export interface WorktreeEntry {
   lockedReason?: string
 }
 
+/** A commit as a history draws it: with every parent, and the refs that point at it */
+export interface HistoryCommit {
+  hash: string
+  /** Its parents, first first: none for a first commit, two or more for a merge */
+  parents: string[]
+  authorName: string
+  authorEmail: string
+  /** When it was written, as ISO 8601 */
+  date: string
+  subject: string
+  /** The refs that point at it, as git decorates it: `HEAD -> main`, `origin/main`, `tag: v1` */
+  refs: string[]
+}
+
+/** One page of a history (`GitRepository.history`) */
+export interface HistoryPage {
+  commits: HistoryCommit[]
+  /** Hands back to `history` for the next page; absent when this page ends the history */
+  cursor?: string
+}
+
 export interface CommitLogEntry {
   hash: string
   shortHash: string
