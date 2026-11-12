@@ -65,6 +65,11 @@ export const GIT_ERROR_CODES = [
    */
   'content-missing',
   /**
+   * A hook the repository runs refused the command: its name and exit code are the error's (`HookRefusedError`),
+   * read from git's event stream rather than what it printed, and what it printed is the hook's
+   */
+  'hook-refused',
+  /**
    * A commit to be undone is already on a remote branch, so undoing it here leaves it there: undone only when whoever
    * asked says so. Not read from what git printed: the engine asks before it runs anything
    */
@@ -131,6 +136,14 @@ export class GitError extends Error {
   constructor(message: string, readonly code?: GitErrorCode) {
     super(message)
     this.name = 'GitError'
+  }
+}
+
+/** A command a repository's hook refused, with the hook's name, the code it exited with and what it printed */
+export class HookRefusedError extends GitError {
+  constructor(readonly hook: string, readonly exitCode: number, readonly output: string) {
+    super(`The ${hook} hook refused it (exit code ${exitCode})${output.trim() ? `:\n${output.trim()}` : '.'}`, 'hook-refused')
+    this.name = 'HookRefusedError'
   }
 }
 
