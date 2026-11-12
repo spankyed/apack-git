@@ -326,6 +326,37 @@ export class GitWrites {
     })
   }
 
+  /** Makes a tag at `commit` (what is checked out when none), annotated with `message` when one is given */
+  async createTag(name: string, { commit, message }: { commit?: string; message?: string } = {}): Promise<void> {
+    return this.withWriteFlag(async () => {
+      const args = ['tag', ...(message !== undefined ? ['-a', '-m', message] : []), refArgument(name, 'tag'), ...(commit ? [refArgument(commit, 'commit')] : [])]
+      const result = await this.runner.executeGitCommand(args)
+      if (!result.success) throw failure(result, `Failed to make the tag ${name}`)
+    })
+  }
+
+  async deleteTag(name: string): Promise<void> {
+    return this.withWriteFlag(async () => {
+      const result = await this.runner.executeGitCommand(['tag', '--delete', refArgument(name, 'tag')])
+      if (!result.success) throw failure(result, `Failed to delete the tag ${name}`)
+    })
+  }
+
+  /** Pushes a tag to a remote, `origin` unless another is named, with progress, stopped through `signal` */
+  async pushTag(name: string, { remote = 'origin', onProgress, signal }: { remote?: string; onProgress?: (progress: GitProgress) => void; signal?: AbortSignal } = {}): Promise<void> {
+    const result = await this.runner.executeGitCommand(['push', '--progress', refArgument(remote, 'remote'), `refs/tags/${refArgument(name, 'tag')}`], { onProgress, signal })
+    if (!result.success) throw result.code === 'aborted' ? new GitError('The push was stopped', 'aborted') : failure(result, `Failed to push the tag ${name}`)
+  }
+
+  /** Renames a local branch, and what it follows with it; refused when a branch already has the new name */
+  async renameBranch(name: string, to: string): Promise<void> {
+    return this.withWriteFlag(async () => {
+      const result = await this.runner.executeGitCommand(['branch', '--move', refArgument(name, 'branch'), refArgument(to, 'branch')])
+      if (!result.success) throw failure(result, `Failed to rename ${name}`)
+      this.reads.clearCache()
+    })
+  }
+
   /** Merges a branch or a commit into what is checked out, with the message git proposes */
   merge(target: string): Promise<void> {
     return this.startOperation('merge', ['merge', '--no-edit', refArgument(target, 'branch')], `merge ${target}`)
@@ -482,7 +513,11 @@ export class GitWrites {
 
   // --- Stash operations ---
 
-  async stashPush(message?: string, stagedOnly?: boolean): Promise<string> {
+  /**
+   * Stashes the changes, untracked files included: only what is staged with `stagedOnly`, and only these paths
+   * (from the top of the checkout) when `paths` names any
+   */
+  async stashPush(message?: string, stagedOnly?: boolean, paths?: string[]): Promise<string> {
     return this.withWriteFlag(async () => {
       const args = ['stash', 'push']
       if (message) {
@@ -493,6 +528,7 @@ export class GitWrites {
       } else {
         args.push('--include-untracked')
       }
+      if (paths?.length) args.push('--', ...paths.map(rowSpec))
       const result = await this.runner.executeGitCommand(args)
       if (!result.success) {
         throw failure(result, 'Failed to stash changes')

@@ -440,6 +440,25 @@ export class GitRepository {
     return this.writes.merge(target)
   }
 
+  /** Makes a tag at `commit` (what is checked out when none), annotated with `message` when one is given */
+  createTag(name: string, options?: { commit?: string; message?: string }): Promise<void> {
+    return this.writes.createTag(name, options)
+  }
+
+  deleteTag(name: string): Promise<void> {
+    return this.writes.deleteTag(name)
+  }
+
+  /** Pushes a tag to a remote, `origin` unless another is named, with progress, stopped through `signal` */
+  pushTag(name: string, options?: { remote?: string; onProgress?: (progress: GitProgress) => void; signal?: AbortSignal }): Promise<void> {
+    return this.writes.pushTag(name, options)
+  }
+
+  /** Renames a local branch, and what it follows with it; refused with `branch-exists` when the name is taken */
+  renameBranch(name: string, to: string): Promise<void> {
+    return this.writes.renameBranch(name, to)
+  }
+
   /** Replays what is checked out onto a branch or a commit, as `merge` does its work: checkpointed, and undone the same */
   rebaseOnto(target: string): Promise<void> {
     return this.writes.rebaseOnto(target)
@@ -544,8 +563,12 @@ export class GitRepository {
     return this.writes.pullBranch(onProgress)
   }
 
-  stashPush(message?: string, stagedOnly?: boolean): Promise<string> {
-    return this.writes.stashPush(message, stagedOnly)
+  /**
+   * Stashes the changes, untracked files included: only what is staged with `stagedOnly`, and only these paths
+   * (from the top of the checkout) when `paths` names any
+   */
+  stashPush(message?: string, stagedOnly?: boolean, paths?: string[]): Promise<string> {
+    return this.writes.stashPush(message, stagedOnly, paths)
   }
 
   stashList(): Promise<StashEntry[]> {
