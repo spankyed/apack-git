@@ -7,6 +7,8 @@ import { GitRunner, failure, fetchingMissing } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
 import { repositoriesUnder } from './repositories-under.ts'
+import { addressArgument, cloneInto, initIn } from './clone.ts'
+import { refArgument } from './arguments.ts'
 import { History } from './history.ts'
 import { Blame } from './blame.ts'
 import { Refs } from './refs.ts'
@@ -28,6 +30,21 @@ export class GitRepository {
    */
   static repositoriesUnder(folder: string): Promise<{ repositories: FoundRepository[]; truncated: boolean }> {
     return repositoriesUnder(folder)
+  }
+
+  /**
+   * Clones `url` into `directory`, which must not exist yet or be empty, and answers the repository it made. Git's
+   * progress goes to `onProgress`; stopped through `signal`, or failed, no directory it made is left behind
+   */
+  static async clone(url: string, directory: string, { ties = {}, onProgress, signal }: { ties?: RepositoryTies; onProgress?: (progress: GitProgress) => void; signal?: AbortSignal } = {}): Promise<GitRepository> {
+    await cloneInto(url, directory, ties, { onProgress, signal })
+    return new GitRepository(path.resolve(directory), ties)
+  }
+
+  /** Starts a repository in `directory`, made when it does not exist, and answers it */
+  static async init(directory: string, { ties = {}, initialBranch }: { ties?: RepositoryTies; initialBranch?: string } = {}): Promise<GitRepository> {
+    await initIn(directory, ties, { initialBranch })
+    return new GitRepository(path.resolve(directory), ties)
   }
 
   private readonly runner: GitRunner
@@ -431,6 +448,32 @@ export class GitRepository {
   /** Applies commits onto what is checked out, oldest first, as `merge` does its work */
   cherryPick(commits: string[]): Promise<void> {
     return this.writes.cherryPick(commits)
+  }
+
+  /** Adds a remote by its name and address */
+  async addRemote(name: string, url: string): Promise<void> {
+    await this.remoteCommand(['add', '--', refArgument(name, 'remote'), addressArgument(url)], `add the remote ${name}`)
+  }
+
+  /** Renames a remote, and the branches of it git keeps with it */
+  async renameRemote(name: string, to: string): Promise<void> {
+    await this.remoteCommand(['rename', '--', refArgument(name, 'remote'), refArgument(to, 'remote')], `rename the remote ${name}`)
+  }
+
+  /** Removes a remote, and the branches of it git keeps */
+  async removeRemote(name: string): Promise<void> {
+    await this.remoteCommand(['remove', '--', refArgument(name, 'remote')], `remove the remote ${name}`)
+  }
+
+  /** Changes where a remote is fetched from, or with `push` where it is pushed to */
+  async setRemoteUrl(name: string, url: string, { push = false }: { push?: boolean } = {}): Promise<void> {
+    await this.remoteCommand(['set-url', ...(push ? ['--push'] : []), '--', refArgument(name, 'remote'), addressArgument(url)], `change the address of ${name}`)
+  }
+
+  private async remoteCommand(args: string[], what: string): Promise<void> {
+    const result = await this.runner.executeGitCommand(['remote', ...args])
+    if (!result.success) throw failure(result, `Failed to ${what}`)
+    this.model.markSnapshotStale()
   }
 
   /** Deletes a local branch, merged or not; `undo` makes it again where it was, with what it followed */
