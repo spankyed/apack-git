@@ -4,13 +4,14 @@ import * as path from 'path'
 import * as fs from 'fs/promises'
 import { commitArgument, refArgument, rowSpec, stashArgument } from './arguments.ts'
 import { DiscardStore } from './discards.ts'
+import { rebaseWithTodo, refusePublished } from './rewrite.ts'
 import type { CheckpointStore } from './checkpoints.ts'
 import type { Journal } from './journal.ts'
 import { GitError, type GitErrorCode } from './errors.ts'
 import type { RepositoryModel } from './model.ts'
 import { BASE_KEY, type GitReads } from './reads.ts'
 import { failure, type GitCommandResult, type GitRunner } from './runner.ts'
-import type { ConflictAnswer, DiscardKept, DiscardRestored, GitProgress, OperationMove } from './types.ts'
+import type { ConflictAnswer, DiscardKept, DiscardRestored, GitProgress, OperationMove, RewriteStep } from './types.ts'
 
 /** Thrown when a stash apply/pop succeeds partially but leaves conflicts. */
 export class StashConflictError extends Error {
@@ -354,6 +355,45 @@ export class GitWrites {
       const result = await this.runner.executeGitCommand(['branch', '--move', refArgument(name, 'branch'), refArgument(to, 'branch')])
       if (!result.success) throw failure(result, `Failed to rename ${name}`)
       this.reads.clearCache()
+    })
+  }
+
+  /**
+   * Amends the last commit with what is staged, and with `message` in place of its own when given. Refused for a
+   * commit a remote branch already holds, unless `evenIfPublished`. Written in the journal, so `undo` takes it back
+   * and leaves what it took in staged
+   */
+  async amend({ message, evenIfPublished = false }: { message?: string; evenIfPublished?: boolean } = {}): Promise<void> {
+    if (message !== undefined && !message.trim()) throw new Error('Commit message cannot be empty')
+    return this.withWriteFlag(async () => {
+      const ref = await this.headRef()
+      const before = await this.revisionOf('HEAD')
+      if (!before) throw new GitError('There is no commit to amend yet.')
+      await refusePublished(this.runner, `${before}~1`, evenIfPublished)
+      const result = await this.runner.executeGitCommand(['commit', '--amend', '--allow-empty', ...(message === undefined ? ['--no-edit'] : ['-m', message])])
+      if (!result.success) throw failure(result, 'Failed to amend the last commit')
+      this.reads.clearCache()
+      await this.journal.record({ operation: 'amend', summary: 'amending the last commit', refs: [{ ref, before, after: await this.revisionOf('HEAD') }] })
+    })
+  }
+
+  /**
+   * Rewrites the commits after `base`: `steps` name each of them in the order they are to stand, kept, reworded,
+   * folded into the one before or dropped. Runs after a checkpoint of the working tree, refused for a range a remote
+   * branch already holds part of unless `evenIfPublished`, and written in the journal so `undo` takes it back
+   */
+  async rewrite(base: string, steps: RewriteStep[], { evenIfPublished = false }: { evenIfPublished?: boolean } = {}): Promise<void> {
+    return this.withWriteFlag(async () => {
+      const ref = await this.headRef()
+      const before = await this.revisionOf('HEAD')
+      await refusePublished(this.runner, base, evenIfPublished)
+      const { id: checkpoint } = await this.checkpoints.checkpoint()
+      try {
+        await rebaseWithTodo(this.runner, base, steps)
+      } finally {
+        this.reads.clearCache()
+      }
+      await this.journal.record({ operation: 'rewrite', summary: `rewriting ${steps.length === 1 ? 'a commit' : `${steps.length} commits`}`, refs: [{ ref, before, after: await this.revisionOf('HEAD') }], checkpoint })
     })
   }
 

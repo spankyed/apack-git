@@ -278,7 +278,7 @@ export interface CheckpointChange {
 export interface JournalEntry {
   id: string
   /** What was done */
-  operation: 'commit' | 'reset' | 'delete-branch' | 'drop-stash' | 'clear-stashes' | 'merge' | 'rebase' | 'cherry-pick'
+  operation: 'commit' | 'reset' | 'delete-branch' | 'drop-stash' | 'clear-stashes' | 'merge' | 'rebase' | 'cherry-pick' | 'amend' | 'rewrite'
   /** When, in milliseconds since the epoch */
   at: number
   /** What it was, in a few words: `commit "Fix the parser"`, `deleting branch topic` */
@@ -291,6 +291,16 @@ export interface JournalEntry {
   stashes?: { commit: string; message: string }[]
   /** The checkpoint taken before it, of the whole working tree */
   checkpoint?: string
+}
+
+/**
+ * One commit of a range being rewritten, in the order it is to stand: kept as it is, kept with a new message,
+ * folded into the one before it (with `message` for the two, or the one before's), or dropped
+ */
+export interface RewriteStep {
+  commit: string
+  action: 'pick' | 'reword' | 'squash' | 'drop'
+  message?: string
 }
 
 /** What putting a discard back did, by path from the top of the checkout */
