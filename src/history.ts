@@ -65,12 +65,17 @@ export class History {
     const args = ['log', '-z', '--topo-order', `--format=${FIELDS.join('%x00')}`, `--skip=${from.read}`, `-n${limit + 1}`, ...from.tips, '--']
     const result = await this.runner.executeGitCommand(args)
     if (!result.success) throw failure(result, 'Failed to read the history')
-    const commits = recordsOf(result.output ?? '', FIELDS.length).map(commitOf).filter(commit => commit.hash)
+    const commits = historyRecords(result.output ?? '')
     // One more than a page was asked for, so that a page that ends the history says so without another read
     const more = commits.length > limit
     const page = commits.slice(0, limit)
     return more ? { commits: page, cursor: encode({ ...from, read: from.read + page.length }) } : { commits: page }
   }
+}
+
+/** `git log -z` with `FIELDS`: the commits it printed */
+export function historyRecords(output: string): HistoryCommit[] {
+  return recordsOf(output, FIELDS.length).map(commitOf).filter(commit => commit.hash)
 }
 
 /** A commit as git prints it with `FIELDS`: a history commit of those fields */
