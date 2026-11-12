@@ -9,13 +9,14 @@ import { GitWrites } from './writes.ts'
 import { History } from './history.ts'
 import { Blame } from './blame.ts'
 import { Refs } from './refs.ts'
+import { MergePreviews } from './merge-preview.ts'
 import { CheckpointStore } from './checkpoints.ts'
 import { Journal } from './journal.ts'
 import { DiffData } from './diff-data.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  ChangedFile, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage, BlameLine, RefsModel,
+  ChangedFile, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview,
 } from './types.ts'
 
 export class GitRepository {
@@ -26,6 +27,7 @@ export class GitRepository {
   private readonly histories: History
   private readonly blames: Blame
   private readonly refs: Refs
+  private readonly previews: MergePreviews
   private readonly checkpoints: CheckpointStore
   private readonly journal: Journal
   private readonly diffs: DiffData
@@ -44,6 +46,7 @@ export class GitRepository {
     this.writes = new GitWrites(this.runner, this.model, this.reads, this.checkpoints, this.journal)
     this.diffs = new DiffData(this.runner)
     this.histories = new History(this.runner)
+    this.previews = new MergePreviews(this.runner)
   }
 
   getWorkingDir(): string {
@@ -307,6 +310,15 @@ export class GitRepository {
 
   getBranchDiff(baseBranch: string, targetBranch?: string): Promise<GitStatusFile[]> {
     return this.reads.getBranchDiff(baseBranch, targetBranch)
+  }
+
+  /**
+   * What merging `target` into what is checked out would do, before it is done: nothing, a fast-forward, a clean
+   * merge, or one that stops on conflicts in the files it names. For a pull, `target` is the upstream after a fetch.
+   * Nothing moves: no ref, no index and no file. `unknown` on a git older than 2.38.
+   */
+  previewMerge(target: string): Promise<MergePreview> {
+    return this.previews.preview(target)
   }
 
   /** Whether each of these names a commit in this repository */

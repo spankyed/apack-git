@@ -192,7 +192,7 @@ export const mayFetch = (): boolean => fetching.getStore() === true
 const NO_LAZY_FETCH = { GIT_NO_LAZY_FETCH: '1' }
 
 /** Subcommands that only read, which wait for nothing: no lock is taken, as `GIT_OPTIONAL_LOCKS` says */
-const READS = new Set(['status', 'rev-parse', 'for-each-ref', 'ls-files', 'check-attr', 'diff', 'show', 'cat-file', 'rev-list', 'symbolic-ref', 'log', 'branch', 'reflog', 'show-ref', 'blame'])
+const READS = new Set(['status', 'rev-parse', 'for-each-ref', 'ls-files', 'check-attr', 'diff', 'show', 'cat-file', 'rev-list', 'symbolic-ref', 'log', 'branch', 'reflog', 'show-ref', 'blame', 'merge-base', 'merge-tree'])
 /** Subcommands that talk to a remote and touch no index, which wait only for each other */
 const NETWORK = new Set(['fetch', 'push'])
 

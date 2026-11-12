@@ -209,6 +209,13 @@ export interface BlameLine {
   originalLine: number
   originalPath: string
 }
+/**
+ * What merging a branch into what is checked out would do: nothing, a fast-forward, a merge that goes through, or
+ * one that stops on conflicts in `files` (paths from the top of the checkout). `unknown` on a git that cannot say
+ */
+export type MergePreview =
+  | { kind: 'up-to-date' | 'fast-forward' | 'clean' | 'unknown' }
+  | { kind: 'conflicts'; files: string[] }
 
 export interface CommitLogEntry {
   hash: string
