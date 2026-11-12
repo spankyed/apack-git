@@ -46,6 +46,8 @@ export const GIT_ERROR_CODES = [
    * with `remote:`
    */
   'host-refused',
+  /** The command was stopped by whoever asked for it: no failure, and nothing to report as one */
+  'aborted',
   /** There is no git where the host said git is (`GitUnusableError`) */
   'git-not-found',
   /** On macOS, git is the placeholder that stands for the developer tools, which are not installed */

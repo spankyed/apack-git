@@ -333,7 +333,12 @@ export class GitWrites {
     })
   }
 
-  async pushBranch(onProgress?: (progress: GitProgress) => void): Promise<void> {
+  /**
+   * Pushes the branch, publishing it when it is not. `signal` stops it: git is ended with what it started, and
+   * the push rejects with a `GitError` coded `aborted`. A push stopped part-way leaves the working tree and the
+   * index as they were; the remote has the push or it does not.
+   */
+  async pushBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void> {
     return this.withWriteFlag(async () => {
       // Check if branch is published
       const isPublished = await this.reads.isCurrentBranchPublished()
@@ -346,10 +351,12 @@ export class GitWrites {
         ? ['push', '--progress']
         : ['push', '--progress', '-u', 'origin', 'HEAD']
 
-      const result = await this.runner.executeGitCommand(args, { onProgress })
+      const result = await this.runner.executeGitCommand(args, { onProgress, signal })
 
       if (!result.success) {
-        throw new GitError(result.error || 'git gave no reason', result.code)
+        // What a stopped git did before it ended is read afresh
+        if (result.code === 'aborted') this.model.markSnapshotStale()
+        throw new GitError(result.code === 'aborted' ? 'The push was stopped' : result.error || 'git gave no reason', result.code)
       }
 
       this.reads.clearCache()
@@ -507,8 +514,8 @@ export class GitWrites {
    * Fetches from the remote this branch follows, and says whether it did and, when it did not, why. It waits for
    * no write and marks the picture stale: what the fetch brought is found by the check that follows it.
    */
-  async fetch(): Promise<{ success: boolean; code?: GitErrorCode; error?: string }> {
-    const result = await this.runner.executeGitCommand(['fetch', '--quiet'])
+  async fetch(signal?: AbortSignal): Promise<{ success: boolean; code?: GitErrorCode; error?: string }> {
+    const result = await this.runner.executeGitCommand(['fetch', '--quiet'], { signal })
     this.model.markSnapshotStale()
     return { success: result.success, ...(result.code && { code: result.code }), ...(result.error && { error: result.error }) }
   }

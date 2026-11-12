@@ -315,8 +315,9 @@ export class GitRepository {
     return this.reads.isCurrentBranchPublished()
   }
 
-  pushBranch(onProgress?: (progress: GitProgress) => void): Promise<void> {
-    return this.writes.pushBranch(onProgress)
+  /** Pushes the branch; `signal` stops it, and the push then rejects with a `GitError` coded `aborted` */
+  pushBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void> {
+    return this.writes.pushBranch(onProgress, signal)
   }
 
   pullBranch(onProgress?: (progress: GitProgress) => void): Promise<void> {
@@ -436,7 +437,7 @@ export class GitRepository {
    * Fetches from the remote this branch follows, and says whether it did and, when it did not, why. When to
    * fetch is the host's to decide: nothing here fetches unasked.
    */
-  fetch(): Promise<{ success: boolean; code?: GitErrorCode; error?: string }> {
-    return this.writes.fetch()
+  fetch(signal?: AbortSignal): Promise<{ success: boolean; code?: GitErrorCode; error?: string }> {
+    return this.writes.fetch(signal)
   }
 }
