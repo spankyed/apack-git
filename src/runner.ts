@@ -7,7 +7,7 @@ import { watch } from 'fs'
 import { execFile, type ChildProcess } from 'node:child_process'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { CONTENT_MISSING, GitError, LOCKED, classifyGitError, type GitErrorCode } from './errors.ts'
-import { GitUnusableError, checkGit, olderThan, type GitUnusable } from './git-check.ts'
+import { GitUnusableError, checkGit, type GitUnusable } from './git-check.ts'
 import { progressReader, withoutProgress } from './progress.ts'
 import { runUnbounded, type RepositoryLog, type RepositoryTies, type RunProcess } from './ties.ts'
 import { TrustGate } from './trust.ts'
@@ -160,10 +160,24 @@ function descendantsOf(root: number, listed: string): number[] {
 }
 
 /**
- * The first git that can be told not to fetch what a partial clone lacks (`GIT_NO_LAZY_FETCH`). A read on an older
- * git in a partial clone may reach the network, so there it waits in line with the commands that do.
+ * The first release on each line of git that can be told not to fetch what a partial clone lacks
+ * (`GIT_NO_LAZY_FETCH`), by minor version. The switch came with the security releases of May 2024, onto every line
+ * then maintained, and is in every release from 2.46.0; 2.45.0 and each line's earlier releases do not have it.
+ * Read from `promisor-remote.c` at each release's tag.
  */
-export const NO_LAZY_FETCH_FROM = '2.45.0'
+const NO_LAZY_FETCH_FROM: Readonly<Record<number, number>> = { 39: 4, 40: 2, 41: 1, 42: 2, 43: 4, 44: 1, 45: 1 }
+
+/**
+ * Whether a git of this version can be told not to fetch. A read on one that cannot, in a partial clone, may reach
+ * the network, so there it waits in line with the commands that do.
+ */
+export function refusesLazyFetch(version: string): boolean {
+  const [major = 0, minor = 0, patch = 0] = version.split('.').map(Number)
+  if (major !== 2) return major > 2
+  if (minor >= 46) return true
+  const first = NO_LAZY_FETCH_FROM[minor]
+  return first !== undefined && patch >= first
+}
 
 /** Set while reads may fetch what a partial clone lacks: inside `GitRepository.fetchingMissing` */
 const fetching = new AsyncLocalStorage<true>()
@@ -298,7 +312,7 @@ export class GitRunner {
    */
   private async readLane(fetches: boolean): Promise<'read' | 'network'> {
     if (fetches) return 'network'
-    if (!olderThan(await this.passUsableGit(), NO_LAZY_FETCH_FROM)) return 'read'
+    if (refusesLazyFetch(await this.passUsableGit())) return 'read'
     return await this.isPartialClone() ? 'network' : 'read'
   }
 

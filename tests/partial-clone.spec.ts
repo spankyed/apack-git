@@ -8,8 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { run } from './_support/process.ts';
 import { removeDirectory } from './_support/remove.ts';
-import { GitError, GitRepository, gitVersionOf, olderThan } from '../src/index.ts';
-import { NO_LAZY_FETCH_FROM } from '../src/runner.ts';
+import { GitError, GitRepository } from '../src/index.ts';
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });
@@ -40,12 +39,22 @@ async function partialClone() {
   const old = (await git(root, 'rev-parse', 'HEAD~1:a.txt')).stdout.trim();
   /** Whether the clone has the first version's content now, asked without fetching it */
   const has = () => run('git', ['-C', root, 'cat-file', '-e', old], { env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } }).then(() => true, () => false);
-  return { remote, root, has, repo: new GitRepository(root) };
+  return { remote, root, old, has, repo: new GitRepository(root) };
 }
 
-const version = gitVersionOf((await run('git', ['--version'])).stdout)!;
-/** Whether the git here can be told not to fetch: older ones fetch whatever a read needs */
-const refusesToFetch = !olderThan(version, NO_LAZY_FETCH_FROM);
+/**
+ * Whether the git here can be told not to fetch, asked of it: one that cannot fetches whatever a read needs. Which
+ * releases can is a table of each line's (`refusesLazyFetch`), so it is found here by what git does instead
+ */
+const refusesToFetch = await (async () => {
+  const { root, old } = await partialClone();
+  try {
+    // Read with lazy fetching off: a git that honours the switch fails, and one that does not fetches it and answers
+    return await run('git', ['-C', root, 'cat-file', 'blob', old], { env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } }).then(() => false, () => true);
+  } finally {
+    await Promise.all(directories.splice(0).map(removeDirectory));
+  }
+})();
 const refusal = (attempt: Promise<unknown>) => attempt.then(() => { throw new Error('it was not refused'); }, (error: unknown) => error);
 
 it.runIf(refusesToFetch)('answers a read of content the clone never fetched as missing, and fetches nothing', async () => {
