@@ -67,7 +67,7 @@ it('reorders, rewords and squashes a range, leaving the tree as it was, and is u
 });
 
 it('drops a commit, removing what it brought, and is undone', async () => {
-  const { root, git, commit, repo } = await repository();
+  const { root, commit, repo } = await repository();
   const [one, two, three, four] = [await commit(3), await commit(2), await commit(1), await commit(0)];
 
   await repo.rewrite(await commit(4), [
