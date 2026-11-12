@@ -16,6 +16,22 @@ export interface GitStatusFile {
   isDirectory?: boolean
 }
 
+/** How many lines a changed file adds and removes, as git counts them; none for a file that is not text */
+export interface LineCount {
+  path: string
+  added: number
+  removed: number
+  /** Not text, so git counts no lines in it */
+  binary: boolean
+}
+
+/** A file a commit or a stash changed, with its count */
+export interface ChangedFile extends LineCount {
+  status: 'added' | 'deleted' | 'modified' | 'renamed' | 'copied' | 'typechange'
+  /** Where a renamed or copied file came from */
+  originalPath?: string
+}
+
 /**
  * How the two sides being brought together disagree about a file. `us` is the side the checkout was on and
  * `them` the one coming in, as git names them.
