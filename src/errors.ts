@@ -46,6 +46,12 @@ export const GIT_ERROR_CODES = [
    * with `remote:`
    */
   'host-refused',
+  /** There is no git where the host said git is (`GitUnusableError`) */
+  'git-not-found',
+  /** On macOS, git is the placeholder that stands for the developer tools, which are not installed */
+  'developer-tools-missing',
+  /** Git is older than the oldest the engine works with (`GIT_FLOOR`) */
+  'git-too-old',
   /**
    * The repository would have git run a program and has not been trusted, so the command was not run. The one
    * code that is not read from what git printed: git was not asked (`trust.ts`)
@@ -91,7 +97,8 @@ const SIGNS: readonly (readonly [GitErrorCode, RegExp])[] = [
   ['unrelated-histories', /^fatal: refusing to merge unrelated histories/m],
   // On stdout, with exit 1: `git commit` says it on the stream it reports a commit on
   ['nothing-to-commit', /^nothing (added )?to commit\b/m],
-  ['branch-exists', /^fatal: a branch named '.+' already exists/m],
+  // Before git 2.37 the sentence began with a capital
+  ['branch-exists', /^fatal: a branch named '.+' already exists/im],
 ]
 
 /** Why git failed, from everything it printed; nothing when it does not say, or says something not known here */

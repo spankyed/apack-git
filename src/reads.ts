@@ -6,7 +6,8 @@ import { recordsOf, refArgument, rowSpec } from './arguments.ts'
 import { hunksOf, type CutHunk } from './hunks.ts'
 import type { RepositoryModel } from './model.ts'
 import { GitObjectReader } from './objects.ts'
-import { GIT_NOT_INSTALLED, failure, type GitRunner } from './runner.ts'
+import { failure, type GitRunner } from './runner.ts'
+import { GitUnusableError } from './git-check.ts'
 import { ownershipRefusal } from './errors.ts'
 import { statusOf } from './status.ts'
 import type { RepositoryTies } from './ties.ts'
@@ -32,7 +33,7 @@ export class GitReads {
   private readonly objects: GitObjectReader
 
   constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, ties: RepositoryTies = {}) {
-    this.objects = new GitObjectReader(runner.workingDirectory, runner.environment, ties.watchProcess)
+    this.objects = new GitObjectReader(runner.workingDirectory, runner.environment, ties.watchProcess, undefined, undefined, runner.git)
   }
 
   private get workingDirectory(): string {
@@ -486,7 +487,7 @@ export class GitReads {
    */
   async isGitRepository(): Promise<boolean> {
     const result = await this.runner.executeGitCommand(['rev-parse', '--git-dir'])
-    if (result.missing) throw new Error(GIT_NOT_INSTALLED)
+    if (result.missing) throw new GitUnusableError({ code: 'git-not-found', git: this.runner.git })
     const refused = result.success ? undefined : ownershipRefusal(result.error ?? '')
     if (refused) throw refused
     return result.success

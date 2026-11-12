@@ -28,7 +28,21 @@ async function ownedByAnother() {
 }
 const refusal = (attempt: Promise<unknown>) => attempt.then(() => { throw new Error('it was not refused'); }, (error: unknown) => error);
 
-it('says a repository another user owns is one git will not read, naming it as git does', async () => {
+/**
+ * Whether the git here refuses a repository for who owns it, and takes its test switch: git began refusing in
+ * 2.35.2, and an older git reads every repository, which is no refusal for the engine to name
+ */
+const refusesForOwner = await (async () => {
+  const probe = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-ownership-probe-')));
+  try {
+    await run('git', ['-C', probe, 'init', '--quiet']);
+    return await run('git', ['-C', probe, 'rev-parse', '--git-dir'], { env: { ...process.env, GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' } }).then(() => false, () => true);
+  } finally {
+    await removeDirectory(probe);
+  }
+})();
+
+it.runIf(refusesForOwner)('says a repository another user owns is one git will not read, naming it as git does', async () => {
   const { repo } = await ownedByAnother();
 
   const refused = await refusal(repo.isGitRepository());
@@ -38,7 +52,7 @@ it('says a repository another user owns is one git will not read, naming it as g
   expect((refused as UnsafeOwnershipError).directory).toMatch(/apack-ownership-/);
 });
 
-it('reads it once it is trusted, and writes only the user\'s safe.directory to do so', async () => {
+it.runIf(refusesForOwner)('reads it once it is trusted, and writes only the user\'s safe.directory to do so', async () => {
   const { root, global, repo } = await ownedByAnother();
   const { directory } = await refusal(repo.isGitRepository()) as UnsafeOwnershipError;
 

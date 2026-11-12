@@ -5,6 +5,7 @@ import * as path from 'path'
 import * as fs from 'fs/promises'
 import { watch } from 'fs'
 import { GitError, LOCKED, classifyGitError, type GitErrorCode } from './errors.ts'
+import { GitUnusableError, checkGit, type GitUnusable } from './git-check.ts'
 import { progressReader, withoutProgress } from './progress.ts'
 import { runUnbounded, type RepositoryLog, type RepositoryTies, type RunProcess } from './ties.ts'
 import { TrustGate } from './trust.ts'
@@ -169,6 +170,10 @@ export class GitRunner {
   /** How long a command waits for another git to let go of a lock it needs */
   private readonly lockPatienceMs: number
   private readonly run: RunProcess
+  /** The git every command runs */
+  readonly git: string
+  /** Whether that git can be used, asked once, before the first command */
+  private usable: Promise<GitUnusable | undefined> | undefined
   private readonly base: () => NodeJS.ProcessEnv
   readonly log: RepositoryLog
   /** What keeps git from running what an untrusted repository names: every command passes it but its own reads */
@@ -177,6 +182,7 @@ export class GitRunner {
   constructor(readonly workingDirectory: string, ties: RepositoryTies = {}) {
     this.lockPatienceMs = ties.lockPatienceMs ?? LOCK_PATIENCE_MS
     this.run = ties.run ?? runUnbounded
+    this.git = ties.git ?? 'git'
     this.base = ties.environment ?? (() => process.env)
     this.log = ties.log ?? {}
     // Its reads run beside every other, in no lane, and are not themselves gated
@@ -199,6 +205,13 @@ export class GitRunner {
     return lane === 'write' ? op.finally(() => { this.writesInLine-- }) : op
   }
 
+  /** Refuses a command when the git it would run cannot be used, asking only the first time */
+  async passUsableGit(): Promise<void> {
+    this.usable ??= checkGit(this.git, this.run, this.environment())
+    const unusable = await this.usable
+    if (unusable) throw new GitUnusableError(unusable)
+  }
+
   /**
    * Settles once nothing asked of this repository is left to run and no git of its is left running: its
    * directory has no process of its in it. A command asked for meanwhile is waited for too.
@@ -212,7 +225,7 @@ export class GitRunner {
    * close: a process a hook left behind holds them open for as long as it lives.
    */
   runGit(args: string[], encoding: BufferEncoding, refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, env?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
-    const running = this.run('git', ['-c', 'color.ui=never', ...args], {
+    const running = this.run(this.git, ['-c', 'color.ui=never', ...args], {
       cwd: this.workingDirectory,
       // The one read that may write: it lets git take its optional lock and keep what it learns of the files
       env: { ...this.environment(), ...(refreshesIndex && { GIT_OPTIONAL_LOCKS: '1' }), ...env },
@@ -252,6 +265,7 @@ export class GitRunner {
   executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env }: { refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding; /** Laid over the environment every git runs with, for this one */ env?: NodeJS.ProcessEnv } = {}): Promise<GitCommandResult> {
     // A read allowed to write the index waits its turn among the writes made here, which need the same lock
     return this.enqueueCommand(refreshesIndex ? 'write' : laneOf(args), async () => {
+      await this.passUsableGit()
       await this.trust.pass()
       let refusedAt: number | undefined
       for (;;) {
@@ -318,6 +332,7 @@ export class GitRunner {
   /** Execute a git command and return raw binary buffer output. */
   executeGitCommandBinary(args: string[]): Promise<Buffer> {
     return this.enqueueCommand(laneOf(args), async () => {
+      await this.passUsableGit()
       await this.trust.pass()
       // Read as latin1, which maps each byte to one character and back, so the bytes survive a text channel
       const { stdout } = await this.runGit(args, 'latin1')
