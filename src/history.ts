@@ -47,9 +47,12 @@ export class History {
 
   /** The commits these refs point at, each once, refusing a ref that names none */
   private async tipsOf(refs: string[]): Promise<string[]> {
-    const resolved = await this.runner.executeGitCommand(['rev-parse', '--verify', '--end-of-options', ...refs.map(ref => `${refArgument(ref)}^{commit}`)])
+    // Not `--verify`, which takes one name only: a name that names nothing fails the command all the same, and
+    // `refArgument` refuses one git would read as an option. Only the hashes are kept, since without `--verify`
+    // git prints `--end-of-options` back among them
+    const resolved = await this.runner.executeGitCommand(['rev-parse', '--end-of-options', ...refs.map(ref => `${refArgument(ref)}^{commit}`)])
     if (!resolved.success) throw failure(resolved, `Not every one of ${refs.join(', ')} names a commit here`)
-    return [...new Set((resolved.output ?? '').split('\n').map(line => line.trim()).filter(Boolean))]
+    return [...new Set((resolved.output ?? '').split('\n').map(line => line.trim()).filter(line => /^[0-9a-f]{40,64}$/.test(line)))]
   }
 
   /**
