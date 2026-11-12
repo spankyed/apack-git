@@ -3,7 +3,7 @@
 import * as path from 'path'
 import { GitReads } from './reads.ts'
 import { RepositoryModel } from './model.ts'
-import { GitRunner } from './runner.ts'
+import { GitRunner, failure } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
 import type { GitErrorCode } from './errors.ts'
@@ -244,9 +244,22 @@ export class GitRepository {
     return this.model.resolveGitDirectories()
   }
 
-  /** Whether the working directory is in a repository. Rejects when there is no git to ask. */
+  /**
+   * Whether the working directory is in a repository. Rejects when there is no git to ask, and with an
+   * `UnsafeOwnershipError` naming the repository when git will not read it for who owns it.
+   */
   isGitRepository(): Promise<boolean> {
     return this.reads.isGitRepository()
+  }
+
+  /**
+   * Adds a repository git refused for who owns it to the user's `safe.directory` entries, which is what git's
+   * refusal says to do. It writes the user's global git configuration, so it is run only when the user asks.
+   * `directory` is an `UnsafeOwnershipError`'s, the path as git printed it.
+   */
+  async trustOwnership(directory: string): Promise<void> {
+    const result = await this.runner.executeGitCommand(['config', '--global', '--add', 'safe.directory', directory])
+    if (!result.success) throw failure(result, `Could not add ${directory} to safe.directory`)
   }
 
   hasUncommittedChanges(): Promise<boolean> {
@@ -302,8 +315,9 @@ export class GitRepository {
     return this.reads.isCurrentBranchPublished()
   }
 
-  pushBranch(onProgress?: (progress: GitProgress) => void): Promise<void> {
-    return this.writes.pushBranch(onProgress)
+  /** Pushes the branch; `signal` stops it, and the push then rejects with a `GitError` coded `aborted` */
+  pushBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void> {
+    return this.writes.pushBranch(onProgress, signal)
   }
 
   pullBranch(onProgress?: (progress: GitProgress) => void): Promise<void> {
@@ -423,7 +437,7 @@ export class GitRepository {
    * Fetches from the remote this branch follows, and says whether it did and, when it did not, why. When to
    * fetch is the host's to decide: nothing here fetches unasked.
    */
-  fetch(): Promise<{ success: boolean; code?: GitErrorCode; error?: string }> {
-    return this.writes.fetch()
+  fetch(signal?: AbortSignal): Promise<{ success: boolean; code?: GitErrorCode; error?: string }> {
+    return this.writes.fetch(signal)
   }
 }

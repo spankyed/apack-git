@@ -118,10 +118,10 @@ it('answers a command once git has exited, though a hook left a process holding 
   expect(await git(root, 'log', '-1', '--format=%s')).toBe('second');
 });
 
-it('says git is not installed, and not that the directory is no repository', async () => {
+it('says there is no git, and not that the directory is no repository', async () => {
   const { repo } = await repository();
   environment({ PATH: '/nonexistent' });
-  await expect(repo.isGitRepository()).rejects.toThrow('Git is not installed');
+  await expect(repo.isGitRepository()).rejects.toMatchObject({ code: 'git-not-found' });
 });
 
 it('reads a commit, a stash and a range whose text holds what could pass for a separator', async () => {

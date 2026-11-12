@@ -51,6 +51,8 @@ export class GitObjectReader {
     private readonly lingerMs = LINGER_MS,
     /** How long the process may owe an answer without working, the progress watch's own when not given */
     private readonly idleMs?: number,
+    /** The git to run, as the repository runs it */
+    private readonly git = 'git',
   ) {}
 
   /** Whether the git process is open */
@@ -109,7 +111,7 @@ export class GitObjectReader {
   }
 
   private open(): ChildProcessWithoutNullStreams {
-    const child = spawn('git', ['cat-file', '--batch'], { cwd: this.workingDirectory, env: this.environment(), stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn(this.git, ['cat-file', '--batch'], { cwd: this.workingDirectory, env: this.environment(), stdio: ['pipe', 'pipe', 'pipe'] })
     this.child = child
     this.received = Buffer.alloc(0)
     this.body = undefined

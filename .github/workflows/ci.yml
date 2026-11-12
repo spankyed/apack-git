@@ -37,9 +37,49 @@ jobs:
       - run: npm run build
       - run: npm test
 
+  # The suite against old gits, which the runners above do not have: they install a current one. The oldest git a
+  # still-supported system ships (Debian 12's, and macOS's own with the developer tools), and `GIT_FLOOR`
+  # (src/git-check.ts) built from its source, which is what holds the floor where it is.
+  git:
+    name: git (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: debian 12, runner: ubuntu-24.04, image: 'debian:12' }
+          - { name: floor, runner: ubuntu-24.04, image: 'ubuntu:22.04', build: '2.35.0' }
+          - { name: apple git, runner: macos-15, image: '' }
+    steps:
+      - name: Install the system's own git
+        if: matrix.image != ''
+        run: apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git ca-certificates curl procps >/dev/null
+      # Built where it is installed ahead of the system's on the PATH, so it is the git every spec and the engine run
+      - name: Build git at the floor
+        if: matrix.build
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq make gcc libcurl4-gnutls-dev libexpat1-dev zlib1g-dev libssl-dev >/dev/null
+          curl -fsSL "https://mirrors.edge.kernel.org/pub/software/scm/git/git-${{ matrix.build }}.tar.gz" | tar -xz -C /tmp
+          make -C "/tmp/git-${{ matrix.build }}" -j"$(nproc)" prefix=/usr/local NO_GETTEXT=1 NO_TCLTK=1 install >/dev/null
+      # On macOS the system's git is /usr/bin/git, behind the one the runner installs first on the PATH
+      - name: Put the system's own git first
+        if: matrix.image == ''
+        run: |
+          mkdir -p "$RUNNER_TEMP/system-git" && ln -s /usr/bin/git "$RUNNER_TEMP/system-git/git"
+          echo "$RUNNER_TEMP/system-git" >> "$GITHUB_PATH"
+      - run: git config --global core.autocrlf false && git config --global --add safe.directory '*'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: git --version
+      - run: npm ci
+      - run: npm test
+
   ci-pass:
     if: always()
-    needs: suite
+    needs: [suite, git]
     runs-on: ubuntu-24.04
     steps:
-      - run: test "${{ needs.suite.result }}" = "success"
+      - run: test "${{ needs.suite.result }}" = "success" && test "${{ needs.git.result }}" = "success"

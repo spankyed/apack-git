@@ -28,6 +28,33 @@ export const GIT_ERROR_CODES = [
   /** The directory is in no git repository */
   'not-a-repository',
   /**
+   * The directory is in a repository git will not read, because another user owns it and it is not one of the
+   * user's `safe.directory` entries (`UnsafeOwnershipError`)
+   */
+  'unsafe-ownership',
+  /** A commit was to be signed and the signing program failed, or could not be run */
+  'signing-failed',
+  /** A pull or a merge of a branch that shares no commit with this one */
+  'unrelated-histories',
+  /** A commit with nothing staged */
+  'nothing-to-commit',
+  /** A branch was to be made under a name a branch already has */
+  'branch-exists',
+  /**
+   * The hosting service refused a push for a rule of its own: a file too large, a protected branch, an email
+   * address the user keeps private, a secret found in it. What it said is in git's words, on lines it begins
+   * with `remote:`
+   */
+  'host-refused',
+  /** The command was stopped by whoever asked for it: no failure, and nothing to report as one */
+  'aborted',
+  /** There is no git where the host said git is (`GitUnusableError`) */
+  'git-not-found',
+  /** On macOS, git is the placeholder that stands for the developer tools, which are not installed */
+  'developer-tools-missing',
+  /** Git is older than the oldest the engine works with (`GIT_FLOOR`) */
+  'git-too-old',
+  /**
    * The repository would have git run a program and has not been trusted, so the command was not run. The one
    * code that is not read from what git printed: git was not asked (`trust.ts`)
    */
@@ -38,6 +65,9 @@ export type GitErrorCode = (typeof GIT_ERROR_CODES)[number]
 
 /** What git says when another process holds a lock it needs, with the lock's path */
 export const LOCKED = /Unable to create '(.+\.lock)': File exists/
+
+/** What git says of a repository another user owns, with its path as git will match it in `safe.directory` */
+const OWNED_BY_ANOTHER = /^fatal: detected dubious ownership in repository at '(.+)'$/m
 
 /**
  * What git prints for each, most telling first: a refused key prints "Permission denied (publickey)" and then
@@ -51,6 +81,8 @@ export const LOCKED = /Unable to create '(.+\.lock)': File exists/
  */
 const SIGNS: readonly (readonly [GitErrorCode, RegExp])[] = [
   ['locked', LOCKED],
+  // The host's reason, ahead of git's own lines after it: a refused push also ends `[remote rejected]`
+  ['host-refused', /^remote: error: GH0(01|06|07|13):/m],
   ['authentication', /^fatal: Authentication failed|^fatal: could not read (Username|Password)|^\S+: Permission denied \(publickey|^remote: Invalid username or (password|token)/m],
   ['permission', /^(remote: |ERROR: )?Permission to \S+ denied|^fatal: unable to access .*The requested URL returned error: 403/m],
   ['remote-unreachable', /^fatal: unable to access .*(Could not resolve host|Failed to connect|Couldn't connect|Connection refused|Connection timed out|Network is unreachable)|^fatal: Could not read from remote repository|^ssh: .*(Could not resolve hostname|Connection refused|Connection timed out|Network is unreachable)|^fatal: unable to (connect to|look up) /m],
@@ -62,6 +94,13 @@ const SIGNS: readonly (readonly [GitErrorCode, RegExp])[] = [
   ['local-changes', /^error: Your local changes/m],
   ['unknown-ref', /^(error|fatal): pathspec '.*' did not match|^fatal: invalid reference: |^fatal: .*cannot be resolved|^fatal: .*unknown revision/m],
   ['not-a-repository', /^fatal: not a git repository/im],
+  ['unsafe-ownership', OWNED_BY_ANOTHER],
+  ['signing-failed', /^error: gpg failed to sign the data/m],
+  ['unrelated-histories', /^fatal: refusing to merge unrelated histories/m],
+  // On stdout, with exit 1: `git commit` says it on the stream it reports a commit on
+  ['nothing-to-commit', /^nothing (added )?to commit\b/m],
+  // Before git 2.37 the sentence began with a capital
+  ['branch-exists', /^fatal: a branch named '.+' already exists/im],
 ]
 
 /** Why git failed, from everything it printed; nothing when it does not say, or says something not known here */
@@ -75,4 +114,22 @@ export class GitError extends Error {
     super(message)
     this.name = 'GitError'
   }
+}
+
+/**
+ * A repository git will not read because another user owns it: on a shared or external drive, in a container,
+ * in a folder made under `sudo`. `directory` is the path as git printed it, which is the one git matches against
+ * the user's `safe.directory` entries (`GitRepository.trustOwnership`).
+ */
+export class UnsafeOwnershipError extends GitError {
+  constructor(readonly directory: string) {
+    super(`Git will not use the repository at ${directory}, because another user owns it.`, 'unsafe-ownership')
+    this.name = 'UnsafeOwnershipError'
+  }
+}
+
+/** The repository git refused for who owns it, when that is what it printed */
+export function ownershipRefusal(printed: string): UnsafeOwnershipError | undefined {
+  const directory = OWNED_BY_ANOTHER.exec(printed)?.[1]
+  return directory === undefined ? undefined : new UnsafeOwnershipError(directory)
 }

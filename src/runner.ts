@@ -4,7 +4,9 @@
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import { watch } from 'fs'
+import { execFile, type ChildProcess } from 'node:child_process'
 import { GitError, LOCKED, classifyGitError, type GitErrorCode } from './errors.ts'
+import { GitUnusableError, checkGit, type GitUnusable } from './git-check.ts'
 import { progressReader, withoutProgress } from './progress.ts'
 import { runUnbounded, type RepositoryLog, type RepositoryTies, type RunProcess } from './ties.ts'
 import { TrustGate } from './trust.ts'
@@ -110,6 +112,52 @@ const heldLockMessage = (lock: string) =>
  */
 const EXIT_GRACE_MS = 250
 
+/**
+ * How long a git that was asked to stop is given to end before it is killed. Asked with a signal it can catch, git
+ * removes the locks it took; killed, it leaves them. A wait on a process told to go, with nothing left to do.
+ */
+const STOP_GRACE_MS = 2_000
+
+/** What a command answers when whoever asked for it said to stop */
+const STOPPED: GitCommandResult = { success: false, error: 'Stopped', code: 'aborted' }
+
+/**
+ * Ends a git that was asked to stop, and the helpers it started (`ssh`, the HTTPS helper), which outlive it
+ * otherwise: git does not end them when it is signalled. They are found by their parents, starting from the git
+ * started here, and each is asked first, so git can let go of its locks, then ended outright after a grace.
+ * Windows has no such request: the process and every one under it are ended outright, by the id of the one
+ * started here.
+ */
+function endTree(child: ChildProcess): void {
+  const pid = child.pid
+  if (pid === undefined || child.exitCode !== null || child.signalCode !== null) return
+  if (process.platform === 'win32') {
+    execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => {})
+    return
+  }
+  execFile('ps', ['-A', '-o', 'pid=,ppid='], (error, listed) => {
+    const tree = [pid, ...(error ? [] : descendantsOf(pid, String(listed)))]
+    const signal = (name: NodeJS.Signals) => { for (const each of tree) { try { process.kill(each, name) } catch { /* gone */ } } }
+    signal('SIGTERM')
+    const outright = setTimeout(() => { signal('SIGKILL') }, STOP_GRACE_MS)
+    outright.unref()
+  })
+}
+
+/** Every process under `root`, from a listing of each process's id and its parent's */
+function descendantsOf(root: number, listed: string): number[] {
+  const children = new Map<number, number[]>()
+  for (const line of listed.split('\n')) {
+    const [pid, parent] = line.trim().split(/\s+/).map(Number)
+    if (!pid || parent === undefined) continue
+    children.set(parent, [...(children.get(parent) ?? []), pid])
+  }
+  const found: number[] = []
+  const visit = (pid: number) => { for (const each of children.get(pid) ?? []) { found.push(each); visit(each) } }
+  visit(root)
+  return found
+}
+
 /** Subcommands that only read, which wait for nothing: no lock is taken, as `GIT_OPTIONAL_LOCKS` says */
 const READS = new Set(['status', 'rev-parse', 'for-each-ref', 'ls-files', 'check-attr', 'diff', 'show', 'cat-file', 'rev-list', 'symbolic-ref', 'log', 'branch', 'reflog', 'show-ref'])
 /** Subcommands that talk to a remote and touch no index, which wait only for each other */
@@ -169,6 +217,10 @@ export class GitRunner {
   /** How long a command waits for another git to let go of a lock it needs */
   private readonly lockPatienceMs: number
   private readonly run: RunProcess
+  /** The git every command runs */
+  readonly git: string
+  /** Whether that git can be used, asked once, before the first command */
+  private usable: Promise<GitUnusable | undefined> | undefined
   private readonly base: () => NodeJS.ProcessEnv
   readonly log: RepositoryLog
   /** What keeps git from running what an untrusted repository names: every command passes it but its own reads */
@@ -177,6 +229,7 @@ export class GitRunner {
   constructor(readonly workingDirectory: string, ties: RepositoryTies = {}) {
     this.lockPatienceMs = ties.lockPatienceMs ?? LOCK_PATIENCE_MS
     this.run = ties.run ?? runUnbounded
+    this.git = ties.git ?? 'git'
     this.base = ties.environment ?? (() => process.env)
     this.log = ties.log ?? {}
     // Its reads run beside every other, in no lane, and are not themselves gated
@@ -199,6 +252,13 @@ export class GitRunner {
     return lane === 'write' ? op.finally(() => { this.writesInLine-- }) : op
   }
 
+  /** Refuses a command when the git it would run cannot be used, asking only the first time */
+  async passUsableGit(): Promise<void> {
+    this.usable ??= checkGit(this.git, this.run, this.environment())
+    const unusable = await this.usable
+    if (unusable) throw new GitUnusableError(unusable)
+  }
+
   /**
    * Settles once nothing asked of this repository is left to run and no git of its is left running: its
    * directory has no process of its in it. A command asked for meanwhile is waited for too.
@@ -211,8 +271,8 @@ export class GitRunner {
    * Runs git, answering once it has exited and its output has gone quiet, without waiting for its pipes to
    * close: a process a hook left behind holds them open for as long as it lives.
    */
-  runGit(args: string[], encoding: BufferEncoding, refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, env?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
-    const running = this.run('git', ['-c', 'color.ui=never', ...args], {
+  runGit(args: string[], encoding: BufferEncoding, refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, env?: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
+    const running = this.run(this.git, ['-c', 'color.ui=never', ...args], {
       cwd: this.workingDirectory,
       // The one read that may write: it lets git take its optional lock and keep what it learns of the files
       env: { ...this.environment(), ...(refreshesIndex && { GIT_OPTIONAL_LOCKS: '1' }), ...env },
@@ -220,6 +280,12 @@ export class GitRunner {
       encoding,
     })
     const { child } = running
+    if (signal) {
+      const stop = () => { endTree(child) }
+      if (signal.aborted) stop()
+      else signal.addEventListener('abort', stop, { once: true })
+      void running.then(() => signal.removeEventListener('abort', stop), () => signal.removeEventListener('abort', stop))
+    }
     // Gone once its output has closed and not when it exits: on Windows `git` starts the git doing the work,
     // which holds the output until it has ended too, and one ended by the host outlives the first by a moment.
     // A process a hook left holding the output is given up on below, which closes it
@@ -249,13 +315,16 @@ export class GitRunner {
    * of: a git in a terminal, or an agent's, holds the index for moments, and the user who staged a file in
    * those moments meant it. The lane waits with it, since what is queued behind needs the same lock.
    */
-  executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env }: { refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding; /** Laid over the environment every git runs with, for this one */ env?: NodeJS.ProcessEnv } = {}): Promise<GitCommandResult> {
+  executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env, signal }: { signal?: AbortSignal; refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding; /** Laid over the environment every git runs with, for this one */ env?: NodeJS.ProcessEnv } = {}): Promise<GitCommandResult> {
     // A read allowed to write the index waits its turn among the writes made here, which need the same lock
     return this.enqueueCommand(refreshesIndex ? 'write' : laneOf(args), async () => {
+      await this.passUsableGit()
       await this.trust.pass()
+      // Stopped while it waited its turn: it is not started
+      if (signal?.aborted) return STOPPED
       let refusedAt: number | undefined
       for (;;) {
-        const result = await this.runGitOnce(args, refreshesIndex, input, onProgress, encoding, env)
+        const result = await this.runGitOnce(args, refreshesIndex, input, onProgress, encoding, env, signal)
         const lock = result.code === 'locked' ? LOCKED.exec(result.error ?? '')?.[1] : undefined
         if (!lock) return result
         // A stash is several steps to git, and one refused part-way has done the steps before it: run again, it
@@ -270,24 +339,26 @@ export class GitRunner {
     })
   }
 
-  async runGitOnce(args: string[], refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, encoding: BufferEncoding = 'utf8', env?: NodeJS.ProcessEnv): Promise<GitCommandResult> {
+  async runGitOnce(args: string[], refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, encoding: BufferEncoding = 'utf8', env?: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<GitCommandResult> {
     const started = performance.now()
-    const result = await this.runGitAnswered(args, refreshesIndex, input, onProgress, encoding, env)
+    const result = await this.runGitAnswered(args, refreshesIndex, input, onProgress, encoding, env, signal)
     // A reading for whoever is looking into what the panel is doing: nothing is decided with it
     this.log.command?.(`git ${args.join(' ').slice(0, 300)}: ${result.success ? 'ok' : `failed${result.code ? ` (${result.code})` : ''}`} in ${Math.round(performance.now() - started)} ms`)
     return result
   }
 
-  async runGitAnswered(args: string[], refreshesIndex: boolean, input: string | Buffer | undefined, onProgress: ((progress: GitProgress) => void) | undefined, encoding: BufferEncoding, env?: NodeJS.ProcessEnv): Promise<GitCommandResult> {
+  async runGitAnswered(args: string[], refreshesIndex: boolean, input: string | Buffer | undefined, onProgress: ((progress: GitProgress) => void) | undefined, encoding: BufferEncoding, env?: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<GitCommandResult> {
     try {
       // Ended when it stops working, not when a clock runs out: a fetch stalled on the network would
       // otherwise hold its lane, and every later remote command with it, until the app restarts
-      const { stdout } = await this.runGit(args, encoding, refreshesIndex, input, onProgress, env)
+      const { stdout } = await this.runGit(args, encoding, refreshesIndex, input, onProgress, env, signal)
 
       return { success: true, output: stdout }
     } catch (error) {
       const gitError = error as GitCommandError
 
+      // Ended because whoever asked for it said to stop: that is no failure of git's to report
+      if (signal?.aborted) return STOPPED
       if (gitError.code === 'ENOENT') {
         return { success: false, error: GIT_NOT_INSTALLED, missing: true }
       }
@@ -318,6 +389,7 @@ export class GitRunner {
   /** Execute a git command and return raw binary buffer output. */
   executeGitCommandBinary(args: string[]): Promise<Buffer> {
     return this.enqueueCommand(laneOf(args), async () => {
+      await this.passUsableGit()
       await this.trust.pass()
       // Read as latin1, which maps each byte to one character and back, so the bytes survive a text channel
       const { stdout } = await this.runGit(args, 'latin1')

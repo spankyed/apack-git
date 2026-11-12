@@ -31,6 +31,11 @@ export interface RepositoryLog {
 }
 
 export interface RepositoryTies {
+  /**
+   * The git to run: a path, or a name the PATH is searched for. `git` when not given. Where a host looks for one
+   * is the host's to decide; whether it can be used is the engine's, asked before the first command
+   */
+  git?: string
   /** The environment git's children start from, over which the engine lays its own. The process's own when not given */
   environment?: () => NodeJS.ProcessEnv
   run?: RunProcess
