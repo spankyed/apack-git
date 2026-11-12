@@ -95,6 +95,14 @@ export class Journal {
   }
 
   private async reverse(entry: JournalEntry): Promise<void> {
+    if (entry.operation === 'merge' || entry.operation === 'rebase' || entry.operation === 'cherry-pick') {
+      // The branch back where it was, and the files that changed with it, keeping what the user changed since: git
+      // refuses rather than overwrite a change of theirs
+      const before = entry.refs[0]!.before!
+      const reset = await this.runner.executeGitCommand(['reset', '--quiet', '--keep', before])
+      if (!reset.success) throw failure(reset, `Failed to undo ${entry.summary}`)
+      return
+    }
     if (entry.operation === 'reset') {
       // The branch and the index back where they were; the files were never touched, and are left as they are
       const before = entry.refs[0]!.before!

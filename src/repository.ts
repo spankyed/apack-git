@@ -404,6 +404,25 @@ export class GitRepository {
     return this.checkpoints.restore(id, paths)
   }
 
+  /**
+   * Merges a branch or a commit into what is checked out, after a checkpoint of the working tree. One that stops on
+   * conflicts is the operation in progress the snapshot describes, and is refused with `conflict`; one that goes
+   * through can be undone, which puts the branch and its files back and keeps what the user changed since
+   */
+  merge(target: string): Promise<void> {
+    return this.writes.merge(target)
+  }
+
+  /** Replays what is checked out onto a branch or a commit, as `merge` does its work: checkpointed, and undone the same */
+  rebaseOnto(target: string): Promise<void> {
+    return this.writes.rebaseOnto(target)
+  }
+
+  /** Applies commits onto what is checked out, oldest first, as `merge` does its work */
+  cherryPick(commits: string[]): Promise<void> {
+    return this.writes.cherryPick(commits)
+  }
+
   /** Deletes a local branch, merged or not; `undo` makes it again where it was, with what it followed */
   deleteBranch(name: string): Promise<void> {
     return this.writes.deleteBranch(name)
