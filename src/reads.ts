@@ -11,7 +11,7 @@ import { GitUnusableError } from './git-check.ts'
 import { GitError, ownershipRefusal } from './errors.ts'
 import { statusOf } from './status.ts'
 import type { RepositoryTies } from './ties.ts'
-import type { CommitLogEntry, DiffHunk, GitStatusFile, StashEntry, WorktreeEntry } from './types.ts'
+import type { CommitLogEntry, ConflictSides, DiffHunk, GitStatusFile, StashEntry, WorktreeEntry } from './types.ts'
 
 /** Where the branch a branch was made from is written down, in git's config: `branch.<name>.apack-base` */
 export const BASE_KEY = 'apack-base'
@@ -22,6 +22,25 @@ export const UNTRACKED_LISTED_LIMIT = 1_000
 interface CachedResult<T> {
   data: T
   timestamp: number
+}
+
+/**
+ * Where git marked the conflicts in a file: a line opening with `<<<<<<<`, one of `=======` after it (with the
+ * base's lines between `|||||||` and it, in the diff3 style), and one opening with `>>>>>>>`. Lines from 1.
+ */
+export function conflictRegions(text: string): { start: number; separator: number; end: number }[] {
+  const regions: { start: number; separator: number; end: number }[] = []
+  let start: number | undefined
+  let separator: number | undefined
+  text.split('\n').forEach((line, at) => {
+    if (line.startsWith('<<<<<<< ') || line === '<<<<<<<') { start = at + 1; separator = undefined }
+    else if (start !== undefined && (line === '=======' || line === '=======\r')) separator = at + 1
+    else if (start !== undefined && separator !== undefined && (line.startsWith('>>>>>>> ') || line === '>>>>>>>' || line === '>>>>>>>\r')) {
+      regions.push({ start, separator, end: at + 1 })
+      start = separator = undefined
+    }
+  })
+  return regions
 }
 
 export class GitReads {
@@ -482,6 +501,32 @@ export class GitReads {
       { encoding: 'latin1' },
     )
     return result.success ? hunksOf(result.output ?? '', staged) : []
+  }
+
+  /**
+   * The three sides of a conflicted file, from the index's stages: 1 the version both sides started from, 2 ours
+   * and 3 theirs. The path is from the top of the checkout. A path git has no conflict for has no sides.
+   */
+  async conflictSides(filePath: string): Promise<ConflictSides> {
+    const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+    const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
+    const listed = await this.runner.executeGitCommand(['-C', top, 'ls-files', '--unmerged', '-z', '--', `:(top,literal)${filePath}`])
+    if (!listed.success) throw failure(listed, `Failed to read the conflict in ${filePath}`)
+    // `<mode> <object> <stage>\t<path>`, one a stage that holds the file
+    const stages = new Map<number, string>()
+    for (const record of (listed.output ?? '').split('\0').filter(Boolean)) {
+      const [, object, stage] = /^\d+ ([0-9a-f]+) ([123])\t/.exec(record) ?? []
+      if (object && stage) stages.set(Number(stage), object)
+    }
+    if (stages.size === 0) throw new GitError(`${filePath} has no conflict`)
+    const read = (stage: number) => {
+      const object = stages.get(stage)
+      return object ? this.runner.executeGitCommandBinary(['cat-file', 'blob', object]) : Promise.resolve(null)
+    }
+    const [base, ours, theirs, working] = await Promise.all([read(1), read(2), read(3), fs.readFile(path.join(top, filePath)).catch(() => null)])
+    const binary = [base, ours, theirs, working].some(side => side?.includes(0))
+    const text = (side: Buffer | null) => (side === null ? null : binary ? '' : side.toString('utf8'))
+    return { base: text(base), ours: text(ours), theirs: text(theirs), working: text(working), regions: binary || !working ? [] : conflictRegions(working.toString('utf8')), binary }
   }
 
   async fileExistsInHead(filePath: string): Promise<boolean> {
