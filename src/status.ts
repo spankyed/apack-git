@@ -88,6 +88,8 @@ export interface LoadedSnapshot {
   untracked: 'normal' | 'all' | 'no'
   /** Whether git takes two spellings of a name that differ by case for one file, as a file system that does has it do */
   ignoreCase: boolean
+  /** Whether git has a name and an email to commit with (`RepositorySnapshot.hasIdentity`) */
+  hasIdentity: boolean
   /** What git is in the middle of, which it says in its own directory and so changes only when that does */
   operation?: RepositoryOperation
 }
@@ -144,7 +146,7 @@ export function splitStatus(output: string): { headers: string[]; entries: Statu
 }
 
 export function snapshotOf({ headers, entries }: { headers: string[]; entries: StatusEntry[] }): RepositorySnapshot {
-  const snapshot: RepositorySnapshot = { files: [], truncated: false, branch: 'HEAD', hasUpstream: false, ahead: 0, behind: 0 }
+  const snapshot: RepositorySnapshot = { files: [], truncated: false, branch: 'HEAD', hasUpstream: false, ahead: 0, behind: 0, hasIdentity: true }
   for (const header of headers) {
     if (header.startsWith('# branch.head ')) {
       const head = header.slice('# branch.head '.length)

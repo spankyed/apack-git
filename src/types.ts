@@ -130,6 +130,11 @@ export interface RepositorySnapshot {
   hasUpstream: boolean
   ahead: number
   behind: number
+  /**
+   * Whether git has a name and an email to write a commit with, from its settings or the environment. Without them
+   * a commit is refused, asking who the user is
+   */
+  hasIdentity: boolean
   /** What git is in the middle of here, when it is in the middle of anything */
   operation?: RepositoryOperation
 }
