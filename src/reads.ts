@@ -746,6 +746,13 @@ export class GitReads {
     return files
   }
 
+  /** A commit's whole message, its subject and its body, as it was written */
+  async commitMessage(commit: string): Promise<string> {
+    const result = await this.runner.executeGitCommand(['log', '-1', '--format=%B', '--end-of-options', `${refArgument(commit, 'commit')}^{commit}`])
+    if (!result.success) throw failure(result, `Failed to read the message of ${commit}`)
+    return (result.output ?? '').replace(/\n+$/, '')
+  }
+
   /** Whether each of these names a commit in this repository */
   async commitsExist(...refs: string[]): Promise<boolean> {
     const result = await this.runner.executeGitCommand(['rev-parse', '--quiet', ...refs.map(ref => `${refArgument(ref)}^{commit}`)])
