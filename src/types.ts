@@ -248,7 +248,7 @@ export interface CheckpointChange {
 export interface JournalEntry {
   id: string
   /** What was done */
-  operation: 'commit' | 'reset' | 'delete-branch' | 'drop-stash' | 'clear-stashes'
+  operation: 'commit' | 'reset' | 'delete-branch' | 'drop-stash' | 'clear-stashes' | 'merge' | 'rebase' | 'cherry-pick'
   /** When, in milliseconds since the epoch */
   at: number
   /** What it was, in a few words: `commit "Fix the parser"`, `deleting branch topic` */

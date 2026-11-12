@@ -310,6 +310,39 @@ export class GitWrites {
   }
 
   /**
+   * Runs a merge, a rebase or a cherry-pick after a checkpoint of the working tree, and writes it down once it has
+   * gone through, so that `undo` can take it back. One that stops on conflicts is the operation in progress the
+   * snapshot describes, carried on with or given up through `moveOperation`, and is refused here with `conflict`.
+   */
+  private async startOperation(operation: 'merge' | 'rebase' | 'cherry-pick', args: string[], summary: string): Promise<void> {
+    return this.withWriteFlag(async () => {
+      const ref = await this.headRef()
+      const before = await this.revisionOf('HEAD')
+      const { id: checkpoint } = await this.checkpoints.checkpoint()
+      const result = await this.runner.executeGitCommand(args)
+      this.reads.clearCache()
+      if (!result.success) throw failure(result, `Failed to ${summary}`)
+      await this.journal.record({ operation, summary, refs: [{ ref, before, after: await this.revisionOf('HEAD') }], checkpoint })
+    })
+  }
+
+  /** Merges a branch or a commit into what is checked out, with the message git proposes */
+  merge(target: string): Promise<void> {
+    return this.startOperation('merge', ['merge', '--no-edit', refArgument(target, 'branch')], `merge ${target}`)
+  }
+
+  /** Replays what is checked out onto a branch or a commit */
+  rebaseOnto(target: string): Promise<void> {
+    return this.startOperation('rebase', ['rebase', refArgument(target, 'branch')], `rebase onto ${target}`)
+  }
+
+  /** Applies commits onto what is checked out, oldest first */
+  cherryPick(commits: string[]): Promise<void> {
+    if (commits.length === 0) return Promise.resolve()
+    return this.startOperation('cherry-pick', ['cherry-pick', ...commits.map(commitArgument)], `cherry-pick ${commits.map(commit => commit.slice(0, 7)).join(', ')}`)
+  }
+
+  /**
    * Deletes a local branch, whether or not it was merged, and writes down where it pointed and what it followed,
    * so that `undo` can make it again
    */
