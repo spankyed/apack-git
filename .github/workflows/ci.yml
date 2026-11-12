@@ -101,7 +101,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm run budgets -- ${{ inputs.budget_sizes || '1000 100000' }}
+      # Through the environment, so what was typed into the dispatch is read as sizes and never run as a command
+      - run: npm run budgets -- $BUDGET_SIZES
+        shell: bash
+        env:
+          BUDGET_SIZES: ${{ inputs.budget_sizes || '1000 100000' }}
 
   ci-pass:
     if: always()
