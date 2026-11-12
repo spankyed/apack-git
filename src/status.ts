@@ -90,6 +90,8 @@ export interface LoadedSnapshot {
   ignoreCase: boolean
   /** Whether git has a name and an email to commit with (`RepositorySnapshot.hasIdentity`) */
   hasIdentity: boolean
+  /** A whole status over its budget with git's own help off (`RepositorySnapshot.slowStatus`) */
+  slowStatus?: RepositorySnapshot['slowStatus']
   /** What git is in the middle of, which it says in its own directory and so changes only when that does */
   operation?: RepositoryOperation
 }

@@ -164,6 +164,12 @@ export interface RepositorySnapshot {
    * view may be behind, and goes on checking when the window is looked at
    */
   watchSilent?: true
+  /**
+   * A whole status took longer than its budget (`RepositoryTies.statusBudgetMs`), and git's own file monitor or its
+   * untracked cache is off, either of which would make it faster: `speedUpStatus` turns them on. Absent when the
+   * status was within its budget, or both are on already
+   */
+  slowStatus?: { ms: number; budgetMs: number; fileMonitor: boolean; untrackedCache: boolean }
   /** What git is in the middle of here, when it is in the middle of anything */
   operation?: RepositoryOperation
 }

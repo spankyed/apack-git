@@ -153,14 +153,14 @@ it.each([
   ['core.repositoryformatversion', '0'], ['core.ignorecase', 'true'], ['user.email', 'a@b.c'], ['remote.origin.url', 'https://example.com/r.git'],
   ['remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*'], ['branch.feature/x.y.merge', 'refs/heads/main'], ['branch.main.apack-base', 'develop'],
   ['status.showuntrackedfiles', 'all'], ['pull.ff', 'only'], ['submodule.lib.url', '../lib'], ['submodule.lib.update', 'rebase'],
-  ['credential.helper', ''], ['core.fsmonitor', 'false'], ['color.diff.new', 'green'], ['alias.co', 'checkout'], ['url.git@host:.insteadof', 'https://host/'],
+  ['credential.helper', ''], ['core.fsmonitor', 'false'], ['core.fsmonitor', 'true'], ['color.diff.new', 'green'], ['alias.co', 'checkout'], ['url.git@host:.insteadof', 'https://host/'],
   ['include.path', 'other.config'], ['extensions.worktreeconfig', 'true'], ['lfs.repositoryformatversion', '0'],
 ])('knows %s runs nothing', (key, value) => {
   expect(settingRunsNothing(key, value)).toBe(true);
 });
 
 it.each([
-  ['core.fsmonitor', '/tmp/watch.sh'], ['core.fsmonitor', 'true'], ['core.hookspath', '/tmp/hooks'], ['core.sshcommand', 'ssh -o x'], ['core.pager', 'less'],
+  ['core.fsmonitor', '/tmp/watch.sh'], ['core.hookspath', '/tmp/hooks'], ['core.sshcommand', 'ssh -o x'], ['core.pager', 'less'],
   ['core.editor', 'vim'], ['core.askpass', '/tmp/ask'], ['core.gitproxy', '/tmp/proxy'], ['credential.helper', 'store'],
   ['credential.https://example.com.helper', '!f() { :; }; f'], ['diff.external', '/tmp/diff'], ['diff.pdf.textconv', 'pdftotext'], ['diff.pdf.command', 'x'],
   ['merge.ours.driver', 'true'], ['filter.lfs.clean', 'git-lfs clean -- %f'], ['filter.lfs.process', 'git-lfs filter-process'], ['gpg.program', '/tmp/gpg'],
