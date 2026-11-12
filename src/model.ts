@@ -9,6 +9,12 @@ import {
 } from './status.ts'
 import type { GitDirectories, GitStatusFile, RepositoryChange, RepositoryOperation, RepositorySnapshot } from './types.ts'
 
+/**
+ * How many checks of everything in a row must find changes the watcher never reported before the snapshot says live
+ * updates are not arriving. Counted in checks, never in time: one miss is a watcher that had not caught up yet
+ */
+export const MISSED_CHECKS_SILENT = 3
+
 export class RepositoryModel {
   /**
    * What the host shows beside the status and is no part of git's: a change to it reads as a change to the
@@ -80,7 +86,18 @@ export class RepositoryModel {
    * Notes what a watcher saw change, which is what the next snapshot asked for reads: these paths in the working
    * tree, relative to the working directory with `/` between their parts, or everything when it could not name them
    */
+  /** What the watcher has reported since the last check of everything, which a check's findings are held to */
+  private notedSinceCheck = 0
+  /** Checks of everything in a row that found changes the watcher had said nothing of */
+  private missedChecks = 0
+
+  /** Whether checks keep finding what the watcher never reported (`RepositorySnapshot.watchSilent`) */
+  get watchSilent(): boolean {
+    return this.watched && !this.watchFailed && this.missedChecks >= MISSED_CHECKS_SILENT
+  }
+
   noteChanged(paths: string[] | null): void {
+    this.notedSinceCheck++
     // A change too wide to name, or to git's own state: a checkout, a formatter over the tree, a commit elsewhere
     if (paths === null) this.indexMayBeStale = true
     if (paths === null || this.unread === 'anything' || this.unread.size + paths.length > NOTED_PATHS_LIMIT) return this.markSnapshotStale()
@@ -118,7 +135,8 @@ export class RepositoryModel {
    * here, a reconcile. It never waits on the remote: `fetchIfDue` is what fetches.
    */
   async readSnapshot(): Promise<RepositorySnapshot> {
-    return (await this.currentSnapshot()).value
+    const { value } = await this.currentSnapshot()
+    return this.watchSilent ? { ...value, watchSilent: true } : value
   }
 
   /**
@@ -139,7 +157,7 @@ export class RepositoryModel {
     // Whether its watches failed, and what the host shows beside the status, are part of what a window shows of
     // the checkout's status, so they are part of it here
     const seen = (identity: SnapshotIdentity): SnapshotIdentity =>
-      ({ ...identity, status: `${this.watchFailed ? 'unwatched' : 'watched'} ${this.statusNote}\n${identity.status}` })
+      ({ ...identity, status: `${this.watchFailed ? 'unwatched' : this.watchSilent ? 'silent' : 'watched'} ${this.statusNote}\n${identity.status}` })
     // Compared with what the last check saw, not with what was last read: one window's ask can read a change
     // before this runs, and this is what tells the others
     const before = this.checkedIdentity ?? (this.lastIdentity && seen(this.lastIdentity))
@@ -147,12 +165,22 @@ export class RepositoryModel {
       this.markSnapshotStale()
       if (refreshIndex && this.indexMayBeStale) this.refreshIndexOnRead = true
     }
-    let now: SnapshotIdentity
+    let read: SnapshotIdentity
     try {
-      now = seen((await this.currentSnapshot()).identity)
+      read = (await this.currentSnapshot()).identity
     } catch {
-      now = seen(this.lastIdentity = partsAll('unreadable'))
+      read = this.lastIdentity = partsAll('unreadable')
     }
+    // A check with nothing to go by that found the files changed, of which the watcher said nothing since the last:
+    // evidence the watch is not delivering. One that heard from the watcher is evidence it is. Becoming silent, or
+    // hearing again, then reads as news of the status, since the window says its view may be behind
+    if (reading === 'everything' && this.watched && before) {
+      const statusOf = (identity: SnapshotIdentity) => identity.status.slice(identity.status.indexOf('\n') + 1)
+      if (this.notedSinceCheck > 0) this.missedChecks = 0
+      else if (read.diffs !== before.diffs || statusOf(seen(read)) !== statusOf(before)) this.missedChecks++
+      this.notedSinceCheck = 0
+    }
+    const now = seen(read)
     this.checkedIdentity = now
     // A first check has nothing to compare with, so everything it reads is new to whoever hears of it
     if (!before) return partsAll(true)
