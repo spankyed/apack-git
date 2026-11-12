@@ -117,7 +117,8 @@ describe('over a repository whose files have generated names', () => {
     directories.push(root);
     await run('git', ['-C', root, 'init', '--quiet']);
     const random = seeded(seed);
-    const names = [...new Set(Array.from({ length: 1 + random.below(20) }, (_, at) => `${name(random, allowed).replace(/[. ]+$/, '')}${at}`))];
+    // Windows refuses `"` in a name as well
+    const names = [...new Set(Array.from({ length: 1 + random.below(20) }, (_, at) => `${name(random, allowed).replace(process.platform === 'win32' ? /"/g : /(?!)/, '').replace(/[. ]+$/, '')}${at}`))];
     for (const file of names) fs.writeFileSync(path.join(root, file), 'x\n');
 
     const listed = (await new GitRepository(root).readSnapshot()).files.map(file => file.path);
