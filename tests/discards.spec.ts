@@ -28,7 +28,9 @@ async function repository() {
   write(root, '.gitignore', 'ignored/\n*.log\n');
   await git(root, 'add', '.');
   await git(root, 'commit', '--quiet', '-m', 'first');
-  return { root, repo: new GitRepository(root) };
+  const store = path.join(fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-discards-store-'))), 'store');
+  directories.push(path.dirname(store));
+  return { root, store, repo: new GitRepository(root, { checkpointDirectory: () => store }) };
 }
 /** What git says of the checkout, with what the user's index holds, their refs and their stashes */
 async function standing(root: string) {
@@ -172,22 +174,33 @@ it('keeps and puts back from a working directory under the top of the checkout',
   expect(await standing(root)).toEqual(before);
 });
 
-it('says what a discard kept is gone once git has pruned it, and refuses an id that is not one', async () => {
+it('keeps what it discarded through a prune of the repository, since it is kept outside it', async () => {
   const { root, repo } = await repository();
   write(root, 'kept.txt', 'an edit\n');
   const kept = await repo.revertFile('kept.txt');
   await git(root, 'prune', '--expire=now');
 
+  expect(await repo.restoreDiscarded(kept.id!)).toEqual({ restored: ['kept.txt'], left: [] });
+  expect(read(root, 'kept.txt')).toBe('an edit\n');
+});
+
+it('says what a discard kept is gone once the store has dropped it, and refuses an id that is not one', async () => {
+  const { root, store, repo } = await repository();
+  write(root, 'kept.txt', 'an edit\n');
+  const kept = await repo.revertFile('kept.txt');
+  await run('git', ['--git-dir', store, 'update-ref', '-d', `refs/checkpoints/${kept.id}`]);
+
   await expect(repo.restoreDiscarded(kept.id!)).rejects.toThrow('no longer kept');
-  await expect(repo.restoreDiscarded('--upload-pack=x')).rejects.toThrow('Invalid id');
+  await expect(repo.restoreDiscarded('--upload-pack=x')).rejects.toThrow('Invalid checkpoint');
   expect(read(root, 'kept.txt')).toBe('one\n');
 });
 
 it('leaves no index of its own behind', async () => {
-  const { root, repo } = await repository();
+  const { root, store, repo } = await repository();
   write(root, 'kept.txt', 'an edit\n');
   const kept = await repo.revertFile('kept.txt');
   await repo.restoreDiscarded(kept.id!);
 
   expect(fs.readdirSync(path.join(root, '.git')).filter(name => name.startsWith('apack-kept-'))).toEqual([]);
+  expect(fs.readdirSync(store).filter(name => name.startsWith('index-'))).toEqual([]);
 });

@@ -6,10 +6,11 @@ import { RepositoryModel } from './model.ts'
 import { GitRunner, failure, fetchingMissing } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
 import { GitWrites } from './writes.ts'
+import { CheckpointStore } from './checkpoints.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  CommitLogEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
+  Checkpoint, CheckpointChange, CommitLogEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry,
 } from './types.ts'
 
 export class GitRepository {
@@ -17,6 +18,7 @@ export class GitRepository {
   private readonly model: RepositoryModel
   private readonly reads: GitReads
   private readonly writes: GitWrites
+  private readonly checkpoints: CheckpointStore
 
   constructor(private workingDirectory: string, ties: RepositoryTies = {}) {
     if (!path.isAbsolute(workingDirectory)) {
@@ -25,7 +27,8 @@ export class GitRepository {
     this.runner = new GitRunner(workingDirectory, ties)
     this.model = new RepositoryModel(this.runner, () => this.runner.writesInLine > 0 || this.writes.isWriteInProgress)
     this.reads = new GitReads(this.runner, this.model, ties)
-    this.writes = new GitWrites(this.runner, this.model, this.reads)
+    this.checkpoints = new CheckpointStore(this.runner, this.model, ties.checkpointDirectory)
+    this.writes = new GitWrites(this.runner, this.model, this.reads, this.checkpoints)
   }
 
   getWorkingDir(): string {
@@ -298,6 +301,29 @@ export class GitRepository {
    */
   fetchingMissing<T>(read: () => Promise<T>): Promise<T> {
     return fetchingMissing(read)
+  }
+
+  /**
+   * Keeps a copy of the working tree outside the repository, in the store `RepositoryTies.checkpointDirectory`
+   * names: of these paths (from the top of the checkout) when given, and of every file git would add otherwise.
+   * Nothing of the repository's own is written. A file larger than `KEPT_FILE_LIMIT` is left out and named.
+   */
+  checkpoint(paths?: string[]): Promise<Checkpoint> {
+    return this.checkpoints.checkpoint(paths)
+  }
+
+  /** What differs now from a checkpoint, of these paths when given; a file it left out is not compared */
+  changedSince(id: string, paths?: string[]): Promise<CheckpointChange[]> {
+    return this.checkpoints.changedSince(id, paths)
+  }
+
+  /**
+   * Puts the working tree back as a checkpoint has it, of these paths when given: a file changed since is put
+   * back, one made since is removed, and one it left out is left alone. Answers what it changed. The index is not
+   * touched, so what was staged reads as changed against it.
+   */
+  restoreCheckpoint(id: string, paths?: string[]): Promise<CheckpointChange[]> {
+    return this.checkpoints.restore(id, paths)
   }
 
   fetchRemoteBranch(branch: string): Promise<void> {

@@ -4,6 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs/promises'
 import { commitArgument, refArgument, rowSpec, stashArgument } from './arguments.ts'
 import { DiscardStore } from './discards.ts'
+import type { CheckpointStore } from './checkpoints.ts'
 import { GitError, type GitErrorCode } from './errors.ts'
 import type { RepositoryModel } from './model.ts'
 import { BASE_KEY, type GitReads } from './reads.ts'
@@ -25,8 +26,8 @@ export class GitWrites {
 
   private readonly discards: DiscardStore
 
-  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly reads: GitReads) {
-    this.discards = new DiscardStore(runner, model)
+  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly reads: GitReads, checkpoints: CheckpointStore) {
+    this.discards = new DiscardStore(runner, model, checkpoints)
   }
 
   private get workingDirectory(): string {
