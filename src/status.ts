@@ -167,13 +167,17 @@ export function snapshotOf({ headers, entries }: { headers: string[]; entries: S
       snapshot.files.push({ path: filePath, status: 'unmerged', staged: false, conflict: CONFLICTS[conflict ?? ''] })
     } else {
       const [index, worktree] = [columns[0]!, columns[1]!]
+      // `S` and how it differs (`C`ommit, `M`odified, `U`ntracked) for a submodule; `N...` for a plain file
+      const field = record.split(' ')[2] ?? ''
+      const submodule = field.startsWith('S') ? { submodule: { commit: field[1] === 'C', modified: field[2] === 'M', untracked: field[3] === 'U' } } : {}
       if (index !== '.') {
         snapshot.files.push({
           path: filePath, status: statusOf(index), staged: true,
           originalPath: index === 'R' || index === 'C' ? originalPath : undefined,
+          ...submodule,
         })
       }
-      if (worktree !== '.') snapshot.files.push({ path: filePath, status: statusOf(worktree), staged: false, originalPath: undefined })
+      if (worktree !== '.') snapshot.files.push({ path: filePath, status: statusOf(worktree), staged: false, originalPath: undefined, ...submodule })
     }
   }
   return snapshot
