@@ -103,7 +103,7 @@ it('counts the commits a branch is ahead of and behind the remote branch it trac
   expect(await new GitRepository(clone).readSnapshot()).toMatchObject({ hasUpstream: true, ahead: 1, behind: 1 });
 });
 
-const NOTHING = { status: false, diffs: false, history: false, stashes: false, worktrees: false };
+const NOTHING = { status: false, diffs: false, history: false, stashes: false, worktrees: false, refs: false };
 
 it('says which part of the repository changed, and nothing when none did', async () => {
   const { root, repo } = await repository();
@@ -116,17 +116,17 @@ it('says which part of the repository changed, and nothing when none did', async
   // A worktree is listed with the commit it is on, so the worktrees change with the history
   await git(root, 'commit', '--quiet', '-am', 'second');
   expect(await repo.refreshSnapshot(), 'the edit was committed')
-    .toEqual({ status: true, diffs: true, history: true, stashes: false, worktrees: true, files: ['kept.txt'] });
+    .toEqual({ status: true, diffs: true, history: true, stashes: false, worktrees: true, refs: true, files: ['kept.txt'] });
 
   // The status is the same; only a ref moved
   await git(root, 'branch', 'side');
-  expect(await repo.refreshSnapshot(), 'a branch was made').toEqual({ ...NOTHING, history: true, worktrees: true });
+  expect(await repo.refreshSnapshot(), 'a branch was made').toEqual({ ...NOTHING, history: true, worktrees: true, refs: true });
   expect(await repo.refreshSnapshot()).toEqual(NOTHING);
 });
 
 it('says every part changed the first time it is asked, having nothing to compare with', async () => {
   const { repo } = await repository();
-  expect(await repo.refreshSnapshot()).toEqual({ status: true, diffs: true, history: true, stashes: true, worktrees: true });
+  expect(await repo.refreshSnapshot()).toEqual({ status: true, diffs: true, history: true, stashes: true, worktrees: true, refs: true });
 });
 
 // Dropping a stash below the newest leaves `refs/stash` where it was: only the count git reports moves, which
@@ -286,4 +286,25 @@ it('lists the directories git ignores, and no ignored file', async () => {
   write(root, 'out/bundle.js', '');
   write(root, 'debug.log', '');
   expect(await repo.listIgnoredDirectories()).toEqual(['out']);
+});
+
+it('says only the refs changed when a fetch moves a remote branch this one does not follow', async () => {
+  const { root, repo } = await repository();
+  const remote = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-snapshot-remote-')));
+  directories.push(remote);
+  await git(remote, 'init', '--quiet', '--initial-branch=main');
+  write(remote, 'r.txt', 'r\n');
+  await git(remote, 'add', '.');
+  await git(remote, 'commit', '--quiet', '-m', 'on the remote');
+  await git(remote, 'branch', 'other');
+  await git(root, 'remote', 'add', 'origin', remote);
+  await git(root, 'fetch', '--quiet', 'origin');
+  await repo.refreshSnapshot();
+  write(remote, 'r.txt', 'moved\n');
+  await git(remote, 'checkout', '--quiet', 'other');
+  await git(remote, 'commit', '--quiet', '-am', 'moved other');
+
+  await git(root, 'fetch', '--quiet', 'origin');
+
+  expect(await repo.refreshSnapshot()).toEqual({ ...NOTHING, refs: true });
 });

@@ -237,7 +237,7 @@ it('reads the paths named under a working directory that is not the top of the c
 it('says which file changed, and runs no git when nothing was noted since the last read', async () => {
   const { root, repo } = await watched();
   const asked = statusesAsked(repo);
-  const NOTHING = { status: false, diffs: false, history: false, stashes: false, worktrees: false };
+  const NOTHING = { status: false, diffs: false, history: false, stashes: false, worktrees: false, refs: false };
 
   write(root, 'kept.txt', 'two\n');
   expect(await repo.refreshSnapshot('noted'), 'no watcher said anything changed').toEqual(NOTHING);

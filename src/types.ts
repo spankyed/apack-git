@@ -83,13 +83,40 @@ export type OperationMove = (typeof OPERATION_MOVES)[number]
  * distance from upstream; the two sides of each changed file, which a diff of it shows; which branch is checked
  * out, the commit it is on and every branch and tag, which a log is read from; its stashes; its worktrees.
  */
-export const REPOSITORY_PARTS = ['status', 'diffs', 'history', 'stashes', 'worktrees'] as const
+export const REPOSITORY_PARTS = ['status', 'diffs', 'history', 'stashes', 'worktrees', 'refs'] as const
 export type RepositoryPart = (typeof REPOSITORY_PARTS)[number]
 
 /** Which parts of a repository differ from when it was last checked */
 export type RepositoryChange = Record<RepositoryPart, boolean> & {
   /** The changed files whose diff differs, when they are few enough to name: without it, any of them may */
   files?: string[]
+}
+
+/** A branch, local or a remote's, with what it follows and how far from it it is */
+export interface BranchStanding {
+  /** As git names it short: `main`, `origin/main` */
+  name: string
+  /** `refs/heads/main`, `refs/remotes/origin/main` */
+  ref: string
+  remote: boolean
+  commit: string
+  /** Whether it is the branch checked out here */
+  current: boolean
+  /** The branch it follows, short, for a local branch that follows one */
+  upstream?: string
+  /** Whether that branch is gone from the remote's last fetched refs */
+  upstreamGone?: boolean
+  /** Commits it has that its upstream does not, and the other way round: 0 without an upstream */
+  ahead: number
+  behind: number
+}
+
+/** A repository's branches, remotes and tags, as one model */
+export interface RefsModel {
+  branches: BranchStanding[]
+  /** Each remote with where it fetches from and pushes to, which are the same unless told otherwise */
+  remotes: { name: string; fetchUrl: string; pushUrl: string }[]
+  tags: { name: string; commit: string }[]
 }
 
 /** A checkout's changed files, branch and distance from its upstream, read in one pass */
