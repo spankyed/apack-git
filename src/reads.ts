@@ -43,6 +43,48 @@ export function conflictRegions(text: string): { start: number; separator: numbe
   return regions
 }
 
+/** `git stash list -z --format=%gd%x00%s%x00%ai`, newest first */
+export function parseStashList(output: string): StashEntry[] {
+  return recordsOf(output, 3).map((parts, i) => ({
+    index: i,
+    ref: parts[0] || `stash@{${i}}`,
+    message: parts[1] || '',
+    date: parts[2] || '',
+  }))
+}
+
+/** `git worktree list --porcelain`: a block a worktree, the main one first; `current` is the one at this path */
+export function parseWorktreeList(output: string, current: string): WorktreeEntry[] {
+  const entries: WorktreeEntry[] = []
+  const blocks = output.trim().split('\n\n')
+  for (let i = 0; i < blocks.length; i++) {
+    const lines = blocks[i]!.trim().split('\n')
+    let wtPath = ''
+    let head = ''
+    let branch = ''
+    let isBare = false
+    let isLocked = false
+    let lockedReason: string | undefined
+    for (const line of lines) {
+      if (line.startsWith('worktree ')) wtPath = line.slice('worktree '.length)
+      else if (line.startsWith('HEAD ')) head = line.slice('HEAD '.length).substring(0, 7)
+      // branch refs/heads/main → main
+      else if (line.startsWith('branch ')) branch = line.slice('branch '.length).replace('refs/heads/', '')
+      else if (line === 'bare') isBare = true
+      else if (line === 'detached') branch = ''
+      else if (line.startsWith('locked')) {
+        isLocked = true
+        const reason = line.slice('locked'.length).trim()
+        if (reason) lockedReason = reason
+      }
+    }
+    if (wtPath) {
+      entries.push({ path: wtPath, head, branch, isBare, isCurrent: path.resolve(wtPath) === path.resolve(current), isMain: i === 0, isLocked, lockedReason })
+    }
+  }
+  return entries
+}
+
 export class GitReads {
   private cache = new Map<string, CachedResult<any>>()
 
@@ -763,12 +805,7 @@ export class GitReads {
     }
     if (!result.output?.trim()) return []
 
-    return recordsOf(result.output, 3).map((parts, i) => ({
-      index: i,
-      ref: parts[0] || `stash@{${i}}`,
-      message: parts[1] || '',
-      date: parts[2] || ''
-    }))
+    return parseStashList(result.output)
   }
 
   // ── Worktree operations ──────────────────────────────────────────
@@ -777,52 +814,7 @@ export class GitReads {
     const result = await this.runner.executeGitCommand(['worktree', 'list', '--porcelain'])
     if (!result.success || !result.output?.trim()) return []
 
-    const entries: WorktreeEntry[] = []
-    const blocks = result.output.trim().split('\n\n')
-
-    for (let i = 0; i < blocks.length; i++) {
-      const lines = blocks[i]!.trim().split('\n')
-      let wtPath = ''
-      let head = ''
-      let branch = ''
-      let isBare = false
-      let isLocked = false
-      let lockedReason: string | undefined
-
-      for (const line of lines) {
-        if (line.startsWith('worktree ')) {
-          wtPath = line.slice('worktree '.length)
-        } else if (line.startsWith('HEAD ')) {
-          head = line.slice('HEAD '.length).substring(0, 7)
-        } else if (line.startsWith('branch ')) {
-          // branch refs/heads/main → main
-          branch = line.slice('branch '.length).replace('refs/heads/', '')
-        } else if (line === 'bare') {
-          isBare = true
-        } else if (line === 'detached') {
-          branch = ''
-        } else if (line.startsWith('locked')) {
-          isLocked = true
-          const reason = line.slice('locked'.length).trim()
-          if (reason) lockedReason = reason
-        }
-      }
-
-      if (wtPath) {
-        entries.push({
-          path: wtPath,
-          head,
-          branch,
-          isBare,
-          isCurrent: path.resolve(wtPath) === path.resolve(this.workingDirectory),
-          isMain: i === 0,
-          isLocked,
-          lockedReason
-        })
-      }
-    }
-
-    return entries
+    return parseWorktreeList(result.output, this.workingDirectory)
   }
 
   async getCommitsBetweenBranches(baseBranch: string, targetBranch = 'HEAD'): Promise<{ subject: string; body: string }[]> {
