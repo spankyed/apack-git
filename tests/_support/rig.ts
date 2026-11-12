@@ -76,9 +76,15 @@ export async function watchedRepository({ subscribe }: { subscribe?: SubscribeTo
 
   const repo = new GitRepository(root)
   const watcher = new GitWatcherService(root, subscribe ? { subscribe } : {})
-  cleanups.push(() => watcher.stopWatching())
-  watcher.setGitRepository(repo)
   let checking: Promise<unknown> = Promise.resolve()
+  cleanups.push(async () => {
+    await watcher.stopWatching()
+    // A check a report started is a git running in the repository's directory, and so is the git kept open for
+    // reading files: Windows deletes the directory only once neither is there
+    await checking.catch(() => {})
+    await repo.close()
+  })
+  watcher.setGitRepository(repo)
   let reports = 0
   watcher.setChangeCallback((paths) => {
     reports++

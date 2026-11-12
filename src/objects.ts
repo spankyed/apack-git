@@ -5,7 +5,7 @@
 // **For commits only, never the index.** A name like `main:src/a.ts` is resolved when it is asked for, so a branch
 // that moved is read where it is now. `:src/a.ts`, the staged version, is read from the index, which this process
 // loads once and keeps: it would go on answering with what was staged when it started.
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { WatchProcess } from './ties.ts'
 
 /** The largest file handed back; a larger one is read past and answered as not there, as a read by `git show` is */
@@ -17,12 +17,6 @@ const LARGEST_READ = 10 * 1024 * 1024
  * repository nobody is looking at holds no process open.
  */
 const LINGER_MS = 5_000
-
-/**
- * How long a git whose input was closed is given to end by itself before its process tree is ended. A wait on a
- * process that was told to go and has nothing left to do: there is no work of its to watch.
- */
-const STILL_RUNNING_MS = 1_000
 
 interface Pending {
   resolve(content: Buffer | undefined): void
@@ -43,6 +37,11 @@ export class GitObjectReader {
    * A git that is working (fetching a version a partial clone never had) is left to.
    */
   private stall: ReturnType<WatchProcess> | undefined
+  /**
+   * The gits that were ended and have not gone yet. One that was told to go is still a process in the
+   * repository's directory until it has, and a directory with a process in it cannot be deleted on Windows.
+   */
+  private readonly ending = new Set<Promise<void>>()
 
   constructor(
     private readonly workingDirectory: string,
@@ -82,9 +81,13 @@ export class GitObjectReader {
     })
   }
 
-  /** Ends the git process, failing whatever was still being read */
-  close(): void {
+  /**
+   * Ends the git process, failing whatever was still being read. Settles once every git this reader ended has
+   * gone, so the repository's directory holds no process of this reader's when it does.
+   */
+  async close(): Promise<void> {
     if (this.child) this.end(this.child, new Error('The git object reader was closed'))
+    await Promise.all(this.ending)
   }
 
   /** Ends this git process, which is the one started here, failing whatever it still owed */
@@ -93,20 +96,16 @@ export class GitObjectReader {
     clearTimeout(this.linger)
     this.child = undefined
     this.fail(why)
-    // Its input closing is what ends it: it has nothing more to read
+    // It has gone once its output has closed: on Windows `git` starts the git doing the work, and that one holds
+    // the output until it has ended too
+    const gone = new Promise<void>((resolve) => {
+      child.once('close', () => resolve())
+      child.once('error', () => resolve())
+    })
+    this.ending.add(gone)
+    void gone.then(() => this.ending.delete(gone))
     child.stdin.end()
-    if (process.platform !== 'win32') {
-      child.kill()
-      return
-    }
-    // On Windows `git` is a launcher that starts the git doing the work, and ending the launcher leaves that one
-    // running in the repository's directory, which then cannot be deleted. It is left to end by itself, and the
-    // whole tree under it is ended if it has not
-    const stuck = setTimeout(() => {
-      if (child.exitCode === null && child.pid !== undefined) execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], () => {})
-    }, STILL_RUNNING_MS)
-    stuck.unref()
-    child.once('exit', () => clearTimeout(stuck))
+    child.kill()
   }
 
   private open(): ChildProcessWithoutNullStreams {
@@ -145,7 +144,7 @@ export class GitObjectReader {
     if (this.pending.length > 0) return
     this.stall?.stop()
     this.stall = undefined
-    this.linger = setTimeout(() => this.close(), this.lingerMs)
+    this.linger = setTimeout(() => void this.close(), this.lingerMs)
     this.linger.unref()
   }
 

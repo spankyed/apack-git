@@ -34,11 +34,12 @@ export class GitRepository {
 
   /**
    * Lets go of what is held open for this repository: the git kept running while files are read from commits.
-   * It is used again as before, and that git is started again by the next such read. On a platform that will
-   * not delete a directory a process is in, this is what lets the repository's be deleted at once.
+   * It is used again as before, and that git is started again by the next such read. Settles once that git has
+   * gone: on a platform that will not delete a directory a process is in, the repository's can be deleted then
+   * and not before.
    */
-  close(): void {
-    this.reads.close()
+  close(): Promise<void> {
+    return this.reads.close()
   }
 
   /**

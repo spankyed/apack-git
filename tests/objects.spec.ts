@@ -21,9 +21,10 @@ const watchProcess: WatchProcess = (_pid, onStalled, idleMs = 1_000) => {
 };
 
 const directories: string[] = [];
-const readers: GitObjectReader[] = [];
-afterEach(() => {
-  for (const reader of readers.splice(0)) reader.close();
+/** What holds a git open in a repository's directory, which is closed before the directory is deleted */
+const readers: { close(): Promise<void> }[] = [];
+afterEach(async () => {
+  await Promise.all(readers.splice(0).map(reader => reader.close()));
   for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
 });
 
@@ -46,6 +47,12 @@ async function repository(files: Record<string, string | Buffer>) {
 }
 function reader(root: string, lingerMs?: number) {
   const made = new GitObjectReader(root, () => process.env, undefined, lingerMs);
+  readers.push(made);
+  return made;
+}
+
+function opened(root: string) {
+  const made = new GitRepository(root);
   readers.push(made);
   return made;
 }
@@ -83,7 +90,7 @@ it('answers nothing for a file the commit does not have, for a directory, and fo
 // The git that stays open resolves a name when it is asked for, so a commit made since is read
 it('reads a branch where it is now, after a commit made by another git', async () => {
   const root = await repository({ 'a.txt': 'one\n' });
-  const repo = new GitRepository(root);
+  const repo = opened(root);
   expect(await repo.getFileContent('a.txt', 'HEAD')).toBe('one\n');
 
   write(root, 'a.txt', 'two\n');
@@ -96,7 +103,7 @@ it('reads a branch where it is now, after a commit made by another git', async (
 // The staged version is the index's, which a git that stays open reads once: it is asked of a git of its own
 it('reads the staged version as it is now, after a file was staged by another git', async () => {
   const root = await repository({ 'a.txt': 'one\n' });
-  const repo = new GitRepository(root);
+  const repo = opened(root);
   expect(await repo.getFileContent('a.txt', 'HEAD')).toBe('one\n');
   expect(await repo.getFileContent('a.txt', 'index')).toBe('one\n');
 
@@ -110,7 +117,7 @@ it('reads the staged version as it is now, after a file was staged by another gi
 // Windows allows no line break in a file's name, so there is none there to read
 it.skipIf(process.platform === 'win32')('reads a file whose name one line cannot carry, by a git of its own', async () => {
   const root = await repository({ 'a\nb.txt': 'odd\n', 'with:colon.txt': 'colon\n' });
-  const repo = new GitRepository(root);
+  const repo = opened(root);
 
   expect(await repo.getFileContent('a\nb.txt', 'HEAD')).toBe('odd\n');
   expect(await repo.getFileContentFromBranch('with:colon.txt', 'main')).toBe('colon\n');
@@ -133,10 +140,27 @@ it('fails what was being read when its git is ended, and reads again after', asy
   await objects.read('HEAD:a.txt');
 
   const reading = objects.read('HEAD:a.txt');
-  objects.close();
+  const closed = objects.close();
 
   await expect(reading).rejects.toThrow('closed');
+  await closed;
   expect((await objects.read('HEAD:a.txt'))?.toString()).toBe('one\n');
+});
+
+// Windows will not delete a directory a process is in, and there `git` is two processes, the second of which
+// outlives the first by a moment: this fails there when closing settles before both have gone. Elsewhere a
+// directory is deleted whatever is in it
+it('has no git left in the repository once it is closed, so its directory is deleted at once', async () => {
+  const root = await repository({ 'a.txt': 'one\n' });
+  const repo = opened(root);
+  await repo.getFileContent('a.txt', 'HEAD');
+  const objects = reader(root);
+  await objects.read('HEAD:a.txt');
+
+  await Promise.all([repo.close(), objects.close()]);
+
+  fs.rmSync(root, { recursive: true });
+  expect(fs.existsSync(root)).toBe(false);
 });
 
 // Reads are answered in order, so a git that stops answering holds every read asked after it

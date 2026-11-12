@@ -9,7 +9,12 @@ import { run } from './_support/process.ts';
 import { GitRepository } from '../src/index.ts';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 }); });
+const repositories: GitRepository[] = [];
+afterEach(async () => {
+  // A repository read from a commit keeps a git open in its directory, which is deleted once that git has gone
+  await Promise.all(repositories.splice(0).map(repository => repository.close()));
+  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true, maxRetries: 80, retryDelay: 100 });
+});
 
 const git = async (cwd: string, ...args: string[]) =>
   (await run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args])).stdout.trim();
@@ -25,7 +30,9 @@ async function repository() {
   const first = await git(root, 'rev-parse', 'HEAD');
   fs.writeFileSync(path.join(root, 'a.txt'), 'two\n');
   await git(root, 'commit', '--quiet', '-am', 'second');
-  return { root, repo: new GitRepository(root), first, second: await git(root, 'rev-parse', 'HEAD') };
+  const repo = new GitRepository(root);
+  repositories.push(repo);
+  return { root, repo, first, second: await git(root, 'rev-parse', 'HEAD') };
 }
 
 it('refuses an option given as a commit, and leaves the working tree as it was', async () => {
