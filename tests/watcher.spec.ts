@@ -52,10 +52,13 @@ function directory(prefix: string): string {
 const git = (cwd: string, ...args: string[]) =>
   run('git', ['-C', cwd, '-c', 'user.name=spec', '-c', 'user.email=spec@example.com', ...args]);
 
+/** The longest a timer waits: a catch-up these cases never reach, so the reports they count are their events' */
+const NEVER_MS = 2 ** 31 - 1
+
 /** A watcher over a directory, with the fake platform watcher it opens its watches through */
-function watcherOf(workingDirectory: string) {
+function watcherOf(workingDirectory: string, { catchUpAfterMs = NEVER_MS }: { catchUpAfterMs?: number } = {}) {
   const platform = watches();
-  const watcher = new GitWatcherService(workingDirectory, { subscribe: platform.subscribe, followFile: () => ({ close: () => {}, look: () => {} }) });
+  const watcher = new GitWatcherService(workingDirectory, { subscribe: platform.subscribe, followFile: () => ({ close: () => {}, look: () => {} }), catchUpAfterMs });
   cleanups.push(() => watcher.stopWatching());
   const repository = new GitRepository(workingDirectory);
   const changed = vi.fn();
@@ -335,4 +338,25 @@ it('reads the files a report names and no more after a few events, or after a fl
   // Longer than a burst takes to be over
   await new Promise<void>((resolve) => { setTimeout(resolve, 900); });
   expect(changed.mock.calls).toEqual([[null]]);
+});
+
+// The platform starts delivering a moment after a watch opens and says nothing when it does, so an edit made in
+// between is reported by no event: the checkout is reported once a while after opening, whatever was delivered
+it('reports the checkout once a while after its watches open, as one in which anything may have changed, and not once stopped', async () => {
+  const repo = directory('apack-watch-catch-up-');
+  await git(repo, 'init', '--quiet');
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { watcher, changed } = watcherOf(repo, { catchUpAfterMs: 2000 });
+  await start(watcher);
+
+  await vi.advanceTimersByTimeAsync(1900);
+  expect(changed, 'not before the delay').not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(changed.mock.calls, 'once, naming no files').toEqual([[null]]);
+
+  const stopped = watcherOf(repo, { catchUpAfterMs: 2000 });
+  await start(stopped.watcher);
+  await stopped.watcher.stopWatching();
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(stopped.changed, 'a watcher stopped before then').not.toHaveBeenCalled();
 });

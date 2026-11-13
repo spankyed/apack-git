@@ -483,7 +483,7 @@ gaining focus, a terminal command finishing, an agent's turn ending.
 - `isActive(): boolean`
 - `setChangeCallback(callback: (paths: ChangedPaths) => void): void`
 - `setGitRepository(repo: GitRepository): void`
-- `startWatching(signal: AbortSignal): Promise<void>`
+- `startWatching(signal: AbortSignal): Promise<void>` — Opens the watches and resolves once they are open, which is not once they report: the platform starts delivering a moment later and says nothing when it does, so an edit made in between has no event. A while after opening (`catchUpAfterMs`, two seconds unless a host says otherwise), the checkout is reported once as one in which anything may have changed, which covers that edit; a later change no event reported is what `check` is for.
 - `stopWatching(): Promise<void>`
 
 ### `HistoryCommit`

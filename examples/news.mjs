@@ -2,7 +2,8 @@
 // watcher gives, which parts of it git says really changed. It is a host in thirty lines — a repository, a watcher
 // handing it hints, and nothing shown that git did not confirm — and the diagnostic for a watch as well: an edit
 // that prints no hint is one the watch did not deliver, and once checks keep finding such changes the snapshot
-// says the watch is silent.
+// says the watch is silent. Two seconds after it starts it prints one hint of anything: the platform delivers a
+// moment after the watch opens, and that hint is what covers an edit made in between.
 //
 //   npm run build && node examples/news.mjs [folder]   (the folder the process is in when none is given; Ctrl-C stops it)
 //
