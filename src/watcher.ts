@@ -32,6 +32,13 @@ const FLOOD_EVENTS = 1000
  * nothing to watch but the absence of an event
  */
 const FLOOD_QUIET_MS = 500
+/**
+ * How long after the watches open that the checkout is reported once as one in which anything may have changed.
+ * A watch opens before the platform delivers its events, and the platform says nothing when it starts to: on a
+ * loaded Mac an edit made in the first half second after opening was reported by no event, while one made after
+ * it was. A wait on the platform, with no event to wait for, at about twice the longest gap measured
+ */
+const STARTUP_CATCH_UP_MS = 2000
 
 /**
  * What a report says changed: paths in the working tree, relative to the working directory with `/` between
@@ -70,6 +77,7 @@ export class GitWatcherService {
   private readonly subscribe: SubscribeToDirectory
   private readonly follow: FollowFile
   private readonly log: RepositoryLog
+  private readonly catchUpAfterMs: number
   /** Every start, stop and check in order, so two never set subscriptions up at once */
   private establishing: Promise<void> = Promise.resolve()
   /** Moves on every start and stop, which is what tells work begun before one that it is no longer wanted */
@@ -88,17 +96,21 @@ export class GitWatcherService {
    */
   private burst = { events: 0, lastAt: 0, saidAnythingAt: 0 }
   private burstTimeout?: NodeJS.Timeout
+  /** The one report after the watches open, for an edit made before the platform delivered its events */
+  private catchUpTimeout?: NodeJS.Timeout
   private isWatching = false
   private gitRepository?: GitRepository
 
   /**
    * `subscribe` and `followFile` are the platform's watches, which a host or a spec can replace; `log` is where
-   * a watch that could not be opened or closed is said
+   * a watch that could not be opened or closed is said; `catchUpAfterMs` is how long after the watches open the
+   * checkout is reported once as one in which anything may have changed
    */
-  constructor(private workingDirectory: string, { subscribe = subscribeToDirectory, followFile: follow = followFile, log = {} }: { subscribe?: SubscribeToDirectory; followFile?: FollowFile; log?: RepositoryLog } = {}) {
+  constructor(private workingDirectory: string, { subscribe = subscribeToDirectory, followFile: follow = followFile, log = {}, catchUpAfterMs = STARTUP_CATCH_UP_MS }: { subscribe?: SubscribeToDirectory; followFile?: FollowFile; log?: RepositoryLog; catchUpAfterMs?: number } = {}) {
     this.subscribe = subscribe
     this.follow = follow
     this.log = log
+    this.catchUpAfterMs = catchUpAfterMs
   }
 
   setGitRepository(repo: GitRepository): void {
@@ -109,6 +121,13 @@ export class GitWatcherService {
     this.onChangeCallback = callback
   }
 
+  /**
+   * Opens the watches and resolves once they are open, which is not once they report: the platform starts
+   * delivering a moment later and says nothing when it does, so an edit made in between has no event. A while
+   * after opening (`catchUpAfterMs`, two seconds unless a host says otherwise), the checkout is reported once as
+   * one in which anything may have changed, which covers that edit; a later change no event reported is what
+   * `check` is for.
+   */
   async startWatching(signal: AbortSignal): Promise<void> {
     if (this.isWatching || signal.aborted) return
     const generation = ++this.generation
@@ -117,9 +136,11 @@ export class GitWatcherService {
       await this.establish(cancelled)
       if (cancelled()) return
       this.isWatching = true
-      // A watch is not in place when the call that opens it returns: a change made in the next turns is one no
-      // event reports, so starting resolves once it is
-      await new Promise<void>(resolve => setImmediate(() => setImmediate(resolve)))
+      this.catchUpTimeout = setTimeout(() => {
+        this.catchUpTimeout = undefined
+        if (!cancelled()) this.scheduleChange(null)
+      }, this.catchUpAfterMs)
+      this.catchUpTimeout.unref()
     })
     await this.establishing
   }
@@ -331,6 +352,8 @@ export class GitWatcherService {
     this.quietTimeout = undefined
     clearTimeout(this.burstTimeout)
     this.burstTimeout = undefined
+    clearTimeout(this.catchUpTimeout)
+    this.catchUpTimeout = undefined
     this.burst = { events: 0, lastAt: 0, saidAnythingAt: 0 }
     this.pendingSince = undefined
     this.awaitingWrite = false
