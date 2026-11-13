@@ -148,10 +148,6 @@ export class GitRepository {
     return this.model.setWatched(watched, failed)
   }
 
-  get isWatched(): boolean {
-    return this.model.isWatched
-  }
-
   /** Whether this checkout's watches failed: a panel showing it then changes only when it is asked again */
   get hasWatchFailed(): boolean {
     return this.model.hasWatchFailed
@@ -161,12 +157,12 @@ export class GitRepository {
     return this.reads.invalidateCache(paths)
   }
 
-  getCurrentBranch(): Promise<string> {
-    return this.reads.getCurrentBranch()
+  readCurrentBranch(): Promise<string> {
+    return this.reads.readCurrentBranch()
   }
 
-  getStatus(): Promise<GitStatusFile[]> {
-    return this.model.getStatus()
+  readStatus(): Promise<GitStatusFile[]> {
+    return this.model.readStatus()
   }
 
   /**
@@ -213,8 +209,8 @@ export class GitRepository {
     return this.reads.listIgnoredDirectories()
   }
 
-  getDiff(filePath?: string, staged: boolean = false): Promise<string> {
-    return this.reads.getDiff(filePath, staged)
+  readDiff(filePath?: string, staged: boolean = false): Promise<string> {
+    return this.reads.readDiff(filePath, staged)
   }
 
   /**
@@ -222,20 +218,20 @@ export class GitRepository {
    * for tracked files and builds synthetic diffs for untracked ones, avoiding
    * one git subprocess per file.
    */
-  getDiffMulti(paths: string[]): Promise<string> {
-    return this.reads.getDiffMulti(paths)
+  readDiffs(paths: string[]): Promise<string> {
+    return this.reads.readDiffs(paths)
   }
 
-  getFileContent(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<string> {
-    return this.reads.getFileContent(filePath, version)
+  readFileContent(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<string> {
+    return this.reads.readFileContent(filePath, version)
   }
 
   /**
    * The pieces of a file's change that can be staged one at a time, or unstaged when `staged`: of the working
    * tree against the index, or of the index against the last commit. None for a file that is not plainly modified.
    */
-  getHunks(filePath: string, staged: boolean): Promise<DiffHunk[]> {
-    return this.reads.getHunks(filePath, staged)
+  readHunks(filePath: string, staged: boolean): Promise<DiffHunk[]> {
+    return this.reads.readHunks(filePath, staged)
   }
 
   /**
@@ -266,10 +262,6 @@ export class GitRepository {
   /** The same for several at once, kept as one */
   revertFiles(filePaths: string[]): Promise<DiscardKept> {
     return this.writes.revertFiles(filePaths)
-  }
-
-  fileExistsInHead(filePath: string): Promise<boolean> {
-    return this.reads.fileExistsInHead(filePath)
   }
 
   /** The three sides of a conflicted file, the working file and where its conflicts are marked (`ConflictSides`) */
@@ -323,24 +315,16 @@ export class GitRepository {
     if (!result.success) throw failure(result, `Could not add ${directory} to safe.directory`)
   }
 
-  hasUncommittedChanges(): Promise<boolean> {
-    return this.reads.hasUncommittedChanges()
+  readStagedFiles(): Promise<GitStatusFile[]> {
+    return this.reads.readStagedFiles()
   }
 
-  getStagedFiles(): Promise<GitStatusFile[]> {
-    return this.reads.getStagedFiles()
+  findBaseBranch(options?: { preferUpstream?: boolean }): Promise<string> {
+    return this.reads.findBaseBranch(options)
   }
 
-  getUpstreamBranch(): Promise<string | null> {
-    return this.reads.getUpstreamBranch()
-  }
-
-  getBaseBranch(options?: { preferUpstream?: boolean }): Promise<string> {
-    return this.reads.getBaseBranch(options)
-  }
-
-  getBranchDiff(baseBranch: string, targetBranch?: string): Promise<GitStatusFile[]> {
-    return this.reads.getBranchDiff(baseBranch, targetBranch)
+  readBranchDiff(baseBranch: string, targetBranch?: string): Promise<GitStatusFile[]> {
+    return this.reads.readBranchDiff(baseBranch, targetBranch)
   }
 
   /**
@@ -362,8 +346,8 @@ export class GitRepository {
     return this.reads.commitsExist(...refs)
   }
 
-  getFileContentFromBranch(filePath: string, branch: string): Promise<string> {
-    return this.reads.getFileContentFromBranch(filePath, branch)
+  readFileContentFromBranch(filePath: string, branch: string): Promise<string> {
+    return this.reads.readFileContentFromBranch(filePath, branch)
   }
 
   /**
@@ -382,10 +366,10 @@ export class GitRepository {
   /**
    * The files a stash holds against the commit it was made on, each with its count, its untracked files among
    * them as added: what applying it would bring, read without applying it. A file's two sides are
-   * `getFileContentFromBranch(path, 'stash@{n}^1')` and `(path, 'stash@{n}')`, or `'stash@{n}^3'` for an untracked one
+   * `readFileContentFromBranch(path, 'stash@{n}^1')` and `(path, 'stash@{n}')`, or `'stash@{n}^3'` for an untracked one
    */
-  stashChanges(index: number): Promise<ChangedFile[]> {
-    return this.diffs.stashChanges(index)
+  readStashChanges(index: number): Promise<ChangedFile[]> {
+    return this.diffs.readStashChanges(index)
   }
 
   /**
@@ -584,16 +568,12 @@ export class GitRepository {
     return this.refs.model()
   }
 
-  getAllBranches(): Promise<string[]> {
-    return this.reads.getAllBranches()
+  readBranches(): Promise<string[]> {
+    return this.reads.readBranches()
   }
 
   checkoutBranch(branchName: string, onProgress?: (progress: GitProgress) => void): Promise<void> {
     return this.writes.checkoutBranch(branchName, onProgress)
-  }
-
-  isCurrentBranchPublished(): Promise<boolean> {
-    return this.reads.isCurrentBranchPublished()
   }
 
   /** Pushes the branch; `signal` stops it, and the push then rejects with a `GitError` coded `aborted` */
@@ -645,8 +625,8 @@ export class GitRepository {
     return this.writes.worktreeRemove(wtPath, force)
   }
 
-  getCommitsBetweenBranches(baseBranch: string, targetBranch = 'HEAD'): Promise<{ subject: string; body: string }[]> {
-    return this.reads.getCommitsBetweenBranches(baseBranch, targetBranch)
+  readCommitsBetween(baseBranch: string, targetBranch = 'HEAD'): Promise<{ subject: string; body: string }[]> {
+    return this.reads.readCommitsBetween(baseBranch, targetBranch)
   }
 
   gitLog(count = 50): Promise<CommitLogEntry[]> {
@@ -682,21 +662,21 @@ export class GitRepository {
    * A file's bytes: as the working tree has it, as the last commit has it, or as it is staged. Nothing when
    * there is no such file, or it could not be read.
    */
-  getFileBytes(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<Buffer | undefined> {
-    return this.reads.getFileBytes(filePath, version)
+  readFileBytes(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<Buffer | undefined> {
+    return this.reads.readFileBytes(filePath, version)
   }
 
   /** A file's bytes as a branch has it, or nothing when the branch has no such file */
-  getFileBytesFromBranch(filePath: string, branch: string): Promise<Buffer | undefined> {
-    return this.reads.getFileBytesFromBranch(filePath, branch)
+  readFileBytesFromBranch(filePath: string, branch: string): Promise<Buffer | undefined> {
+    return this.reads.readFileBytesFromBranch(filePath, branch)
   }
 
   /**
    * The address of the remote this branch follows, as git would use it (its `insteadOf` rewrites applied).
    * Nothing where there is no remote.
    */
-  getRemoteUrl(): Promise<string | undefined> {
-    return this.reads.getRemoteUrl()
+  readRemoteUrl(): Promise<string | undefined> {
+    return this.reads.readRemoteUrl()
   }
 
   /**
@@ -709,13 +689,13 @@ export class GitRepository {
   }
 
   /** How many commits the checked-out commit has that this branch does not: `Infinity` when git cannot say */
-  getCommitDistance(branch: string): Promise<number> {
-    return this.reads.getCommitDistance(branch)
+  readCommitDistance(branch: string): Promise<number> {
+    return this.reads.readCommitDistance(branch)
   }
 
   /** The branches merged into the checked-out commit whose tip is within `depth` commits of it */
-  getNearbyMergedBranches(depth: number): Promise<string[]> {
-    return this.reads.getNearbyMergedBranches(depth)
+  findNearbyMergedBranches(depth: number): Promise<string[]> {
+    return this.reads.findNearbyMergedBranches(depth)
   }
 
   /**

@@ -115,7 +115,11 @@ export class GitWatcherService {
     const cancelled = () => signal.aborted || generation !== this.generation
     this.establishing = this.establishing.catch(() => {}).then(async () => {
       await this.establish(cancelled)
-      if (!cancelled()) this.isWatching = true
+      if (cancelled()) return
+      this.isWatching = true
+      // A watch is not in place when the call that opens it returns: a change made in the next turns is one no
+      // event reports, so starting resolves once it is
+      await new Promise<void>(resolve => setImmediate(() => setImmediate(resolve)))
     })
     await this.establishing
   }

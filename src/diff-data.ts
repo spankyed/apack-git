@@ -107,7 +107,7 @@ export class DiffData {
    * The files a stash holds, against the commit it was made on, each with its count: what was changed, and what it
    * kept of the files git did not track, which are added. Read without applying it.
    */
-  async stashChanges(index: number): Promise<ChangedFile[]> {
+  async readStashChanges(index: number): Promise<ChangedFile[]> {
     const stash = `stash@{${index}}`
     const parents = await this.parentsOf(stash)
     const changed = await this.between(parents[0], stash)

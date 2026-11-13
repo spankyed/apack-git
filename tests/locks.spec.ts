@@ -73,7 +73,7 @@ function refusing(seam: Seam, command: string, lock: string, onRun: () => void) 
     return Object.assign(failed, { child: new EventEmitter() as unknown as ChildProcess });
   };
 }
-const stagedFiles = async (repo: GitRepository) => (await repo.getStatus()).filter(file => file.staged).map(file => file.path);
+const stagedFiles = async (repo: GitRepository) => (await repo.readStatus()).filter(file => file.staged).map(file => file.path);
 
 // The other git usually lets go within moments of refusing this one: before the repository has looked at the
 // lock, or just after it began to wait

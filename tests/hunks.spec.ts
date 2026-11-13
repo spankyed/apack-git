@@ -32,29 +32,29 @@ const staged = (root: string, file = 'a.txt') => git(root, 'show', `:${file}`);
 it('cuts a file\'s change into its pieces, each where it is on both sides', async () => {
   const { repo } = await repositoryWithTwoEdits();
 
-  expect((await repo.getHunks('a.txt', false)).map(({ patch: _patch, id: _id, ...where }) => where)).toEqual([
+  expect((await repo.readHunks('a.txt', false)).map(({ patch: _patch, id: _id, ...where }) => where)).toEqual([
     { oldStart: 1, oldLines: 6, newStart: 1, newLines: 6 },
     { oldStart: 32, oldLines: 7, newStart: 32, newLines: 7 },
   ]);
-  expect(await repo.getHunks('a.txt', true), 'nothing is staged').toEqual([]);
+  expect(await repo.readHunks('a.txt', true), 'nothing is staged').toEqual([]);
 });
 
 it('stages one piece and leaves the other in the working tree', async () => {
   const { root, repo } = await repositoryWithTwoEdits();
-  const [, bottom] = await repo.getHunks('a.txt', false);
+  const [, bottom] = await repo.readHunks('a.txt', false);
 
   await repo.applyHunk('a.txt', false, bottom!.id);
 
   expect(await staged(root)).toBe(lines(40, { 35: 'the bottom edit' }));
   expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'the file itself is untouched').toBe(lines(40, { 3: 'the top edit', 35: 'the bottom edit' }));
-  expect((await repo.getHunks('a.txt', false)).map(hunk => hunk.newStart), 'one piece is left to stage').toEqual([1]);
-  expect((await repo.getHunks('a.txt', true)).map(hunk => hunk.newStart), 'and one to unstage').toEqual([32]);
+  expect((await repo.readHunks('a.txt', false)).map(hunk => hunk.newStart), 'one piece is left to stage').toEqual([1]);
+  expect((await repo.readHunks('a.txt', true)).map(hunk => hunk.newStart), 'and one to unstage').toEqual([32]);
 });
 
 it('takes one piece back out of what is staged', async () => {
   const { root, repo } = await repositoryWithTwoEdits();
   await git(root, 'add', 'a.txt');
-  const [top] = await repo.getHunks('a.txt', true);
+  const [top] = await repo.readHunks('a.txt', true);
 
   await repo.applyHunk('a.txt', true, top!.id);
 
@@ -64,7 +64,7 @@ it('takes one piece back out of what is staged', async () => {
 // A piece read before the file changed again was cut from lines that are no longer there
 it('refuses a piece read before the file changed, and stages nothing', async () => {
   const { root, repo } = await repositoryWithTwoEdits();
-  const [top] = await repo.getHunks('a.txt', false);
+  const [top] = await repo.readHunks('a.txt', false);
   fs.writeFileSync(path.join(root, 'a.txt'), lines(40, { 3: 'edited again', 35: 'the bottom edit' }));
 
   await expect(repo.applyHunk('a.txt', false, top!.id)).rejects.toThrow('has changed since this change was read');
@@ -74,7 +74,7 @@ it('refuses a piece read before the file changed, and stages nothing', async () 
 
 it('stages a piece of a file whose name git has to quote', async () => {
   const { root, repo } = await repositoryWithTwoEdits('nämé with space.txt');
-  const [top] = await repo.getHunks('nämé with space.txt', false);
+  const [top] = await repo.readHunks('nämé with space.txt', false);
 
   await repo.applyHunk('nämé with space.txt', false, top!.id);
 
@@ -84,7 +84,7 @@ it('stages a piece of a file whose name git has to quote', async () => {
 it('keeps the last line as it is when it has no line break', async () => {
   const { root, repo } = await repositoryWithTwoEdits();
   fs.writeFileSync(path.join(root, 'a.txt'), `${lines(40, { 3: 'the top edit' })}added with no break`);
-  const [, last] = await repo.getHunks('a.txt', false);
+  const [, last] = await repo.readHunks('a.txt', false);
 
   await repo.applyHunk('a.txt', false, last!.id);
 
@@ -104,10 +104,10 @@ it('offers no pieces of a file that is new, deleted, renamed or binary', async (
   await git(root, 'add', 'added.txt');
   await git(root, 'mv', 'a.txt', 'moved.txt');
 
-  expect(await repo.getHunks('image.bin', false)).toEqual([]);
-  expect(await repo.getHunks('added.txt', true)).toEqual([]);
-  expect(await repo.getHunks('new.txt', true)).toEqual([]);
-  expect(await repo.getHunks('moved.txt', true)).toEqual([]);
+  expect(await repo.readHunks('image.bin', false)).toEqual([]);
+  expect(await repo.readHunks('added.txt', true)).toEqual([]);
+  expect(await repo.readHunks('new.txt', true)).toEqual([]);
+  expect(await repo.readHunks('moved.txt', true)).toEqual([]);
 });
 
 // Alone, a piece is looked for where the whole diff numbered it, which is off by what the pieces above it added:
@@ -121,7 +121,7 @@ it('stages a piece into its own lines when another block above it reads the same
   await git(root, 'commit', '--quiet', '-m', 'ci');
   // Eight lines added at the top, which is the distance between the two blocks, and one line changed in the second
   fs.writeFileSync(path.join(root, 'ci.yml'), file(Array.from({ length: 8 }, (_, index) => `# note ${index}`), '22'));
-  const pieces = await repo.getHunks('ci.yml', false);
+  const pieces = await repo.readHunks('ci.yml', false);
   expect(pieces).toHaveLength(2);
 
   await repo.applyHunk('ci.yml', false, pieces[1]!.id);
@@ -139,7 +139,7 @@ it('takes a piece back out of its own lines when another block above it reads th
   const notes = Array.from({ length: 8 }, (_, index) => `# note ${index}`);
   fs.writeFileSync(path.join(root, 'ci.yml'), file(notes, '20', '22'));
   await git(root, 'add', 'ci.yml');
-  const pieces = await repo.getHunks('ci.yml', true);
+  const pieces = await repo.readHunks('ci.yml', true);
 
   await repo.applyHunk('ci.yml', true, pieces[1]!.id);
 
@@ -154,7 +154,7 @@ it('stages the bytes the file holds when they are not UTF-8', async () => {
   await git(root, 'add', 'legacy.properties');
   await git(root, 'commit', '--quiet', '-m', 'legacy');
   fs.writeFileSync(path.join(root, 'legacy.properties'), latin1('one=1\ntwo=2\ngreeting=caf\xe9\nthree=3\n'));
-  const [piece] = await repo.getHunks('legacy.properties', false);
+  const [piece] = await repo.readHunks('legacy.properties', false);
 
   await repo.applyHunk('legacy.properties', false, piece!.id);
 
@@ -177,7 +177,7 @@ it.each([
   await git(root, 'commit', '--quiet', '-m', 'second');
   fs.writeFileSync(path.join(root, 'src', 'a.txt'), lines(40, { 20: 'the inner edit' }));
   await git(root, 'config', key, value);
-  const [piece] = await repo.getHunks('src/a.txt', false);
+  const [piece] = await repo.readHunks('src/a.txt', false);
 
   await repo.applyHunk('src/a.txt', false, piece!.id);
 
@@ -189,7 +189,7 @@ it.each([
 it('stages a second piece read before the first was staged', async () => {
   const { root, repo } = await repositoryWithTwoEdits();
   fs.writeFileSync(path.join(root, 'a.txt'), lines(40, { 3: 'the top edit\nand a line more', 35: 'the bottom edit' }));
-  const [top, bottom] = await repo.getHunks('a.txt', false);
+  const [top, bottom] = await repo.readHunks('a.txt', false);
 
   await repo.applyHunk('a.txt', false, top!.id);
   await repo.applyHunk('a.txt', false, bottom!.id);
@@ -205,5 +205,5 @@ it('cuts the pieces of the file named, and not of others its name matches as a p
   await git(root, 'commit', '--quiet', '-m', 'more');
   for (const name of ['a.txt', 'b.txt']) fs.writeFileSync(path.join(root, name), lines(40, { 20: 'another edit' }));
 
-  expect((await repo.getHunks('[ab].txt', false)).map(hunk => hunk.newStart)).toEqual([1, 32]);
+  expect((await repo.readHunks('[ab].txt', false)).map(hunk => hunk.newStart)).toEqual([1, 32]);
 });

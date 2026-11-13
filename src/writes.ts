@@ -140,7 +140,7 @@ export class GitWrites {
   async revertFile(filePath: string): Promise<DiscardKept> {
     refuseNamesNotText([filePath])
     return this.withWriteFlag(async () => {
-      const status = await this.model.getStatus()
+      const status = await this.model.readStatus()
       const fileStatus = status.find(f => f.path === filePath)
       const kept = await this.discards.keep([filePath])
 
@@ -196,7 +196,7 @@ export class GitWrites {
     refuseNamesNotText(filePaths)
     if (filePaths.length === 0) return { notKept: [] }
     return this.withWriteFlag(async () => {
-      const status = await this.model.getStatus()
+      const status = await this.model.readStatus()
       const statusMap = new Map(status.map(f => [f.path, f.status]))
       const kept = await this.discards.keep(filePaths)
 
@@ -471,7 +471,7 @@ export class GitWrites {
     
     return this.withWriteFlag(async () => {
       // The branch this one is made from, if it has to be made here: where it was is not written down otherwise
-      const from = await this.reads.getCurrentBranch().catch(() => 'HEAD')
+      const from = await this.reads.readCurrentBranch().catch(() => 'HEAD')
       // Try to checkout the branch
       // The `--` ends the names of branches: without it, a name that is no branch and is a tracked file or folder
       // is checked out as that path, over whatever was changed in it

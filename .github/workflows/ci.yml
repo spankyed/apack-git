@@ -39,6 +39,8 @@ jobs:
       - run: git --version
       - run: npm ci
       - run: npm run typecheck
+      # The reference is the source's, and every export in it has a spec that uses it
+      - run: npm run reference:check
       - run: npm run build
       - run: npm test
 
@@ -80,6 +82,8 @@ jobs:
           node-version: 24
       - run: git --version
       - run: npm ci
+      # The example program's spec runs the built package
+      - run: npm run build
       - run: npm test
 
   # What the engine's work costs at 1,000 and 100,000 files, printed with the machine's conditions beside it. It

@@ -4,7 +4,7 @@
 import type { RepositorySnapshot } from './types.ts'
 
 /** Why something cannot be done now */
-export const UNAVAILABLE_REASONS = [
+const UNAVAILABLE_REASONS = [
   /** A commit with nothing staged */
   'nothing-staged',
   /** Files are still in conflict, which a commit, a pull and a sync wait for */

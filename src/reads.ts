@@ -190,9 +190,9 @@ export class GitReads {
     
     // If .git files changed, invalidate branch-related caches
     if (paths.some(p => p.includes('.git'))) {
+      // Both ways the base branch is asked for
       this.cache.delete('baseBranch')
-      this.cache.delete('prBaseBranch')
-      this.cache.delete('gitRepoValidated')
+      this.cache.delete('baseBranch:preferUpstream')
     }
     
     // Invalidate binary file cache for changed files
@@ -201,7 +201,7 @@ export class GitReads {
     })
   }
 
-  async getCurrentBranch(): Promise<string> {
+  async readCurrentBranch(): Promise<string> {
     const result = await this.runner.executeGitCommand(['rev-parse', '--abbrev-ref', 'HEAD'])
     if (result.success && result.output) {
       return result.output.trim()
@@ -332,10 +332,10 @@ export class GitReads {
     }
   }
 
-  async getDiff(filePath?: string, staged: boolean = false): Promise<string> {
+  async readDiff(filePath?: string, staged: boolean = false): Promise<string> {
     // For untracked files, we need to show the file content as an addition
     if (filePath) {
-      const status = await this.model.getStatus()
+      const status = await this.model.readStatus()
       const fileStatus = status.find(f => f.path === filePath && f.staged === staged)
 
       if (fileStatus?.status === 'untracked') {
@@ -364,9 +364,9 @@ export class GitReads {
    * for tracked files and builds synthetic diffs for untracked ones, avoiding
    * one git subprocess per file.
    */
-  async getDiffMulti(paths: string[]): Promise<string> {
+  async readDiffs(paths: string[]): Promise<string> {
     const unique = [...new Set(paths)]
-    const status = await this.model.getStatus()
+    const status = await this.model.readStatus()
     const untrackedSet = new Set(
       status.filter(f => f.status === 'untracked').map(f => f.path),
     )
@@ -493,7 +493,7 @@ export class GitReads {
     }
   }
 
-  async getFileContent(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<string> {
+  async readFileContent(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<string> {
     if (version === 'working') {
       // Working-tree reads don't touch the git index — no queue needed
       try {
@@ -527,7 +527,7 @@ export class GitReads {
    * The pieces of a file's change that can be staged one at a time, or unstaged when `staged`: of the working
    * tree against the index, or of the index against the last commit. None for a file that is not plainly modified.
    */
-  async getHunks(filePath: string, staged: boolean): Promise<DiffHunk[]> {
+  async readHunks(filePath: string, staged: boolean): Promise<DiffHunk[]> {
     return (await this.cutHunks(filePath, staged)).map(({ apply: _apply, ...hunk }) => hunk)
   }
 
@@ -588,13 +588,8 @@ export class GitReads {
     return result.success
   }
 
-  async hasUncommittedChanges(): Promise<boolean> {
-    const status = await this.model.getStatus()
-    return status.length > 0
-  }
-
-  async getStagedFiles(): Promise<GitStatusFile[]> {
-    const status = await this.model.getStatus()
+  async readStagedFiles(): Promise<GitStatusFile[]> {
+    const status = await this.model.readStatus()
     return status.filter(file => file.staged)
   }
 
@@ -615,7 +610,7 @@ export class GitReads {
     return null
   }
 
-  async getBaseBranch(options?: { preferUpstream?: boolean }): Promise<string> {
+  async findBaseBranch(options?: { preferUpstream?: boolean }): Promise<string> {
     const preferUpstream = options?.preferUpstream !== false
 
     const cacheKey = preferUpstream ? 'baseBranch:preferUpstream' : 'baseBranch'
@@ -681,13 +676,13 @@ export class GitReads {
     return undefined
   }
 
-  async getCommitDistance(branch: string): Promise<number> {
+  async readCommitDistance(branch: string): Promise<number> {
     const result = await this.runner.executeGitCommand(['rev-list', '--count', `${branch}..HEAD`])
     if (!result.success || !result.output) return Infinity
     return parseInt(result.output.trim(), 10)
   }
 
-  async getNearbyMergedBranches(depth: number): Promise<string[]> {
+  async findNearbyMergedBranches(depth: number): Promise<string[]> {
     const result = await this.runner.executeGitCommand([
       'branch', '--merged', 'HEAD', '--contains', `HEAD~${depth}`, '--format=%(refname:short)',
     ])
@@ -702,7 +697,7 @@ export class GitReads {
     return result.output.trim().split('\n').filter(Boolean)
   }
 
-  async getBranchDiff(baseBranch: string, targetBranch?: string): Promise<GitStatusFile[]> {
+  async readBranchDiff(baseBranch: string, targetBranch?: string): Promise<GitStatusFile[]> {
     const target = targetBranch || 'HEAD'
     
     // Get the list of changed files between branches with NUL termination and rename detection
@@ -759,16 +754,16 @@ export class GitReads {
     return result.success
   }
 
-  async getFileContentFromBranch(filePath: string, branch: string): Promise<string> {
+  async readFileContentFromBranch(filePath: string, branch: string): Promise<string> {
     // A file the branch does not have is not an error
-    return (await this.getFileBytesFromBranch(filePath, branch))?.toString('utf8') ?? ''
+    return (await this.readFileBytesFromBranch(filePath, branch))?.toString('utf8') ?? ''
   }
 
   /**
    * Every local branch, then every remote one, each most recently committed first. A branch of `origin` is
    * named as the local branch it would be checked out as; one of another remote keeps `remotes/<remote>/`.
    */
-  async getAllBranches(): Promise<string[]> {
+  async readBranches(): Promise<string[]> {
     // Read from the refs themselves, one per record: `git branch` decorates its lines for a person, marking the
     // current branch, one checked out in another worktree and a detached HEAD
     const result = await this.runner.executeGitCommand([
@@ -824,7 +819,7 @@ export class GitReads {
     return parseWorktreeList(result.output, this.workingDirectory)
   }
 
-  async getCommitsBetweenBranches(baseBranch: string, targetBranch = 'HEAD'): Promise<{ subject: string; body: string }[]> {
+  async readCommitsBetween(baseBranch: string, targetBranch = 'HEAD'): Promise<{ subject: string; body: string }[]> {
     const result = await this.runner.executeGitCommand([
       'log', '-z', `${refArgument(baseBranch, 'base branch')}..${refArgument(targetBranch, 'branch')}`,
       '--format=%s%x00%b',
@@ -864,7 +859,7 @@ export class GitReads {
    * A file's bytes: as the working tree has it, as the last commit has it, or as it is staged. Nothing when
    * there is no such file, or it could not be read.
    */
-  async getFileBytes(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<Buffer | undefined> {
+  async readFileBytes(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<Buffer | undefined> {
     const relativePath = filePath.startsWith(this.workingDirectory)
       ? filePath.slice(this.workingDirectory.length + 1)
       : filePath
@@ -877,7 +872,7 @@ export class GitReads {
   }
 
   /** A file's bytes as a branch has it, or nothing when the branch has no such file */
-  async getFileBytesFromBranch(filePath: string, branch: string): Promise<Buffer | undefined> {
+  async readFileBytesFromBranch(filePath: string, branch: string): Promise<Buffer | undefined> {
     // A path with a colon in it, or one that starts like an option, is named from the top of the tree
     const special = filePath.includes(':') || filePath.startsWith('-')
     return this.fileInCommit(`${refArgument(branch, 'branch')}:${special ? './' : ''}${filePath}`)
@@ -887,7 +882,7 @@ export class GitReads {
    * The address of the remote this branch follows, as git would use it (its `insteadOf` rewrites applied).
    * Nothing where there is no remote.
    */
-  async getRemoteUrl(): Promise<string | undefined> {
+  async readRemoteUrl(): Promise<string | undefined> {
     const result = await this.runner.executeGitCommand(['ls-remote', '--get-url'])
     return (result.success && result.output?.trim()) || undefined
   }

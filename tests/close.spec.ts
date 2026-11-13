@@ -44,7 +44,7 @@ it('settles once the commands it was asked have run to their end, those waiting 
   expect(started.length).toBeGreaterThanOrEqual(3);
   expect(started.filter(child => child.exitCode === null && child.signalCode === null), 'every git it started has exited').toEqual([]);
   await Promise.all(asked);
-  expect((await repo.getStatus()).filter(file => file.staged).map(file => file.path).sort()).toEqual(['a.txt', 'b.txt']);
+  expect((await repo.readStatus()).filter(file => file.staged).map(file => file.path).sort()).toEqual(['a.txt', 'b.txt']);
   await repo.close();
 });
 
@@ -52,6 +52,6 @@ it('is used again as before once it is closed', async () => {
   const { repo } = await repository();
   await repo.close();
 
-  expect(await repo.getFileContent('a.txt', 'HEAD')).toBe('one\n');
+  expect(await repo.readFileContent('a.txt', 'HEAD')).toBe('one\n');
   await repo.close();
 });

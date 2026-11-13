@@ -117,7 +117,7 @@ it('says the remote asked for a sign-in git does not have, and which remote that
   const repo = new GitRepository(root);
 
   expect(await refusal(repo.pushBranch())).toMatchObject({ code: 'authentication' });
-  expect(await repo.getRemoteUrl()).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/repo\.git$/);
+  expect(await repo.readRemoteUrl()).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/repo\.git$/);
 });
 
 it('makes a branch git does not know, and refuses a checkout that would overwrite work', async () => {

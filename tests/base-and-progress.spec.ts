@@ -1,6 +1,6 @@
 // Three things the engine says of what it runs: which branch a branch was made from, where that was written
 // down; how far along a push or a pull is; and each command with how long it took. Every case runs a real git.
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -10,6 +10,7 @@ import { removeDirectory } from './_support/remove.ts';
 
 const directories: string[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   for (const directory of directories.splice(0)) await removeDirectory(directory);
 });
 
@@ -71,6 +72,57 @@ it('answers nothing when the branch that was written down is gone', async () => 
   await commit(root, 'c.txt', 'on topic');
 
   expect(await new GitRepository(root).rememberedBaseOf('topic')).toBeUndefined();
+});
+
+// Where nothing wrote down what a branch was made from, a pull request is based on the branch the remote's HEAD
+// names, or else the first of the usual names there is a branch by. The answer is kept a few seconds, and found
+// again once the host says the refs may have moved
+it('answers the branch a pull request is based on, and finds it again once told the refs changed', async () => {
+  // Kept for a while, and here no while passes
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const root = scratch('apack-base-');
+  await git(root, 'init', '--quiet', '--initial-branch=develop');
+  await commit(root, 'a.txt', 'first');
+  const repo = new GitRepository(root);
+  const base = () => repo.findBaseBranch({ preferUpstream: false });
+  expect(await base(), 'there is no main or master').toBe('develop');
+  expect(await repo.findBaseBranch(), 'asked the default way, with no upstream to prefer').toBe('develop');
+
+  await git(root, 'branch', 'main');
+  expect(await base(), 'nothing has said the refs changed').toBe('develop');
+  repo.invalidateCache(['.git/refs/heads/main']);
+  expect(await base()).toBe('main');
+  expect(await repo.findBaseBranch(), 'and found again asked either way').toBe('main');
+
+  await git(root, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
+  await git(root, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
+  repo.clearCache();
+  expect(await base(), 'the remote\'s HEAD comes first').toBe('trunk');
+});
+
+// A branch made from another is nearer to it than to the branch that one was made from, in commits
+it('counts the commits here since a branch, and lists the branches merged here whose tip is near', async () => {
+  const root = scratch('apack-base-');
+  await git(root, 'init', '--quiet', '--initial-branch=main');
+  await commit(root, 'a.txt', 'first');
+  await git(root, 'branch', 'old');
+  await git(root, 'branch', 'unmerged');
+  await commit(root, 'a.txt', 'second');
+  await git(root, 'checkout', '--quiet', '-b', 'feature-a');
+  await commit(root, 'a.txt', 'on feature-a');
+  await git(root, 'checkout', '--quiet', '-b', 'feature-b');
+  await commit(root, 'a.txt', 'on feature-b');
+  await git(root, 'checkout', '--quiet', 'unmerged');
+  await commit(root, 'b.txt', 'on unmerged');
+  await git(root, 'checkout', '--quiet', 'feature-b');
+  const repo = new GitRepository(root);
+
+  expect(await repo.readCommitDistance('main')).toBe(2);
+  expect(await repo.readCommitDistance('feature-a')).toBe(1);
+  expect(await repo.readCommitDistance('no-such-branch'), 'git cannot say').toBe(Infinity);
+
+  expect((await repo.findNearbyMergedBranches(2)).sort(), 'old is further back, and unmerged is not merged').toEqual(['feature-a', 'feature-b', 'main']);
+  expect((await repo.findNearbyMergedBranches(10)).sort(), 'fewer commits than that: every branch merged here').toEqual(['feature-a', 'feature-b', 'main', 'old']);
 });
 
 /** A repository with one commit and a bare remote it has not pushed to */
@@ -144,7 +196,7 @@ it('says each command with how long it took and why it failed to the log it is h
   const logged: string[] = [];
   const repo = new GitRepository(root, { log: { command: line => logged.push(line) } });
 
-  await repo.getCurrentBranch();
+  await repo.readCurrentBranch();
   await removeDirectory(remote);
   await repo.pushBranch().catch(() => {});
 
