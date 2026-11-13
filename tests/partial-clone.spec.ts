@@ -61,7 +61,7 @@ it.runIf(refusesToFetch)('answers a read of content the clone never fetched as m
   // The remote is there to be fetched from, so a read that reached it would answer with the content
   const { has, repo } = await partialClone();
 
-  const refused = await refusal(repo.getFileContentFromBranch('a.txt', 'HEAD~1'));
+  const refused = await refusal(repo.readFileContentFromBranch('a.txt', 'HEAD~1'));
 
   expect(refused).toBeInstanceOf(GitError);
   expect((refused as GitError).code).toBe('content-missing');
@@ -71,14 +71,14 @@ it.runIf(refusesToFetch)('answers a read of content the clone never fetched as m
 it.runIf(refusesToFetch)('answers a file the commit does not have as no file, as it does outside a partial clone', async () => {
   const { repo } = await partialClone();
 
-  expect(await repo.getFileContentFromBranch('not-there.txt', 'HEAD~1')).toBe('');
-  expect(await repo.getFileContentFromBranch('a.txt', 'HEAD'), 'and one it has, as it has it').toBe('two\n');
+  expect(await repo.readFileContentFromBranch('not-there.txt', 'HEAD~1')).toBe('');
+  expect(await repo.readFileContentFromBranch('a.txt', 'HEAD'), 'and one it has, as it has it').toBe('two\n');
 });
 
 it('fetches what is missing when whoever asked says it may', async () => {
   const { has, repo } = await partialClone();
 
-  expect(await repo.fetchingMissing(() => repo.getFileContentFromBranch('a.txt', 'HEAD~1'))).toBe('one\n');
+  expect(await repo.fetchingMissing(() => repo.readFileContentFromBranch('a.txt', 'HEAD~1'))).toBe('one\n');
   expect(await has(), 'and the clone has it now').toBe(true);
 });
 
@@ -96,7 +96,7 @@ it.runIf(!refusesToFetch)('on a git that cannot be told not to fetch, waits for 
   const waiting = new GitRepository(root, { environment: () => ({ ...process.env, GIT_SSH_COMMAND: `${quoted(process.execPath)} ${quoted(helper)}` }) });
 
   const fetching = waiting.fetch();
-  const read = waiting.getFileContentFromBranch('a.txt', 'HEAD~1');
+  const read = waiting.readFileContentFromBranch('a.txt', 'HEAD~1');
   let answered = false;
   void read.then(() => { answered = true; }, () => { answered = true; });
   // Long enough for a read that waited behind nothing to have answered many times over

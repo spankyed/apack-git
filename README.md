@@ -23,6 +23,13 @@ await repo.refreshSnapshot('noted')  // which parts really differ: status, diffs
 await repo.stageFiles(paths)         // resolves, or rejects with a `GitError` carrying a code
 ```
 
+## What is supported
+
+Linux, macOS and Windows, with Node 24.12 or later, and git from 2.35.0 (`GIT_FLOOR`) to the newest. CI runs exactly
+that on every push: the whole suite on each of the three systems with the git its runner installs, which is the
+newest, and again against git 2.35.0 built from its source, Debian 12's own git and macOS's own (`.github/workflows/ci.yml`).
+An older git is refused by name (`GitUnusableError`) rather than half working.
+
 ## What holds it together
 
 - **The engine owns one working tree's truth and every git process. A host owns who is looking, what to show
@@ -47,11 +54,13 @@ await repo.stageFiles(paths)         // resolves, or rejects with a `GitError` c
   `restoreDiscarded` puts it back. The user's index, refs and stash are not touched. Nothing refers to that tree,
   so git keeps it for as long as it keeps such objects: two weeks, unless told otherwise.
 
-## Two entries
+## Three entries
 
 - `apack-git` is the engine, for Node.
 - `apack-git/staging` is where a file will be listed once it is staged or unstaged, worked out before git
   answers. It imports nothing of Node's, so a window can use it.
+- `apack-git/availability` says whether a commit, a push, a pull and a sync can be done from a snapshot, and why
+  not when one cannot. It imports nothing of Node's either.
 
 ## Budgets
 
@@ -68,7 +77,7 @@ and Windows (the `budgets` jobs); a million files is read by hand.
 
 Each is about twice the slowest reading on an unloaded machine below, so a machine that is not busy keeps to it. A
 busy one does not, as the macOS readings taken under load show, and a whole status over its budget is what the
-snapshot's `slowStatus` reports (`STATUS_BUDGET_MS`).
+snapshot's `slowStatus` reports, against the budget a host sets (`RepositoryTies.statusBudgetMs`, 1 s when none is set).
 
 A status of one path costs about what a whole one does at 100,000 files and more: git matches the path against every
 file in the index. What the engine saves there is the process for each path, not git's walk.
@@ -90,6 +99,14 @@ jobs; the million is a dispatch of CI by hand (`budget_sizes: 1000000`) and a ru
 | CI by hand, 2026-11-12 | macOS arm64 (virtual), 3 cores, load 85.6 | 2.56.0 | 1,000,000 | 11,874 ms | 34,961 ms | 13,301 ms | 32,850 ms |
 | CI by hand, 2026-11-12 | Windows x64, 4 cores | 2.56.0.windows.4 | 1,000,000 | 1,384 ms | 1,009 ms | 958 ms | 25,812 ms |
 | By hand, 2026-11-12 | macOS arm64, Apple M1 Pro, 10 cores, loaded | 2.38.1 | 1,000,000 | 11,054 ms | 12,273 ms | 12,564 ms | 47,189 ms |
+
+## The reference, and an example
+
+[`REFERENCE.md`](REFERENCE.md) is every export of both entries with its comment and its signature, generated from
+the source (`npm run reference:update`); CI fails when it differs from the source, or when an export or a public
+member is used by no spec. [`examples/news.mjs`](examples/news.mjs) is a host in thirty lines: it prints what a
+folder's repository is and then each piece of news as it happens (`npm run example -- <folder>`). It is the
+diagnostic for a watch as well: an edit that prints nothing is one the watch did not deliver.
 
 ## Using it
 

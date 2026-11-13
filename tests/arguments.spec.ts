@@ -61,9 +61,9 @@ it('refuses an option given as a branch', async () => {
 
   await expect(repo.fetchRemoteBranch(option)).rejects.toThrow('Invalid branch');
   await expect(repo.deleteRemoteBranch('--force')).rejects.toThrow('Invalid branch');
-  await expect(repo.getBranchDiff('--output=/dev/null')).rejects.toThrow('Invalid base branch');
-  await expect(repo.getFileContentFromBranch('a.txt', '--textconv')).rejects.toThrow('Invalid branch');
-  await expect(repo.getCommitsBetweenBranches('--all')).rejects.toThrow('Invalid base branch');
+  await expect(repo.readBranchDiff('--output=/dev/null')).rejects.toThrow('Invalid base branch');
+  await expect(repo.readFileContentFromBranch('a.txt', '--textconv')).rejects.toThrow('Invalid branch');
+  await expect(repo.readCommitsBetween('--all')).rejects.toThrow('Invalid base branch');
   await expect(repo.checkoutBranch('--detach')).rejects.toThrow('Invalid branch name');
   expect(fs.existsSync(marker)).toBe(false);
   expect(await git(root, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main');
@@ -94,5 +94,5 @@ it('reads an image from a commit with every byte as it was committed', async () 
   await git(root, 'commit', '--quiet', '-m', 'image');
   fs.rmSync(path.join(root, 'pixel.png'));
 
-  expect(await repo.getFileBytes('pixel.png', 'HEAD')).toEqual(bytes);
+  expect(await repo.readFileBytes('pixel.png', 'HEAD')).toEqual(bytes);
 });

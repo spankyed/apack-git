@@ -76,7 +76,7 @@ it('lists what a stash holds without applying it, its untracked files among them
   await setup.git('stash', 'push', '--quiet', '--include-untracked');
   const before = await setup.git('status', '--porcelain');
 
-  const changes = await setup.repo.stashChanges(0);
+  const changes = await setup.repo.readStashChanges(0);
 
   expect(changes.map(({ path: file, status, added, removed }) => [file, status, added, removed])).toEqual([
     ['image.bin', 'modified', 0, 0],
@@ -85,4 +85,21 @@ it('lists what a stash holds without applying it, its untracked files among them
     ['untracked.txt', 'added', 2, 0],
   ]);
   expect(await setup.git('status', '--porcelain'), 'and the working tree is as it was').toBe(before);
+});
+
+// A tool asks for the diff of several files in one go, whether git tracks them or not
+it('writes one diff of several files, a changed one and one git does not track, and nothing of one unchanged', async () => {
+  const { write, repo } = await repository();
+  write('text.txt', 'replaced\n');
+  write('fresh.txt', 'a new line\n');
+
+  const diff = await repo.readDiffs(['text.txt', 'fresh.txt', 'old-name.txt']);
+
+  expect(diff).toContain('diff --git a/text.txt b/text.txt');
+  expect(diff).toMatch(/^-line 0$/m);
+  expect(diff).toMatch(/^\+replaced$/m);
+  expect(diff).toContain('diff --git a/fresh.txt b/fresh.txt');
+  expect(diff).toContain('+++ b/fresh.txt');
+  expect(diff).toMatch(/^\+a new line$/m);
+  expect(diff).not.toContain('old-name.txt');
 });

@@ -31,7 +31,7 @@ async function repository(untracked: string[]) {
   for (const file of untracked) write(root, file);
   return { root, repo: new GitRepository(root) };
 }
-const rows = async (repo: GitRepository) => (await repo.getStatus()).map(({ path: file, status, staged, isDirectory }) =>
+const rows = async (repo: GitRepository) => (await repo.readStatus()).map(({ path: file, status, staged, isDirectory }) =>
   `${file} ${staged ? 'staged ' : ''}${status}${isDirectory ? ' folder' : ''}`);
 
 it('lists a folder git tracks nothing in as one row, and a new file among tracked ones by its name', async () => {

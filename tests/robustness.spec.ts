@@ -77,7 +77,7 @@ it('lists branches by name, whatever git would draw beside them', async () => {
   // A detached HEAD, which `git branch` lists as a line of its own
   await git(root, 'checkout', '--quiet', '--detach');
 
-  expect((await repo.getAllBranches()).sort()).toEqual(['feature/in-a-worktree', 'main', 'plain']);
+  expect((await repo.readBranches()).sort()).toEqual(['feature/in-a-worktree', 'main', 'plain']);
 });
 
 it('reads what a failure means whatever language the user reads git in', async () => {
@@ -135,6 +135,6 @@ it('reads a commit, a stash and a range whose text holds what could pass for a s
   const [latest, first] = await repo.gitLog(5);
   expect(latest).toMatchObject({ subject: 'a|||b ---RECORD_SEP--- c', body: 'body line one\n\nbody ||| line two', authorName: 'spec' });
   expect(first).toMatchObject({ subject: 'first', body: '' });
-  expect(await repo.getCommitsBetweenBranches('main', 'topic')).toEqual([{ subject: 'a|||b ---RECORD_SEP--- c', body: 'body line one\n\nbody ||| line two' }]);
+  expect(await repo.readCommitsBetween('main', 'topic')).toEqual([{ subject: 'a|||b ---RECORD_SEP--- c', body: 'body line one\n\nbody ||| line two' }]);
   expect(await repo.stashList()).toMatchObject([{ index: 0, ref: 'stash@{0}', message: 'On topic: wip ||| with bars' }]);
 });

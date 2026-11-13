@@ -24,6 +24,7 @@
   "files": [
     "dist",
     "README.md",
+    "REFERENCE.md",
     "LICENSE"
   ],
   "repository": {
@@ -39,7 +40,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "soak:sequences": "vitest run --config vitest.soak.config.ts",
-    "budgets": "node scripts/budgets.mjs"
+    "budgets": "node scripts/budgets.mjs",
+    "reference:check": "node scripts/reference.mjs",
+    "reference:update": "node scripts/reference.mjs --write",
+    "example": "npm run build && node examples/news.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",

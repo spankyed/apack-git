@@ -115,16 +115,12 @@ export class RepositoryModel {
     this.markSnapshotStale()
   }
 
-  get isWatched(): boolean {
-    return this.watched
-  }
-
   /** Whether this checkout's watches failed: a panel showing it then changes only when it is asked again */
   get hasWatchFailed(): boolean {
     return this.watchFailed
   }
 
-  async getStatus(): Promise<GitStatusFile[]> {
+  async readStatus(): Promise<GitStatusFile[]> {
     return (await this.readSnapshot()).files
   }
 

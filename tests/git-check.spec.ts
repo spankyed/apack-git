@@ -41,7 +41,7 @@ it('refuses every command when git is older than the floor, naming the version, 
 
   expect(refused).toBeInstanceOf(GitUnusableError);
   expect(refused.unusable).toMatchObject({ code: 'git-too-old', version: '2.30.1' });
-  expect(await refusal(repo.getCurrentBranch())).toMatchObject({ code: 'git-too-old' });
+  expect(await refusal(repo.readCurrentBranch())).toMatchObject({ code: 'git-too-old' });
   expect(ran, 'git was asked its version once, and nothing else').toEqual(['git --version']);
 });
 

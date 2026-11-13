@@ -36,7 +36,7 @@ async function repository(change: Step) {
   await change(root);
   return root;
 }
-const listed = (root: string) => new GitRepository(root).getStatus();
+const listed = (root: string) => new GitRepository(root).readStatus();
 
 const edit = (file: string, content = 'two\n'): Step => root => write(root, file, content);
 const add = (...files: string[]): Step => root => git(root, 'add', '--', ...files);

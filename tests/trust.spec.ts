@@ -72,11 +72,11 @@ it('does not run a conversion program named in a file the repository\'s configur
   fs.writeFileSync(path.join(root, '.gitattributes'), '*.txt diff=words\n');
   const repo = new GitRepository(root);
 
-  const error = await refused(repo.getDiff('a.txt'));
+  const error = await refused(repo.readDiff('a.txt'));
 
   expect(error.asks).toEqual([{ kind: 'setting', key: 'diff.words.textconv', value: program, file: included }]);
   expect(ran()).toBe(false);
-  expect(await refused(repo.getFileContent('a.txt', 'HEAD')), 'nor is the git kept open for reading files started').toBeInstanceOf(UntrustedError);
+  expect(await refused(repo.readFileContent('a.txt', 'HEAD')), 'nor is the git kept open for reading files started').toBeInstanceOf(UntrustedError);
 });
 
 it('does not run a hook the repository holds, at a write or at a read that moves a ref', async () => {
@@ -140,6 +140,11 @@ it('names a repository by where its git state really lives, which a linked workt
   await new GitRepository(linked, { isTrusted }).readSnapshot();
 
   expect([...new Set(asked)]).toEqual([path.join(root, '.git')]);
+
+  // A refusal names it too, which is what a host trusts when the user says to
+  for (const checkout of [root, linked]) {
+    expect((await refused(new GitRepository(checkout).readSnapshot())).repository, checkout).toBe(path.join(root, '.git'));
+  }
 });
 
 it('says nothing is trusted and nothing asked where there is no repository', async () => {

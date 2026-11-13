@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { run } from './_support/process.ts';
 import { removeDirectory } from './_support/remove.ts';
-import { GitError, GitRepository } from '../src/index.ts';
+import { GitError, GitRepository, StashConflictError } from '../src/index.ts';
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });
@@ -72,4 +72,31 @@ it('stashes only the paths it is given, and only what is staged when asked', asy
   await repo.stashPush('what is staged', true);
   expect(await git('stash', 'show', '--name-only', 'stash@{0}')).toBe('b.txt');
   expect(await git('status', '--porcelain')).toBe('M a.txt');
+});
+
+it('applies a stash and keeps it, pops one and drops it, and says one that conflicts was applied with conflicts and kept', async () => {
+  const { root, git, repo } = await repository();
+  const file = path.join(root, 'a.txt');
+  fs.writeFileSync(file, 'stashed\n');
+  await git('stash', 'push', '--quiet');
+
+  await repo.stashApply(0);
+  expect(fs.readFileSync(file, 'utf8')).toBe('stashed\n');
+  expect(await git('stash', 'list', '--format=%s'), 'applied, and kept').not.toBe('');
+  await git('checkout', '--', 'a.txt');
+  await repo.stashPop(0);
+  expect(fs.readFileSync(file, 'utf8')).toBe('stashed\n');
+  expect(await git('stash', 'list'), 'popped, and dropped').toBe('');
+
+  // The line the stash changes was changed by a commit since
+  await git('stash', 'push', '--quiet');
+  fs.writeFileSync(file, 'committed\n');
+  await git('commit', '--quiet', '-am', 'committed');
+  for (const [name, take] of [['apply', () => repo.stashApply(0)], ['pop', () => repo.stashPop(0)]] as const) {
+    const conflicted = await take().then(() => undefined, (error: unknown) => error);
+    expect(conflicted, name).toBeInstanceOf(StashConflictError);
+    expect((await repo.readSnapshot()).files, `${name}: the file is in conflict`).toMatchObject([{ path: 'a.txt', status: 'unmerged' }]);
+    expect(await git('stash', 'list', '--format=%s'), `${name}: and the stash is kept`).not.toBe('');
+    await git('reset', '--hard', '--quiet');
+  }
 });

@@ -92,27 +92,41 @@ it('answers nothing for a file the commit does not have, for a directory, and fo
 it('reads a branch where it is now, after a commit made by another git', async () => {
   const root = await repository({ 'a.txt': 'one\n' });
   const repo = opened(root);
-  expect(await repo.getFileContent('a.txt', 'HEAD')).toBe('one\n');
+  expect(await repo.readFileContent('a.txt', 'HEAD')).toBe('one\n');
 
   write(root, 'a.txt', 'two\n');
   await git(root, 'commit', '--quiet', '-am', 'second');
 
-  expect(await repo.getFileContent('a.txt', 'HEAD')).toBe('two\n');
-  expect(await repo.getFileContentFromBranch('a.txt', 'main')).toBe('two\n');
+  expect(await repo.readFileContent('a.txt', 'HEAD')).toBe('two\n');
+  expect(await repo.readFileContentFromBranch('a.txt', 'main')).toBe('two\n');
+});
+
+it('reads a file\'s bytes as another branch has them, and nothing for a file that branch does not have', async () => {
+  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
+  const root = await repository({ 'a.txt': 'one\n' });
+  await git(root, 'checkout', '--quiet', '-b', 'images');
+  write(root, 'image.png', bytes);
+  await git(root, 'add', '.');
+  await git(root, 'commit', '--quiet', '-m', 'an image');
+  await git(root, 'checkout', '--quiet', 'main');
+  const repo = opened(root);
+
+  expect(await repo.readFileBytesFromBranch('image.png', 'images')).toEqual(bytes);
+  expect(await repo.readFileBytesFromBranch('image.png', 'main')).toBeUndefined();
 });
 
 // The staged version is the index's, which a git that stays open reads once: it is asked of a git of its own
 it('reads the staged version as it is now, after a file was staged by another git', async () => {
   const root = await repository({ 'a.txt': 'one\n' });
   const repo = opened(root);
-  expect(await repo.getFileContent('a.txt', 'HEAD')).toBe('one\n');
-  expect(await repo.getFileContent('a.txt', 'index')).toBe('one\n');
+  expect(await repo.readFileContent('a.txt', 'HEAD')).toBe('one\n');
+  expect(await repo.readFileContent('a.txt', 'index')).toBe('one\n');
 
   write(root, 'a.txt', 'staged\n');
   await git(root, 'add', 'a.txt');
 
-  expect(await repo.getFileContent('a.txt', 'index')).toBe('staged\n');
-  expect(await repo.getFileContent('a.txt', 'HEAD'), 'and the commit is as it was').toBe('one\n');
+  expect(await repo.readFileContent('a.txt', 'index')).toBe('staged\n');
+  expect(await repo.readFileContent('a.txt', 'HEAD'), 'and the commit is as it was').toBe('one\n');
 });
 
 // Windows allows no line break in a file's name, so there is none there to read
@@ -120,8 +134,8 @@ it.skipIf(process.platform === 'win32')('reads a file whose name one line cannot
   const root = await repository({ 'a\nb.txt': 'odd\n', 'with:colon.txt': 'colon\n' });
   const repo = opened(root);
 
-  expect(await repo.getFileContent('a\nb.txt', 'HEAD')).toBe('odd\n');
-  expect(await repo.getFileContentFromBranch('with:colon.txt', 'main')).toBe('colon\n');
+  expect(await repo.readFileContent('a\nb.txt', 'HEAD')).toBe('odd\n');
+  expect(await repo.readFileContentFromBranch('with:colon.txt', 'main')).toBe('colon\n');
 });
 
 it('lets its git go once nothing has been read for a while, and opens another for the next read', async () => {
@@ -154,7 +168,7 @@ it('fails what was being read when its git is ended, and reads again after', asy
 it('has no git left in the repository once it is closed, so its directory is deleted at once', async () => {
   const root = await repository({ 'a.txt': 'one\n' });
   const repo = opened(root);
-  await repo.getFileContent('a.txt', 'HEAD');
+  await repo.readFileContent('a.txt', 'HEAD');
   const objects = reader(root);
   await objects.read('HEAD:a.txt');
 
