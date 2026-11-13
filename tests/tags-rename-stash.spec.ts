@@ -95,6 +95,7 @@ it('applies a stash and keeps it, pops one and drops it, and says one that confl
   for (const [name, take] of [['apply', () => repo.stashApply(0)], ['pop', () => repo.stashPop(0)]] as const) {
     const conflicted = await take().then(() => undefined, (error: unknown) => error);
     expect(conflicted, name).toBeInstanceOf(StashConflictError);
+    expect(conflicted, `${name}: a conflict, by the code every git error carries`).toMatchObject({ code: 'conflict' });
     expect((await repo.readSnapshot()).files, `${name}: the file is in conflict`).toMatchObject([{ path: 'a.txt', status: 'unmerged' }]);
     expect(await git('stash', 'list', '--format=%s'), `${name}: and the stash is kept`).not.toBe('');
     await git('reset', '--hard', '--quiet');

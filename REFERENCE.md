@@ -852,7 +852,7 @@ settingRunsNothing(key: string, value: string): boolean
 
 ### `StashConflictError`
 
-Thrown when a stash apply/pop succeeds partially but leaves conflicts.
+A stash applied or popped with conflicts: its changes are in the working tree with conflict markers
 
 
 ### `StashEntry`

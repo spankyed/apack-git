@@ -103,3 +103,31 @@ it('writes one diff of several files, a changed one and one git does not track, 
   expect(diff).toMatch(/^\+a new line$/m);
   expect(diff).not.toContain('old-name.txt');
 });
+
+// A file git does not track has no diff of git's own, so the engine writes one; it must be a patch git can apply
+it('shows a file git does not track as a patch that rebuilds it, whether it ends its last line or not', async () => {
+  const { root, git, write, repo } = await repository();
+  const contents = { 'ended.txt': 'one\ntwo\n', 'unended.txt': 'one\ntwo', 'single.txt': 'only\n', 'empty.txt': '' };
+  for (const [file, content] of Object.entries(contents)) write(file, content);
+
+  const diffs = Object.fromEntries(await Promise.all(Object.keys(contents).map(async file => [file, await repo.readDiff(file)])));
+  for (const file of Object.keys(contents)) fs.rmSync(path.join(root, file));
+  for (const [file, content] of Object.entries(contents)) {
+    fs.writeFileSync(path.join(root, `${file}.patch`), diffs[file]!);
+    await git('apply', `${file}.patch`);
+    expect(fs.readFileSync(path.join(root, file), 'utf8'), file).toBe(content);
+  }
+  expect(diffs['ended.txt'], 'two lines are two').toContain('@@ -0,0 +1,2 @@\n+one\n+two\n');
+});
+
+it('shows a file inside a folder git does not track, and an absolute path inside the repository, as added', async () => {
+  const { root, write, repo } = await repository();
+  fs.mkdirSync(path.join(root, 'folder'));
+  write('folder/inner.txt', 'inside\n');
+  write('fresh.txt', 'a new line\n');
+
+  const diff = await repo.readDiffs(['folder/inner.txt', path.join(root, 'fresh.txt')]);
+
+  expect(diff).toContain('+++ b/folder/inner.txt\n@@ -0,0 +1 @@\n+inside\n');
+  expect(diff, 'named as git names it, not by where it is on disk').toContain('+++ b/fresh.txt\n@@ -0,0 +1 @@\n+a new line\n');
+});

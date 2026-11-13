@@ -1,7 +1,7 @@
 // The example program a host can start from (`examples/news.mjs`), run as a person runs it over a real repository:
 // it says what the repository is, and an edit made while it watches is news of that file. It runs the built
 // package, as a host does, so `npm run build` comes first; CI builds before it tests.
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, onTestFailed } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -37,6 +37,8 @@ it('says what the repository is, and an edit made while it watches is news of th
   const take = (data: Buffer) => { printed += data.toString(); for (const waiter of waiters.splice(0)) waiter(); };
   program.stdout!.on('data', take);
   program.stderr!.on('data', take);
+  // A wait that never ends shows only the timeout, so what the program said is printed beside it
+  onTestFailed(() => console.error(`What the example printed:\n${printed}`));
   const printedLine = (pattern: RegExp) => new Promise<void>((resolve, reject) => {
     const look = () => {
       if (pattern.test(printed)) resolve();
