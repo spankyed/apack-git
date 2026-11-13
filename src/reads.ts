@@ -85,6 +85,22 @@ export function parseWorktreeList(output: string, current: string): WorktreeEntr
   return entries
 }
 
+
+/**
+ * A text file shown as added, as `git diff` shows one: a newline ends a line rather than starting another, a last
+ * line without one is marked, and an empty file has no hunk
+ */
+function addedText(name: string, content: string): string {
+  const header = `diff --git a/${name} b/${name}\nnew file mode 100644\nindex 0000000..0000000\n`
+  if (content === '') return header
+  const ended = content.endsWith('\n')
+  const lines = (ended ? content.slice(0, -1) : content).split(/\r?\n/)
+  return header
+    + `--- /dev/null\n+++ b/${name}\n@@ -0,0 +1${lines.length === 1 ? '' : `,${lines.length}`} @@\n`
+    + lines.map(line => `+${line}\n`).join('')
+    + (ended ? '' : '\\ No newline at end of file\n')
+}
+
 export class GitReads {
   private cache = new Map<string, CachedResult<any>>()
 
@@ -367,17 +383,21 @@ export class GitReads {
   async readDiffs(paths: string[]): Promise<string> {
     const unique = [...new Set(paths)]
     const status = await this.model.readStatus()
-    const untrackedSet = new Set(
-      status.filter(f => f.status === 'untracked').map(f => f.path),
-    )
+    const untrackedRows = status.filter(f => f.status === 'untracked')
 
     const tracked: string[] = []
     const untracked: string[] = []
     const external: string[] = []
-    for (const p of unique) {
-      if (path.isAbsolute(p) && !p.startsWith(this.workingDirectory + '/')) {
-        external.push(p)
-      } else if (untrackedSet.has(p)) {
+    for (const given of unique) {
+      // A path is given as git names it, or absolute; an absolute one inside the repository is named as git does
+      const relative = path.isAbsolute(given) ? path.relative(this.workingDirectory, given) : given
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        external.push(given)
+        continue
+      }
+      const p = relative.split(path.sep).join('/')
+      // A file inside a folder listed as one row is untracked too, though it has no row of its own
+      if (untrackedRows.some(row => row.path === p || (row.isDirectory && p.startsWith(row.path)))) {
         untracked.push(p)
       } else {
         tracked.push(p)
@@ -406,7 +426,8 @@ export class GitReads {
       chunks.push(await this.buildSyntheticDiffAbsolute(p))
     }
 
-    return chunks.filter(Boolean).join('\n')
+    // Each chunk ends its last line, as git's own output does
+    return chunks.join('')
   }
 
   /** Build a synthetic diff for an untracked file (new file / directory / binary). */
@@ -424,29 +445,17 @@ export class GitReads {
 
     // Binary
     if (await this.isBinaryFile(fullPath)) {
-      const relativePath = path.relative(this.workingDirectory, fullPath)
       return (
-        `diff --git a/${relativePath} b/${relativePath}\n` +
+        `diff --git a/${filePath} b/${filePath}\n` +
         `new file mode 100644\n` +
         `index 0000000..0000000\n` +
-        `Binary files /dev/null and b/${relativePath} differ\n`
+        `Binary files /dev/null and b/${filePath} differ\n`
       )
     }
 
     // Text file
     try {
-      const content = await fs.readFile(fullPath, 'utf8')
-      const lines = content.split(/\r?\n/)
-      const relativePath = path.relative(this.workingDirectory, fullPath)
-      return (
-        `diff --git a/${relativePath} b/${relativePath}\n` +
-        `new file mode 100644\n` +
-        `index 0000000..0000000\n` +
-        `--- /dev/null\n` +
-        `+++ b/${relativePath}\n` +
-        `@@ -0,0 +1,${lines.length} @@\n` +
-        lines.map(line => `+${line}`).join('\n')
-      )
+      return addedText(filePath, await fs.readFile(fullPath, 'utf8'))
     } catch (error) {
       throw new Error(`Failed to read untracked file: ${error}`)
     }
@@ -477,17 +486,7 @@ export class GitReads {
     }
 
     try {
-      const content = await fs.readFile(absPath, 'utf8')
-      const lines = content.split(/\r?\n/)
-      return (
-        `diff --git a/${absPath} b/${absPath}\n` +
-        `new file mode 100644\n` +
-        `index 0000000..0000000\n` +
-        `--- /dev/null\n` +
-        `+++ b/${absPath}\n` +
-        `@@ -0,0 +1,${lines.length} @@\n` +
-        lines.map(line => `+${line}`).join('\n')
-      )
+      return addedText(absPath, await fs.readFile(absPath, 'utf8'))
     } catch {
       return ''
     }

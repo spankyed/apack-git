@@ -14,10 +14,10 @@ import { BASE_KEY, type GitReads } from './reads.ts'
 import { failure, type GitCommandResult, type GitRunner } from './runner.ts'
 import type { ConflictAnswer, DiscardKept, DiscardRestored, GitProgress, OperationMove, RewriteStep } from './types.ts'
 
-/** Thrown when a stash apply/pop succeeds partially but leaves conflicts. */
-export class StashConflictError extends Error {
+/** A stash applied or popped with conflicts: its changes are in the working tree with conflict markers */
+export class StashConflictError extends GitError {
   constructor(message: string) {
-    super(message)
+    super(message, 'conflict')
     this.name = 'StashConflictError'
   }
 }
