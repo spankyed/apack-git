@@ -54,7 +54,8 @@ it('names the hooks a command ran in the log of commands, and a commit they let 
 it('says a write is running until it has finished, and calls what waits for it then, or at once when none is', async () => {
   // The hook holds the commit until it is told to go on, and ends by itself when the server it waits on goes
   const server = net.createServer();
-  const hooked = new Promise<net.Socket>((resolve) => { server.once('connection', resolve); });
+  // The hook's going resets the connection where the platform says so (Windows), which is the ending it is meant to have
+  const hooked = new Promise<net.Socket>((resolve) => { server.once('connection', (socket) => { socket.on('error', () => {}); resolve(socket); }); });
   await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve); });
   const { port } = server.address() as net.AddressInfo;
   const { repo } = await withHook(0, `require('node:net').connect(${port}, '127.0.0.1').on('data', () => process.exit(0)).on('close', () => process.exit(1)).on('error', () => process.exit(1));\n`);
