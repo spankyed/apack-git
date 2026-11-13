@@ -84,7 +84,10 @@ const text = `${lines.join('\n').trimEnd()}\n`
 // What the specs use, read from every identifier in them that the checker resolves to a declaration of the source:
 // a declaration rather than a symbol, since a member reached through an instance is a symbol made for that type
 const used = new Set()
-for (const spec of program.getSourceFiles().filter(file => file.fileName.startsWith(path.join(ROOT, 'tests') + path.sep))) {
+// The program names its files with `/` on every platform, so they are compared as resolved paths
+const specs = program.getSourceFiles().filter(file => path.resolve(file.fileName).startsWith(path.join(ROOT, 'tests') + path.sep))
+if (specs.length === 0) throw new Error('No spec was found to read, which would have counted every export as unused')
+for (const spec of specs) {
   const visit = (node) => {
     if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) {
       const symbol = checker.getSymbolAtLocation(node)
