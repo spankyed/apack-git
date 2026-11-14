@@ -119,7 +119,8 @@ const SIGNS: readonly (readonly [GitErrorCode, RegExp])[] = [
   ['conflict', /^CONFLICT \(|^Automatic merge failed|^(error|fatal): .*[Mm]erge conflict/m],
   // Changes to tracked files. Untracked files in the way are not these, and git's own words name them
   ['local-changes', /^error: Your local changes/m],
-  ['unknown-ref', /^(error|fatal): pathspec '.*' did not match|^fatal: invalid reference: |^fatal: .*cannot be resolved|^fatal: .*unknown revision/m],
+  // A ref fetched by name that the remote does not have, as a pull request's head is once its branch is deleted
+  ['unknown-ref', /^(error|fatal): pathspec '.*' did not match|^fatal: invalid reference: |^fatal: .*cannot be resolved|^fatal: .*unknown revision|^fatal: couldn't find remote ref /m],
   ['not-a-repository', /^fatal: not a git repository/im],
   ['unsafe-ownership', OWNED_BY_ANOTHER],
   ['signing-failed', /^error: gpg failed to sign the data/m],

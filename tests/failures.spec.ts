@@ -101,6 +101,13 @@ it('says the remote could not be reached when it is gone', async () => {
   expect(await refusal(new GitRepository(root).pushBranch())).toMatchObject({ code: 'remote-unreachable' });
 });
 
+it('says a branch the remote does not have is unknown, when it is fetched by name', async () => {
+  const { root } = await sharedWithAnotherClone();
+
+  // What a pull request's head is once its branch was deleted on the remote: git prints "couldn't find remote ref"
+  expect(await refusal(new GitRepository(root).fetchRemoteBranch('gone'))).toMatchObject({ code: 'unknown-ref' });
+});
+
 /** A remote over HTTP that answers every request as one wanting a sign-in */
 async function remoteWantingASignIn(): Promise<string> {
   const server = http.createServer((_request, response) => {
