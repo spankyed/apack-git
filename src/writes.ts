@@ -450,6 +450,16 @@ export class GitWrites {
     })
   }
 
+  async fetchPullRequest(number: number, remote = 'origin'): Promise<string> {
+    if (!Number.isInteger(number) || number < 1) throw new Error(`Invalid pull request number: ${JSON.stringify(number)}`)
+    const ref = `refs/remotes/${refArgument(remote, 'remote')}/pull/${number}`
+    return this.withWriteFlag(async () => {
+      const result = await this.runner.executeGitCommand(['fetch', '--no-tags', remote, `+refs/pull/${number}/head:${ref}`])
+      if (!result.success) throw failure(result, `Failed to fetch pull request #${number}`)
+      return ref
+    })
+  }
+
   async deleteRemoteBranch(branch: string): Promise<void> {
     return this.withWriteFlag(async () => {
       const result = await this.runner.executeGitCommand(['push', 'origin', '--delete', refArgument(branch, 'branch')])
