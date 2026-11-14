@@ -334,13 +334,13 @@ interface GitProgress {
 - `conflictSides(filePath: string): Promise<ConflictSides>` — The three sides of a conflicted file, the working file and where its conflicts are marked (`ConflictSides`)
 - `createTag(name: string, options?: { commit?: string; message?: string; }): Promise<void>` — Makes a tag at `commit` (what is checked out when none), annotated with `message` when one is given
 - `deleteBranch(name: string): Promise<void>` — Deletes a local branch, merged or not; `undo` makes it again where it was, with what it followed
-- `deleteRemoteBranch(branch: string): Promise<void>`
+- `deleteRemoteBranch(branch: string, remote?: string): Promise<void>` — Deletes `branch` on `remote` (`origin` unless named)
 - `deleteTag(name: string): Promise<void>`
 - `discardNotKept(filePaths: string[]): Promise<string[]>` — The paths, among what discarding these would remove, that are too large for a discard to keep a copy of: what a host says cannot be brought back, before it is discarded
 - `fetch(signal?: AbortSignal): Promise<{ success: boolean; code?: GitErrorCode; error?: string; }>` — Fetches from the remote this branch follows, and says whether it did and, when it did not, why. When to fetch is the host's to decide: nothing here fetches unasked.
 - `fetchingMissing<T>(read: () => Promise<T>): Promise<T>` — Runs `read`, whose reads of this repository may fetch what a partial clone has not: what a read answers with `content-missing` otherwise. They wait in line with the fetches and pushes while they do, since they reach the remote. Only what `read` calls is let fetch; every other read goes on fetching nothing.
 - `fetchPullRequest(number: number, remote?: string): Promise<string>` — Fetches what a pull request proposes from where GitHub keeps it, `refs/pull/<number>/head`, into `refs/remotes/<remote>/pull/<number>`, and answers that ref. GitHub keeps it after the pull request's branch is deleted, and for a pull request from a fork, whose branch is on no remote of this repository. Throws a `GitError` when the remote has no such pull request
-- `fetchRemoteBranch(branch: string): Promise<void>`
+- `fetchRemoteBranch(branch: string, remote?: string): Promise<string>` — Fetches `branch` from `remote` (`origin` unless named) into its remote-tracking ref, and answers that ref. Throws a `GitError` when the fetch fails, the remote having no such branch included
 - `findBaseBranch(options?: { preferUpstream?: boolean; }): Promise<string>`
 - `findNearbyMergedBranches(depth: number): Promise<string[]>` — The branches merged into the checked-out commit whose tip is within `depth` commits of it
 - `getWorkingDir(): string`
@@ -356,6 +356,7 @@ interface GitProgress {
 - `listUntracked(directory: string): Promise<{ files: string[]; truncated: boolean; }>` — The files in an untracked folder that git would list, were it asked to list every one: those it does not ignore. `directory` is a folder row's path, from the top of the checkout.
 - `markSnapshotStale(): void` — The repository may have changed in any way: the next snapshot asked for is read from git, all of it
 - `merge(target: string): Promise<void>` — Merges a branch or a commit into what is checked out, after a checkpoint of the working tree. One that stops on conflicts is the operation in progress the snapshot describes, and is refused with `conflict`; one that goes through can be undone, which puts the branch and its files back and keeps what the user changed since
+- `mergeBase(first: string, second: string): Promise<string | undefined>` — The commit two commits' histories last share, or nothing when they share none or one is not a commit here
 - `moveOperation(move: OperationMove): Promise<void>` — Carries on with what git is in the middle of, leaves out the commit a rebase stopped at, or gives it up. Carrying on takes the message git proposes, there being no editor for it to open (`gitEnvironment`).
 - `noteChanged(paths: string[] | null): void` — Notes what a watcher saw change, which is what the next snapshot asked for reads: these paths in the working tree, relative to the working directory with `/` between their parts, or everything when it could not name them
 - `onWriteComplete(callback: () => void): void` — Register a one-shot callback that fires when all pending writes finish.
@@ -375,6 +376,7 @@ interface GitProgress {
 - `readFileContent(filePath: string, version?: "HEAD" | "working" | "index"): Promise<string>`
 - `readFileContentFromBranch(filePath: string, branch: string): Promise<string>`
 - `readHunks(filePath: string, staged: boolean): Promise<DiffHunk[]>` — The pieces of a file's change that can be staged one at a time, or unstaged when `staged`: of the working tree against the index, or of the index against the last commit. None for a file that is not plainly modified.
+- `readRemote(): Promise<{ name: string; url: string; } | undefined>` — The remote a pull request or a push goes to: the one the current branch follows, else `origin`, else the only remote there is; with its address as git would use it. Nothing where there is no remote, or several and none of them is followed or named `origin`
 - `readRemoteUrl(): Promise<string | undefined>` — The address of the remote this branch follows, as git would use it (its `insteadOf` rewrites applied). Nothing where there is no remote.
 - `readSnapshot(): Promise<RepositorySnapshot>` — The checkout's changed files, branch and distance from its upstream.  A snapshot is reused until something says the repository may have changed: a watcher's event, a write made here, a reconcile. It never waits on the remote: `fetchIfDue` is what fetches.
 - `readStagedFiles(): Promise<GitStatusFile[]>`
