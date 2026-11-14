@@ -2,7 +2,7 @@
 // running while it runs, so a watcher's report waits for it instead of racing it.
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { commitArgument, refArgument, rowSpec, stashArgument } from './arguments.ts'
+import { branchNameArgument, commitArgument, refArgument, rowSpec, stashArgument } from './arguments.ts'
 import { DiscardStore } from './discards.ts'
 import { rebaseWithTodo, refusePublished } from './rewrite.ts'
 import type { CheckpointStore } from './checkpoints.ts'
@@ -49,6 +49,25 @@ export class GitWrites {
   private async headRef(): Promise<string> {
     const result = await this.runner.executeGitCommand(['symbolic-ref', '--quiet', 'HEAD'])
     return result.success ? (result.output ?? '').trim() || 'HEAD' : 'HEAD'
+  }
+
+  /**
+   * The remote a branch is published to, as git would push it with a remote set: the branch's `pushRemote`, then
+   * `remote.pushDefault`, then the remote it follows; else `origin`, else the only remote. Refused as `no-remote`
+   * when the repository has none, or several and nothing names one.
+   */
+  private async publishRemote(branch: string): Promise<string> {
+    const setting = async (key: string) => (await this.runner.executeGitCommand(['config', '--get', key])).output?.trim() || undefined
+    const remotes = (await this.runner.executeGitCommand(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
+    for (const key of [`branch.${branch}.pushRemote`, 'remote.pushDefault', `branch.${branch}.remote`]) {
+      const named = await setting(key)
+      if (named && remotes.includes(named)) return named
+    }
+    if (remotes.includes('origin')) return 'origin'
+    if (remotes.length === 1) return remotes[0]!
+    throw new GitError(remotes.length === 0
+      ? 'This repository has no remote to publish the branch to: add one first.'
+      : `This repository has several remotes (${remotes.join(', ')}) and none is set to push to: set remote.pushDefault, or push the branch once from a terminal.`, 'no-remote')
   }
 
   /** The stashes there are, newest first, each with the commit it is and its message */
@@ -472,57 +491,54 @@ export class GitWrites {
     })
   }
 
+  /**
+   * Checks out a branch there is: a local one, or one a single remote has, which git makes a local branch
+   * following it. A name no branch has is refused as `unknown-ref`, naming it; `createBranch` makes one. Nothing
+   * is fetched or pulled.
+   */
   async checkoutBranch(branchName: string, onProgress?: (progress: GitProgress) => void): Promise<void> {
-    if (!branchName.trim()) {
-      throw new Error('Branch name cannot be empty')
-    }
-    
-    // Validate branch name to prevent command injection
-    if (branchName.startsWith('-') || !/^[a-zA-Z0-9._/-]+$/.test(branchName)) {
-      throw new Error('Invalid branch name. Branch names can only contain letters, numbers, dots, underscores, hyphens, and forward slashes.')
-    }
-    
+    branchNameArgument(branchName)
     return this.withWriteFlag(async () => {
-      // The branch this one is made from, if it has to be made here: where it was is not written down otherwise
-      const from = await this.reads.readCurrentBranch().catch(() => 'HEAD')
-      // Try to checkout the branch
       // The `--` ends the names of branches: without it, a name that is no branch and is a tracked file or folder
       // is checked out as that path, over whatever was changed in it
       const result = await this.runner.executeGitCommand(['checkout', '--progress', branchName, '--'], { onProgress })
 
       if (!result.success) {
-        // Check if it's because the branch doesn't exist locally or can't be resolved
         if (result.code === 'unknown-ref') {
-          // Try to create a new branch tracking the remote
-          const remoteResult = await this.runner.executeGitCommand(['checkout', '-b', branchName, `origin/${branchName}`])
-          if (!remoteResult.success) {
-            // If that fails too, just create a new local branch
-            const newBranchResult = await this.runner.executeGitCommand(['checkout', '-b', branchName])
-            if (!newBranchResult.success) {
-              throw failure(newBranchResult, `Failed to create branch: ${branchName}`)
-            }
-            if (from !== 'HEAD') await this.runner.executeGitCommand(['config', `branch.${branchName}.${BASE_KEY}`, from])
-          }
+          throw new GitError(`There is no branch named ${branchName}, here or on a remote.`, result.code)
         } else if (result.code === 'local-changes') {
-          // Git is preventing checkout due to conflicts
           throw new GitError('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code)
         } else {
           throw failure(result, `Failed to checkout branch: ${branchName}`)
         }
       }
 
-      // After successful checkout, pull latest (best-effort)
-      try {
-        const hasUpstream = await this.reads.isCurrentBranchPublished()
-        if (hasUpstream) {
-          await this.runner.executeGitCommand(['pull'])
-        }
-      } catch {
-        // Pull failed (network issue, etc.) — checkout still succeeded, so ignore
-      }
-
-      // Clear cache after branch switch
       this.reads.clearCache()
+    })
+  }
+
+  /**
+   * Makes a branch at what is checked out and checks it out, writing down the branch it was made from. A name a
+   * branch already has is refused as `branch-exists`.
+   */
+  async createBranch(branchName: string): Promise<void> {
+    branchNameArgument(branchName)
+    return this.withWriteFlag(async () => {
+      // The branch this one is made from: where it was is not written down otherwise
+      const from = await this.reads.readCurrentBranch().catch(() => 'HEAD')
+      const result = await this.runner.executeGitCommand(['checkout', '-b', branchName, '--'])
+      if (!result.success) throw failure(result, `Failed to create branch: ${branchName}`)
+      if (from !== 'HEAD') await this.runner.executeGitCommand(['config', `branch.${branchName}.${BASE_KEY}`, from])
+      this.reads.clearCache()
+    })
+  }
+
+  /** Deletes this repository's record of `branch` on `remote`, as a fetch that prunes would; the remote is not asked */
+  async deleteRemoteTrackingBranch(branch: string, remote = 'origin'): Promise<void> {
+    const ref = `refs/remotes/${refArgument(remote, 'remote')}/${refArgument(branch, 'branch')}`
+    return this.withWriteFlag(async () => {
+      const result = await this.runner.executeGitCommand(['update-ref', '-d', ref])
+      if (!result.success) throw failure(result, `Failed to delete ${remote}/${branch}`)
     })
   }
 
@@ -533,16 +549,15 @@ export class GitWrites {
    */
   async pushBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void> {
     return this.withWriteFlag(async () => {
-      // Check if branch is published
+      const branch = await this.reads.readCurrentBranch().catch(() => 'HEAD')
+      if (branch === 'HEAD') throw new GitError('Nothing is pushed while no branch is checked out: check out a branch, or make one here.', 'detached-head')
       const isPublished = await this.reads.isCurrentBranchPublished()
 
-      // Use appropriate push command
-      // Use HEAD instead of branch name for unpublished branches to avoid
-      // case-sensitivity issues on macOS (git push -u origin <name> fails
-      // when the ref case doesn't match the filesystem case)
+      // An unpublished branch is pushed as `HEAD` rather than by name: `git push -u <remote> <name>` fails on macOS
+      // when the ref's case does not match the file system's
       const args = isPublished
         ? ['push', '--progress']
-        : ['push', '--progress', '-u', 'origin', 'HEAD']
+        : ['push', '--progress', '-u', await this.publishRemote(branch), 'HEAD']
 
       const result = await this.runner.executeGitCommand(args, { onProgress, signal })
 

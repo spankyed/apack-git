@@ -16,6 +16,18 @@ export function refArgument(name: string, what = 'ref'): string {
 }
 
 /**
+ * A branch name a caller gave, to check out or make: letters, digits, `.`, `_`, `-` and `/`, not beginning with a
+ * dash. Narrower than git's own rule, which takes names a shell or a URL reads otherwise.
+ */
+export function branchNameArgument(name: string): string {
+  if (!name.trim()) throw new Error('Branch name cannot be empty')
+  if (name.startsWith('-') || !/^[a-zA-Z0-9._/-]+$/.test(name)) {
+    throw new Error('Invalid branch name. Branch names can only contain letters, numbers, dots, underscores, hyphens, and forward slashes.')
+  }
+  return name
+}
+
+/**
  * The records of a listing whose fields are separated by NUL and whose records, under `-z`, end with one: every
  * `fields` values are one record. NUL is the one byte a commit message, a ref or a path cannot hold, so no
  * subject or body can be mistaken for a separator.

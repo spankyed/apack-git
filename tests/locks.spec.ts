@@ -104,9 +104,9 @@ it('stages a file once the lock was renamed away, as git does when it has writte
 it('waits the same for a lock on a ref', async () => {
   const { root, repo, seam } = await repository();
   const lock = locked(root, path.join('refs', 'heads', 'topic'));
-  const runs = watched(seam, ['checkout', '-b', 'topic'], () => fs.rmSync(lock));
+  const runs = watched(seam, ['checkout', '-b', 'topic', '--'], () => fs.rmSync(lock));
 
-  await repo.checkoutBranch('topic');
+  await repo.createBranch('topic');
 
   expect(runs(), 'making the branch was refused once, then run again').toBe(2);
   expect((await repo.readSnapshot()).branch).toBe('topic');

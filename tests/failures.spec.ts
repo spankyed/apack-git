@@ -127,12 +127,17 @@ it('says the remote asked for a sign-in git does not have, and which remote that
   expect(await repo.readRemoteUrl()).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/repo\.git$/);
 });
 
-it('makes a branch git does not know, and refuses a checkout that would overwrite work', async () => {
+it('refuses a branch git does not know, naming it, and a checkout that would overwrite work', async () => {
   const root = await repository();
   const repo = new GitRepository(root);
 
-  await repo.checkoutBranch('topic');
-  expect((await repo.readSnapshot()).branch, 'a name git did not know became a branch').toBe('topic');
+  expect(await refusal(repo.checkoutBranch('topic'))).toMatchObject({ code: 'unknown-ref', message: expect.stringContaining('topic') });
+  expect((await repo.readSnapshot()).branch, 'no branch was made of the name').toBe('main');
+  expect(await repo.readBranches()).toEqual(['main']);
+
+  await repo.createBranch('topic');
+  expect((await repo.readSnapshot()).branch).toBe('topic');
+  expect(await refusal(repo.createBranch('topic')), 'a name a branch has').toMatchObject({ code: 'branch-exists' });
 
   write(root, 'a.txt', 'topic\n');
   await git(root, 'commit', '--quiet', '-am', 'on topic');
@@ -160,7 +165,7 @@ it.each([
 
 // A name that is no branch and is a tracked folder is, to `git checkout <name>`, that folder: checked out over
 // whatever was changed in it
-it('makes a branch of a name that is also a tracked folder, and leaves the work in that folder alone', async () => {
+it('makes a branch of a name that is also a tracked folder, and leaves the work in that folder alone either way', async () => {
   const root = await repository();
   fs.mkdirSync(path.join(root, 'docs'));
   write(root, 'docs/guide.md', 'committed\n');
@@ -169,7 +174,10 @@ it('makes a branch of a name that is also a tracked folder, and leaves the work 
   write(root, 'docs/guide.md', 'not committed\n');
   const repo = new GitRepository(root);
 
-  await repo.checkoutBranch('docs');
+  expect(await refusal(repo.checkoutBranch('docs')), 'a folder is no branch').toMatchObject({ code: 'unknown-ref' });
+  expect(fs.readFileSync(path.join(root, 'docs/guide.md'), 'utf8')).toBe('not committed\n');
+
+  await repo.createBranch('docs');
 
   expect((await repo.readSnapshot()).branch).toBe('docs');
   expect(fs.readFileSync(path.join(root, 'docs/guide.md'), 'utf8')).toBe('not committed\n');
@@ -179,7 +187,7 @@ it('makes a branch whose name holds a word git prints for another failure', asyn
   const root = await repository();
   const repo = new GitRepository(root);
 
-  await repo.checkoutBranch('fix/CONFLICT-markers');
+  await repo.createBranch('fix/CONFLICT-markers');
 
   expect((await repo.readSnapshot()).branch).toBe('fix/CONFLICT-markers');
 });

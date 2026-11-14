@@ -84,9 +84,10 @@ it('reads what a failure means whatever language the user reads git in', async (
   const { root, repo } = await repository();
   environment({ LC_ALL: 'de_DE.UTF-8', LANG: 'de_DE.UTF-8', LANGUAGE: 'de' });
 
-  // Checking out a branch that does not exist creates it, which is decided by what git says of the first try
-  await repo.checkoutBranch('brand-new');
-  expect(await git(root, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('brand-new');
+  // A branch that does not exist is refused as one, which is decided by what git says
+  const refused = await repo.checkoutBranch('brand-new').then(() => undefined, (error: { code?: string }) => error.code);
+  expect(refused).toBe('unknown-ref');
+  expect(await git(root, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main');
 });
 
 it('answers a read while a write is still running', async () => {

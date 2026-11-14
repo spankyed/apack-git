@@ -43,7 +43,7 @@ it('knows the branch a branch was made from when it made the branch itself', asy
   const root = await repositoryOnDevelop();
   const repo = new GitRepository(root);
 
-  await repo.checkoutBranch('topic');
+  await repo.createBranch('topic');
 
   expect((await repo.readSnapshot()).branch).toBe('topic');
   expect(await repo.rememberedBaseOf('topic')).toBe('develop');

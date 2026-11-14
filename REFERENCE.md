@@ -288,7 +288,7 @@ interface GitDirectories {
 
 A git command that failed, with why where git said
 
-- `code: "locked" | "authentication" | "permission" | "remote-unreachable" | "non-fast-forward" | "diverged" | "conflict" | "local-changes" | "unknown-ref" | "not-a-repository" | "unsafe-ownership" | "signing-failed" | "unrelated-histories" | "nothing-to-commit" | "branch-exists" | "host-refused" | "aborted" | "git-not-found" | "developer-tools-missing" | "git-too-old" | "untrusted" | "content-missing" | "hook-refused" | "name-not-text" | "published" | undefined`
+- `code: "locked" | "authentication" | "permission" | "remote-unreachable" | "non-fast-forward" | "diverged" | "conflict" | "local-changes" | "unknown-ref" | "not-a-repository" | "unsafe-ownership" | "signing-failed" | "unrelated-histories" | "nothing-to-commit" | "branch-exists" | "detached-head" | "no-remote" | "host-refused" | "aborted" | "git-not-found" | "developer-tools-missing" | "git-too-old" | "untrusted" | "content-missing" | "hook-refused" | "name-not-text" | "published" | undefined`
 
 ### `GitErrorCode`
 
@@ -323,7 +323,7 @@ interface GitProgress {
 - `blame(filePath: string, options?: { revision?: string; onLines?: (lines: BlameLine[]) => void; }): Promise<BlameLine[]>` — Who last changed each line of a file, at `revision` or as the working tree has it, in line order, leaving out the commits the repository lists to be ignored. `onLines` is handed each group of lines as git finds it. Blame runs the conversion programs a repository names, as a diff does, so it is refused like any other command in a repository not trusted to.
 - `changedSince(id: string, paths?: string[]): Promise<CheckpointChange[]>` — What differs now from a checkpoint, of these paths when given; a file it left out is not compared
 - `changesIn(commit: string): Promise<ChangedFile[]>` — The files a commit changed against its first parent, each with its count
-- `checkoutBranch(branchName: string, onProgress?: (progress: GitProgress) => void): Promise<void>`
+- `checkoutBranch(branchName: string, onProgress?: (progress: GitProgress) => void): Promise<void>` — Checks out a branch there is: a local one, or one a single remote has, which git makes a local branch following it. A name no branch has is refused as `unknown-ref`, naming it, and `createBranch` makes one. Nothing is fetched or pulled.
 - `checkpoint(paths?: string[]): Promise<Checkpoint>` — Keeps a copy of the working tree outside the repository, in the store `RepositoryTies.checkpointDirectory` names: of these paths (from the top of the checkout) when given, and of every file git would add otherwise. Nothing of the repository's own is written. A file larger than `KEPT_FILE_LIMIT` is left out and named.
 - `cherryPick(commits: string[]): Promise<void>` — Applies commits onto what is checked out, oldest first, as `merge` does its work
 - `clearCache(): void`
@@ -332,9 +332,11 @@ interface GitProgress {
 - `commitMessage(commit: string): Promise<string>` — A commit's whole message, its subject and its body, as it was written
 - `commitsExist(...refs: string[]): Promise<boolean>` — Whether each of these names a commit in this repository
 - `conflictSides(filePath: string): Promise<ConflictSides>` — The three sides of a conflicted file, the working file and where its conflicts are marked (`ConflictSides`)
+- `createBranch(branchName: string): Promise<void>` — Makes a branch at what is checked out and checks it out, writing down the branch it was made from (`rememberedBaseOf`). A name a branch already has is refused as `branch-exists`.
 - `createTag(name: string, options?: { commit?: string; message?: string; }): Promise<void>` — Makes a tag at `commit` (what is checked out when none), annotated with `message` when one is given
 - `deleteBranch(name: string): Promise<void>` — Deletes a local branch, merged or not; `undo` makes it again where it was, with what it followed
 - `deleteRemoteBranch(branch: string, remote?: string): Promise<void>` — Deletes `branch` on `remote` (`origin` unless named)
+- `deleteRemoteTrackingBranch(branch: string, remote?: string): Promise<void>` — Deletes this repository's record of `branch` on `remote` (`origin` unless named), its remote-tracking ref, as a fetch that prunes would: for a branch deleted on the remote by other means. The remote is not asked
 - `deleteTag(name: string): Promise<void>`
 - `discardNotKept(filePaths: string[]): Promise<string[]>` — The paths, among what discarding these would remove, that are too large for a discard to keep a copy of: what a host says cannot be brought back, before it is discarded
 - `fetch(signal?: AbortSignal): Promise<{ success: boolean; code?: GitErrorCode; error?: string; }>` — Fetches from the remote this branch follows, and says whether it did and, when it did not, why. When to fetch is the host's to decide: nothing here fetches unasked.
@@ -362,7 +364,7 @@ interface GitProgress {
 - `onWriteComplete(callback: () => void): void` — Register a one-shot callback that fires when all pending writes finish.
 - `previewMerge(target: string): Promise<MergePreview>` — What merging `target` into what is checked out would do, before it is done: nothing, a fast-forward, a clean merge, or one that stops on conflicts in the files it names. For a pull, `target` is the upstream after a fetch. Nothing moves: no ref, no index and no file. `unknown` on a git older than 2.38.
 - `pullBranch(onProgress?: (progress: GitProgress) => void): Promise<void>`
-- `pushBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void>` — Pushes the branch; `signal` stops it, and the push then rejects with a `GitError` coded `aborted`
+- `pushBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void>` — Pushes the branch, publishing it when it is not: to the remote the branch is set to push to, else `origin`, else the only remote (`no-remote` when that leaves none). With no branch checked out it is refused as `detached-head`. `signal` stops it, and the push then rejects with a `GitError` coded `aborted`
 - `pushTag(name: string, options?: { remote?: string; onProgress?: (progress: GitProgress) => void; signal?: AbortSignal; }): Promise<void>` — Pushes a tag to a remote, `origin` unless another is named, with progress, stopped through `signal`
 - `readBranchDiff(baseBranch: string, targetBranch?: string): Promise<GitStatusFile[]>`
 - `readBranches(): Promise<string[]>`
