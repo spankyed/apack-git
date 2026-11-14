@@ -548,6 +548,16 @@ export class GitRepository {
     return this.journal.undo(options)
   }
 
+  /**
+   * Fetches what a pull request proposes from where GitHub keeps it, `refs/pull/<number>/head`, into
+   * `refs/remotes/<remote>/pull/<number>`, and answers that ref. GitHub keeps it after the pull request's branch is
+   * deleted, and for a pull request from a fork, whose branch is on no remote of this repository. Throws a `GitError`
+   * when the remote has no such pull request
+   */
+  fetchPullRequest(number: number, remote?: string): Promise<string> {
+    return this.writes.fetchPullRequest(number, remote)
+  }
+
   fetchRemoteBranch(branch: string): Promise<void> {
     return this.writes.fetchRemoteBranch(branch)
   }
