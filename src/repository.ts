@@ -572,6 +572,14 @@ export class GitRepository {
   }
 
   /**
+   * Deletes this repository's record of `branch` on `remote` (`origin` unless named), its remote-tracking ref, as
+   * a fetch that prunes would: for a branch deleted on the remote by other means. The remote is not asked
+   */
+  deleteRemoteTrackingBranch(branch: string, remote?: string): Promise<void> {
+    return this.writes.deleteRemoteTrackingBranch(branch, remote)
+  }
+
+  /**
    * Every local branch, then every remote one, each most recently committed first. A branch of `origin` is
    * named as the local branch it would be checked out as; one of another remote keeps `remotes/<remote>/`.
    */
@@ -587,11 +595,28 @@ export class GitRepository {
     return this.reads.readBranches()
   }
 
+  /**
+   * Checks out a branch there is: a local one, or one a single remote has, which git makes a local branch
+   * following it. A name no branch has is refused as `unknown-ref`, naming it, and `createBranch` makes one.
+   * Nothing is fetched or pulled.
+   */
   checkoutBranch(branchName: string, onProgress?: (progress: GitProgress) => void): Promise<void> {
     return this.writes.checkoutBranch(branchName, onProgress)
   }
 
-  /** Pushes the branch; `signal` stops it, and the push then rejects with a `GitError` coded `aborted` */
+  /**
+   * Makes a branch at what is checked out and checks it out, writing down the branch it was made from
+   * (`rememberedBaseOf`). A name a branch already has is refused as `branch-exists`.
+   */
+  createBranch(branchName: string): Promise<void> {
+    return this.writes.createBranch(branchName)
+  }
+
+  /**
+   * Pushes the branch, publishing it when it is not: to the remote the branch is set to push to, else `origin`,
+   * else the only remote (`no-remote` when that leaves none). With no branch checked out it is refused as
+   * `detached-head`. `signal` stops it, and the push then rejects with a `GitError` coded `aborted`
+   */
   pushBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void> {
     return this.writes.pushBranch(onProgress, signal)
   }

@@ -40,6 +40,10 @@ export const GIT_ERROR_CODES = [
   'nothing-to-commit',
   /** A branch was to be made under a name a branch already has */
   'branch-exists',
+  /** A push with no branch checked out, which has nothing to publish. Not read from git: git was not asked */
+  'detached-head',
+  /** A branch to publish with no remote to publish it to, or several and nothing naming one. Not read from git */
+  'no-remote',
   /**
    * The hosting service refused a push for a rule of its own: a file too large, a protected branch, an email
    * address the user keeps private, a secret found in it. What it said is in git's words, on lines it begins
