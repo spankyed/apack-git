@@ -760,7 +760,9 @@ interface RepositorySnapshot {
   /**
    * A whole status took longer than its budget (`RepositoryTies.statusBudgetMs`), and git's own file monitor or its
    * untracked cache is off, either of which would make it faster: `speedUpStatus` turns them on. Absent when the
-   * status was within its budget, or both are on already
+   * status was within its budget, or both are on already. A reading of this status alone, so it comes and goes with
+   * how busy the machine is, and is never news of the status (`RepositoryChange.status`): a host shows it with the
+   * status it next reads
    */
   slowStatus?: { ms: number; budgetMs: number; fileMonitor: boolean; untrackedCache: boolean }
   /** What git is in the middle of here, when it is in the middle of anything */

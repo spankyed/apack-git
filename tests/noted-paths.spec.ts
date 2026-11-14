@@ -40,7 +40,7 @@ async function watched(before?: Step, workingDirectory = '') {
   await git(root, 'commit', '--quiet', '-m', 'first');
   await before?.(root);
   const lines: string[] = [];
-  const repo = new GitRepository(path.join(root, workingDirectory), { log: { command: line => lines.push(line) } });
+  const repo = new GitRepository(path.join(root, workingDirectory), { ...NEVER_SLOW, log: { command: line => lines.push(line) } });
   commands.set(repo, lines);
   repo.setWatched(true);
   await repo.refreshSnapshot();
@@ -62,7 +62,9 @@ function statusesAsked(repo: GitRepository) {
     .map(line => line.includes(' -- ') ? 'the paths' : 'everything');
 }
 /** What a repository that has read nothing says the checkout holds */
-const truth = (repo: GitRepository) => new GitRepository(repo.getWorkingDir()).readSnapshot();
+// Never slow: whether a status was is how long git took, which load moves, and these compare what git says
+const NEVER_SLOW = { statusBudgetMs: Number.POSITIVE_INFINITY };
+const truth = (repo: GitRepository) => new GitRepository(repo.getWorkingDir(), NEVER_SLOW).readSnapshot();
 
 async function submodule(root: string) {
   await git(root, 'init', '--quiet', `${root}-sub`);

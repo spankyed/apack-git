@@ -52,3 +52,19 @@ it('turns on what it can, and the repository is still trusted by what it names',
   if (on.fileMonitor) expect(after).toBeUndefined();
   else expect(after).toMatchObject({ untrackedCache: true, fileMonitor: false });
 });
+
+it('does not call a status that stopped being slow a change to the status', async () => {
+  const { root, git } = await repository();
+  const repo = new GitRepository(root, { statusBudgetMs: 0 });
+  // The first check has nothing to compare with; what follows is compared with it
+  await repo.refreshSnapshot();
+  expect((await repo.readSnapshot()).slowStatus, 'every status is over a budget of nothing').toBeDefined();
+
+  // Both on, so there is nothing left to offer: the note goes, and nothing a window shows of the status moved
+  await git('config', 'core.untrackedCache', 'true');
+  await git('config', 'core.fsmonitor', 'true');
+  const change = await repo.refreshSnapshot();
+
+  expect((await repo.readSnapshot()).slowStatus).toBeUndefined();
+  expect(change.status, 'a slow note coming or going is how long git took, which load moves, not news of the status').toBe(false);
+});
