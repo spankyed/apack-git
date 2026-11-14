@@ -444,9 +444,12 @@ export class GitWrites {
     })
   }
 
-  async fetchRemoteBranch(branch: string): Promise<void> {
+  async fetchRemoteBranch(branch: string, remote = 'origin'): Promise<string> {
+    const ref = `refs/remotes/${refArgument(remote, 'remote')}/${refArgument(branch, 'branch')}`
     return this.withWriteFlag(async () => {
-      await this.runner.executeGitCommand(['fetch', 'origin', refArgument(branch, 'branch')])
+      const result = await this.runner.executeGitCommand(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${ref}`])
+      if (!result.success) throw failure(result, `Failed to fetch ${branch} from ${remote}`)
+      return ref
     })
   }
 
@@ -460,9 +463,9 @@ export class GitWrites {
     })
   }
 
-  async deleteRemoteBranch(branch: string): Promise<void> {
+  async deleteRemoteBranch(branch: string, remote = 'origin'): Promise<void> {
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['push', 'origin', '--delete', refArgument(branch, 'branch')])
+      const result = await this.runner.executeGitCommand(['push', refArgument(remote, 'remote'), '--delete', refArgument(branch, 'branch')])
       if (!result.success) {
         throw failure(result, 'Failed to delete remote branch')
       }

@@ -558,12 +558,17 @@ export class GitRepository {
     return this.writes.fetchPullRequest(number, remote)
   }
 
-  fetchRemoteBranch(branch: string): Promise<void> {
-    return this.writes.fetchRemoteBranch(branch)
+  /**
+   * Fetches `branch` from `remote` (`origin` unless named) into its remote-tracking ref, and answers that ref.
+   * Throws a `GitError` when the fetch fails, the remote having no such branch included
+   */
+  fetchRemoteBranch(branch: string, remote?: string): Promise<string> {
+    return this.writes.fetchRemoteBranch(branch, remote)
   }
 
-  deleteRemoteBranch(branch: string): Promise<void> {
-    return this.writes.deleteRemoteBranch(branch)
+  /** Deletes `branch` on `remote` (`origin` unless named) */
+  deleteRemoteBranch(branch: string, remote?: string): Promise<void> {
+    return this.writes.deleteRemoteBranch(branch, remote)
   }
 
   /**
@@ -687,6 +692,20 @@ export class GitRepository {
    */
   readRemoteUrl(): Promise<string | undefined> {
     return this.reads.readRemoteUrl()
+  }
+
+  /**
+   * The remote a pull request or a push goes to: the one the current branch follows, else `origin`, else the only
+   * remote there is; with its address as git would use it. Nothing where there is no remote, or several and none of
+   * them is followed or named `origin`
+   */
+  readRemote(): Promise<{ name: string; url: string } | undefined> {
+    return this.reads.readRemote()
+  }
+
+  /** The commit two commits' histories last share, or nothing when they share none or one is not a commit here */
+  mergeBase(first: string, second: string): Promise<string | undefined> {
+    return this.reads.mergeBase(first, second)
   }
 
   /**

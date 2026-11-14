@@ -885,4 +885,22 @@ export class GitReads {
     const result = await this.runner.executeGitCommand(['ls-remote', '--get-url'])
     return (result.success && result.output?.trim()) || undefined
   }
+
+  async readRemote(): Promise<{ name: string; url: string } | undefined> {
+    const remotes = (await this.runner.executeGitCommand(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
+    if (remotes.length === 0) return undefined
+    const branch = await this.runner.executeGitCommand(['symbolic-ref', '--quiet', '--short', 'HEAD'])
+    const followed = branch.success && branch.output?.trim()
+      ? (await this.runner.executeGitCommand(['config', '--get', `branch.${branch.output.trim()}.remote`])).output?.trim()
+      : undefined
+    const name = followed && remotes.includes(followed) ? followed : remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0]! : undefined
+    if (!name) return undefined
+    const url = await this.runner.executeGitCommand(['ls-remote', '--get-url', name])
+    return url.success && url.output?.trim() ? { name, url: url.output.trim() } : undefined
+  }
+
+  async mergeBase(first: string, second: string): Promise<string | undefined> {
+    const result = await this.runner.executeGitCommand(['merge-base', refArgument(first, 'commit'), refArgument(second, 'commit')])
+    return (result.success && result.output?.trim()) || undefined
+  }
 }
