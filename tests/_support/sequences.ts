@@ -170,7 +170,8 @@ export async function runSequence(
     await git(root, 'add', '.')
     await git(root, 'commit', '--quiet', '-m', 'first')
 
-    const repo = new GitRepository(root)
+    // Never slow: whether a status was is how long git took, which load moves, and a sequence compares what git says
+    const repo = new GitRepository(root, { statusBudgetMs: Number.POSITIVE_INFINITY })
     const reports: (string[] | null)[] = []
     let reported: (() => void) | undefined
     watcher.setGitRepository(repo)
@@ -197,7 +198,7 @@ export async function runSequence(
         }
         for (const paths of reports.splice(report)) repo.noteChanged(paths)
         await repo.refreshSnapshot('noted')
-        const [held, truth] = [await repo.readSnapshot(), await new GitRepository(root).readSnapshot()]
+        const [held, truth] = [await repo.readSnapshot(), await new GitRepository(root, { statusBudgetMs: Number.POSITIVE_INFINITY }).readSnapshot()]
         if (JSON.stringify(held) !== JSON.stringify(truth)) {
           await repo.close()
           return { step: index, held, truth }
@@ -224,7 +225,7 @@ export async function runSequence(
       if (delivered > 0 && reports.length === report) await arrived
       for (const paths of reports.splice(report)) repo.noteChanged(paths)
       await repo.refreshSnapshot('noted')
-      const [held, truth] = [await repo.readSnapshot(), await new GitRepository(root).readSnapshot()]
+      const [held, truth] = [await repo.readSnapshot(), await new GitRepository(root, { statusBudgetMs: Number.POSITIVE_INFINITY }).readSnapshot()]
       if (JSON.stringify(held) !== JSON.stringify(truth)) {
         await repo.close()
         return { step: index, held, truth }

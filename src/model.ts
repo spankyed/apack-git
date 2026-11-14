@@ -419,9 +419,11 @@ export class RepositoryModel {
       ...read,
       value,
       identity: {
-        // What git is in the middle of is shown with the status, so it is part of it
-        // Whether a status is slow, and what would help, is news; how long this one took is not
-        status: [JSON.stringify(read.operation ?? null), `identity ${read.hasIdentity}`, `slow ${JSON.stringify(read.slowStatus ? { ...read.slowStatus, ms: 0 } : null)}`, ...headers.filter(header => !isCommit(header) && !isStashCount(header)), ...entries.map(entry => entry.record)].join('\0'),
+        // What git is in the middle of is shown with the status, so it is part of it. Whether a status was slow is
+        // not: it is how long git took against a declared edge, which a busy machine crosses and leaves on any
+        // read, so as news it told every window the status had changed each time load came or went. It rides
+        // the snapshot (`slowStatus`) and reaches a window with the status that window next reads
+        status: [JSON.stringify(read.operation ?? null), `identity ${read.hasIdentity}`, ...headers.filter(header => !isCommit(header) && !isStashCount(header)), ...entries.map(entry => entry.record)].join('\0'),
         diffs: [...files.values()].join('\0'),
         history: rest.history,
         stashes: rest.stashes,

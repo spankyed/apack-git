@@ -75,7 +75,8 @@ export async function watchedRepository({ subscribe }: { subscribe?: SubscribeTo
   await git(root, 'add', '.')
   await git(root, 'commit', '--quiet', '-m', 'first')
 
-  const repo = new GitRepository(root)
+  // Never slow: whether a status was is how long git took, which load moves, and a rig compares what git says
+  const repo = new GitRepository(root, { statusBudgetMs: Number.POSITIVE_INFINITY })
   const watcher = new GitWatcherService(root, subscribe ? { subscribe } : {})
   let checking: Promise<unknown> = Promise.resolve()
   cleanups.push(async () => {
@@ -98,7 +99,7 @@ export async function watchedRepository({ subscribe }: { subscribe?: SubscribeTo
     root, repo, watcher,
     reports: () => reports,
     /** What a repository that has read nothing says the checkout holds */
-    truth: (): Promise<RepositorySnapshot> => new GitRepository(root).readSnapshot(),
+    truth: (): Promise<RepositorySnapshot> => new GitRepository(root, { statusBudgetMs: Number.POSITIVE_INFINITY }).readSnapshot(),
     /** What the watched repository holds once the checks its reports started have run */
     held: async (): Promise<RepositorySnapshot> => { await checking; return repo.readSnapshot() },
   }
