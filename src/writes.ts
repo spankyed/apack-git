@@ -12,7 +12,7 @@ import { NOT_TEXT } from './status.ts'
 import type { RepositoryModel } from './model.ts'
 import { BASE_KEY, type GitReads } from './reads.ts'
 import { failure, type GitCommandResult, type GitRunner } from './runner.ts'
-import type { ConflictAnswer, DiscardKept, DiscardRestored, GitProgress, OperationMove, RewriteStep } from './types.ts'
+import type { BranchCheckout, ConflictAnswer, DiscardKept, DiscardRestored, GitProgress, OperationMove, RewriteStep } from './types.ts'
 
 /** A stash applied or popped with conflicts: its changes are in the working tree with conflict markers */
 export class StashConflictError extends GitError {
@@ -514,6 +514,50 @@ export class GitWrites {
       }
 
       this.reads.clearCache()
+    })
+  }
+
+  /**
+   * Checks out `name` at the commit `at` names, as `gh pr checkout` does: a branch there is not is made there, one
+   * already at it or only behind it is checked out there, and one with commits of its own is checked out where it
+   * is, since moving it would lose them. `track` makes a new branch follow `at` where `at` is a remote's branch;
+   * otherwise a new branch follows nothing, which matters for a ref under `refs/remotes/` that is no remote's
+   * branch (a pull request's `refs/remotes/<remote>/pull/<n>`), which git would otherwise set it to follow. A
+   * branch already here keeps what it follows. Nothing is fetched or pulled; a commit `at` does not name is refused
+   * as `unknown-ref`
+   */
+  async checkoutBranchAt(name: string, at: string, { track = false, onProgress }: { track?: boolean; onProgress?: (progress: GitProgress) => void } = {}): Promise<BranchCheckout> {
+    branchNameArgument(name)
+    refArgument(at, 'commit')
+    return this.withWriteFlag(async () => {
+      const target = await this.revisionOf(`${at}^{commit}`)
+      if (!target) throw new GitError(`There is no commit ${at} here.`, 'unknown-ref')
+      const tip = await this.revisionOf(`refs/heads/${name}`)
+      let done: BranchCheckout
+      let args: string[]
+      if (!tip) {
+        done = 'created'
+        args = ['checkout', '--progress', track ? '--track' : '--no-track', '-b', name, at, '--']
+      } else if (tip === target) {
+        done = 'current'
+        args = ['checkout', '--progress', name, '--']
+      } else if ((await this.runner.executeGitCommand(['merge-base', '--is-ancestor', tip, target])).success) {
+        // Moved to the commit itself rather than to `at`, which a fetch could move before git reads it
+        done = 'fast-forwarded'
+        args = ['checkout', '--progress', '-B', name, target, '--']
+      } else {
+        done = 'kept'
+        args = ['checkout', '--progress', name, '--']
+      }
+      const result = await this.runner.executeGitCommand(args, { onProgress })
+      if (!result.success) {
+        if (result.code === 'local-changes') {
+          throw new GitError('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code)
+        }
+        throw failure(result, `Failed to check out ${name}`)
+      }
+      this.reads.clearCache()
+      return done
     })
   }
 

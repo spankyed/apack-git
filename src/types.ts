@@ -198,6 +198,19 @@ export interface DiffHunk {
   patch: string
 }
 
+/**
+ * What `checkoutBranchAt` did: made the branch at the commit (`created`), checked out a branch already there
+ * (`current`), moved one that was only behind the commit forward to it (`fast-forwarded`), or checked out one that
+ * has commits the commit lacks where it was, which only a merge or a reset would move (`kept`)
+ */
+export type BranchCheckout = 'created' | 'current' | 'fast-forwarded' | 'kept'
+
+/** A remote, with its address as git would use it (its `insteadOf` rewrites applied) */
+export interface GitRemote {
+  name: string
+  url: string
+}
+
 export interface StashEntry {
   index: number
   ref: string

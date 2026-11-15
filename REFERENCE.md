@@ -24,6 +24,16 @@ interface BlameLine {
 }
 ```
 
+### `BranchCheckout`
+
+What `checkoutBranchAt` did: made the branch at the commit (`created`), checked out a branch already there
+(`current`), moved one that was only behind the commit forward to it (`fast-forwarded`), or checked out one that
+has commits the commit lacks where it was, which only a merge or a reset would move (`kept`)
+
+```ts
+type BranchCheckout = 'created' | 'current' | 'fast-forwarded' | 'kept'
+```
+
 ### `BranchStanding`
 
 A branch, local or a remote's, with what it follows and how far from it it is
@@ -315,6 +325,17 @@ interface GitProgress {
 }
 ```
 
+### `GitRemote`
+
+A remote, with its address as git would use it (its `insteadOf` rewrites applied)
+
+```ts
+interface GitRemote {
+  name: string
+  url: string
+}
+```
+
 ### `GitRepository`
 
 - `addRemote(name: string, url: string): Promise<void>` — Adds a remote by its name and address
@@ -324,6 +345,7 @@ interface GitProgress {
 - `changedSince(id: string, paths?: string[]): Promise<CheckpointChange[]>` — What differs now from a checkpoint, of these paths when given; a file it left out is not compared
 - `changesIn(commit: string): Promise<ChangedFile[]>` — The files a commit changed against its first parent, each with its count
 - `checkoutBranch(branchName: string, onProgress?: (progress: GitProgress) => void): Promise<void>` — Checks out a branch there is: a local one, or one a single remote has, which git makes a local branch following it. A name no branch has is refused as `unknown-ref`, naming it, and `createBranch` makes one. Nothing is fetched or pulled.
+- `checkoutBranchAt(name: string, at: string, options?: { track?: boolean; onProgress?: (progress: GitProgress) => void; }): Promise<BranchCheckout>` — Checks out `name` at the commit `at` names: made there where there is no such branch, checked out there where the branch is at it or only behind it, and checked out where it is where it has commits of its own, which the answer says (`BranchCheckout`). `track` makes a new branch follow `at`, a remote's branch; otherwise it follows nothing. Nothing is fetched or pulled
 - `checkpoint(paths?: string[]): Promise<Checkpoint>` — Keeps a copy of the working tree outside the repository, in the store `RepositoryTies.checkpointDirectory` names: of these paths (from the top of the checkout) when given, and of every file git would add otherwise. Nothing of the repository's own is written. A file larger than `KEPT_FILE_LIMIT` is left out and named.
 - `cherryPick(commits: string[]): Promise<void>` — Applies commits onto what is checked out, oldest first, as `merge` does its work
 - `clearCache(): void`
@@ -379,6 +401,7 @@ interface GitProgress {
 - `readFileContentFromBranch(filePath: string, branch: string): Promise<string>`
 - `readHunks(filePath: string, staged: boolean): Promise<DiffHunk[]>` — The pieces of a file's change that can be staged one at a time, or unstaged when `staged`: of the working tree against the index, or of the index against the last commit. None for a file that is not plainly modified.
 - `readRemote(): Promise<{ name: string; url: string; } | undefined>` — The remote a pull request or a push goes to: the one the current branch follows, else `origin`, else the only remote there is; with its address as git would use it. Nothing where there is no remote, or several and none of them is followed or named `origin`
+- `readRemotes(): Promise<GitRemote[]>` — Every remote, with its address as git would use it (its `insteadOf` rewrites applied), in the order git lists them
 - `readRemoteUrl(): Promise<string | undefined>` — The address of the remote this branch follows, as git would use it (its `insteadOf` rewrites applied). Nothing where there is no remote.
 - `readSnapshot(): Promise<RepositorySnapshot>` — The checkout's changed files, branch and distance from its upstream.  A snapshot is reused until something says the repository may have changed: a watcher's event, a write made here, a reconcile. It never waits on the remote: `fetchIfDue` is what fetches.
 - `readStagedFiles(): Promise<GitStatusFile[]>`

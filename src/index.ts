@@ -23,5 +23,5 @@ export { runUnbounded, type RepositoryLog, type RepositoryTies, type RunOptions,
 export {
   REPOSITORY_PARTS,
   type Checkpoint, type CheckpointChange, type CommitLogEntry, type ConflictAnswer, type ConflictKind, type ConflictSides, type JournalEntry, type DiffHunk, type DiscardKept, type DiscardRestored, type GitDirectories, type GitProgress, type GitStatusFile, type OperationKind, type OperationMove, type ChangedFile, type FoundRepository, type LineCount, type HistoryCommit, type HistoryPage, type BlameLine, type BranchStanding, type RefsModel, type MergePreview, type RewriteStep,
-  type RepositoryChange, type RepositoryOperation, type RepositoryPart, type RepositorySnapshot, type StashEntry, type WorktreeEntry,
+  type BranchCheckout, type GitRemote, type RepositoryChange, type RepositoryOperation, type RepositoryPart, type RepositorySnapshot, type StashEntry, type WorktreeEntry,
 } from './types.ts'

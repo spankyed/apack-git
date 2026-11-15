@@ -23,7 +23,7 @@ import { DiffData } from './diff-data.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  ChangedFile, FoundRepository, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep,
+  BranchCheckout, ChangedFile, FoundRepository, GitRemote, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep,
 } from './types.ts'
 
 export class GitRepository {
@@ -605,6 +605,16 @@ export class GitRepository {
   }
 
   /**
+   * Checks out `name` at the commit `at` names: made there where there is no such branch, checked out there where
+   * the branch is at it or only behind it, and checked out where it is where it has commits of its own, which the
+   * answer says (`BranchCheckout`). `track` makes a new branch follow `at`, a remote's branch; otherwise it follows
+   * nothing. Nothing is fetched or pulled
+   */
+  checkoutBranchAt(name: string, at: string, options?: { track?: boolean; onProgress?: (progress: GitProgress) => void }): Promise<BranchCheckout> {
+    return this.writes.checkoutBranchAt(name, at, options)
+  }
+
+  /**
    * Makes a branch at what is checked out and checks it out, writing down the branch it was made from
    * (`rememberedBaseOf`). A name a branch already has is refused as `branch-exists`.
    */
@@ -726,6 +736,11 @@ export class GitRepository {
    */
   readRemote(): Promise<{ name: string; url: string } | undefined> {
     return this.reads.readRemote()
+  }
+
+  /** Every remote, with its address as git would use it (its `insteadOf` rewrites applied), in the order git lists them */
+  readRemotes(): Promise<GitRemote[]> {
+    return this.reads.readRemotes()
   }
 
   /** The commit two commits' histories last share, or nothing when they share none or one is not a commit here */

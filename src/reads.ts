@@ -11,7 +11,7 @@ import { GitUnusableError } from './git-check.ts'
 import { GitError, ownershipRefusal } from './errors.ts'
 import { statusOf } from './status.ts'
 import type { RepositoryTies } from './ties.ts'
-import type { CommitLogEntry, ConflictSides, DiffHunk, GitStatusFile, StashEntry, WorktreeEntry } from './types.ts'
+import type { CommitLogEntry, ConflictSides, DiffHunk, GitRemote, GitStatusFile, StashEntry, WorktreeEntry } from './types.ts'
 
 /** Where the branch a branch was made from is written down, in git's config: `branch.<name>.apack-base` */
 export const BASE_KEY = 'apack-base'
@@ -884,6 +884,15 @@ export class GitReads {
   async readRemoteUrl(): Promise<string | undefined> {
     const result = await this.runner.executeGitCommand(['ls-remote', '--get-url'])
     return (result.success && result.output?.trim()) || undefined
+  }
+
+  async readRemotes(): Promise<GitRemote[]> {
+    const names = (await this.runner.executeGitCommand(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
+    const remotes = await Promise.all(names.map(async (name) => {
+      const url = await this.runner.executeGitCommand(['ls-remote', '--get-url', refArgument(name, 'remote')])
+      return url.success && url.output?.trim() ? { name, url: url.output.trim() } : undefined
+    }))
+    return remotes.filter((remote): remote is GitRemote => remote !== undefined)
   }
 
   async readRemote(): Promise<{ name: string; url: string } | undefined> {
