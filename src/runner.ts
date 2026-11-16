@@ -15,13 +15,37 @@ import { TrustGate } from './trust.ts'
 import type { GitProgress } from './types.ts'
 
 /**
- * What every git child runs with. No credential prompt, since nobody is at a terminal to answer one; no editor
+ * What tells git which repository it is in, rather than the directory it runs in: what `git rev-parse
+ * --local-env-vars` lists, less its configuration (`GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT` and `GIT_CONFIG`),
+ * which says how git behaves and not where, and which a host hands in on purpose (a sign-in's credential helper).
+ * Git sets these for the hooks it runs, so a host started from a hook — a test suite in a pre-push hook, an editor
+ * a commit opened — inherits the hook's repository, and every command here would read and write that one rather
+ * than the one it was opened on. The engine sets some of them itself, for one command (a checkpoint's own index),
+ * and those are laid over this.
+ */
+const REPOSITORY_LOCATION = [
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE',
+  'GIT_GRAFT_FILE', 'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_PREFIX',
+  'GIT_INTERNAL_SUPER_PREFIX', 'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR',
+] as const
+
+/** `base` without what would point git at another repository than the one it runs in */
+function withoutRepositoryLocation(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...base }
+  // A name is matched whatever its case, as Windows reads it
+  for (const name of Object.keys(env)) if ((REPOSITORY_LOCATION as readonly string[]).includes(name.toUpperCase())) delete env[name]
+  return env
+}
+
+/**
+ * What every git child runs with, over what the host handed in less what would point it at another repository.
+ * No credential prompt, since nobody is at a terminal to answer one; no editor
  * for the same reason, so where git would open one for a message it takes the message it proposes; and no
  * optional locks, so a read made in the background (a status after a file changed) never holds `index.lock`
  * against a git the user or an agent runs in the same repository.
  */
 export const gitEnvironment = (base: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
-  ...base,
+  ...withoutRepositoryLocation(base),
   GIT_TERMINAL_PROMPT: '0',
   GIT_EDITOR: 'true',
   GIT_OPTIONAL_LOCKS: '0',
