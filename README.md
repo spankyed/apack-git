@@ -4,9 +4,8 @@ A live picture of one git working tree, and every git process that keeps it.
 
 It answers what a source control panel asks: what changed, on which branch, how far from its upstream, what git
 is in the middle of. It says which parts of that differ since the last time it was checked, so a host tells its
-windows only what is new. And it makes the reads and writes such a panel makes: a diff, a file as a commit has
-it, the log, branches, stashes and worktrees; staging a file or one piece of its change, committing, checking
-out, stashing, fetching, pulling and pushing.
+windows only what is new. And it makes the reads and writes such a panel makes, from staging one piece of a file's
+change to rewriting the last few commits, each of which can be undone where it destroys something.
 
 It is the git engine of [apack](https://github.com/spankyed/apack), in a repository of its own so that it is
 checked on Linux, macOS and Windows on every push.
@@ -14,21 +13,57 @@ checked on Linux, macOS and Windows on every push.
 ```ts
 import { GitRepository, GitWatcherService } from 'apack-git'
 
-const repo = new GitRepository(dir, { run, environment, log })
+const repo = new GitRepository(dir, { run, environment, log })   // every tie is optional (`RepositoryTies`)
 
 await repo.readSnapshot()            // plain data: files, branch, ahead and behind, an operation in progress
 repo.noteChanged(paths)              // a hint from a watcher: these paths, or `null` for anything
-await repo.refreshSnapshot('noted')  // which parts really differ: status, diffs, history, stashes, worktrees
+await repo.refreshSnapshot('noted')  // which parts really differ: status, diffs, history, stashes, refs, worktrees
 
 await repo.stageFiles(paths)         // resolves, or rejects with a `GitError` carrying a code
+
+const watcher = new GitWatcherService(dir)   // file events in, hints out
+watcher.setGitRepository(repo)
+watcher.setChangeCallback(paths => { repo.noteChanged(paths); void repo.refreshSnapshot('noted') })
 ```
+
+## What it does
+
+- **The working tree**: the snapshot and what changed in it; diffs, as text and as pieces (`readHunks`) a file's
+  change is staged or unstaged by one at a time; a file as the working tree, the index, a commit or a branch has
+  it; how many lines each change adds and removes; the folders git ignores; the three sides of a conflicted file,
+  and resolving it with one side or with content written in its place.
+- **Writes**: staging, committing and amending; discarding a file's changes, which keeps what it removed
+  (`restoreDiscarded`); stashing all of it, only what is staged, or only some paths, and applying, popping and
+  dropping a stash, whose files are read without applying it.
+- **History**: pages of history to draw, with each commit's parents and refs, that neither repeat nor drop a commit
+  while the repository moves; a file's history across its renames; blame, a group of lines at a time; a commit's
+  files and whole message; where two histories meet (`mergeBase`); the branch a branch was made from.
+- **Branches, remotes and tags** as one model (`refsModel`): each branch with what it follows and how far ahead and
+  behind; making, renaming, deleting and checking out a branch, at a commit when asked; every remote with its
+  address as git would use it, and adding, renaming, removing and re-addressing one; making, deleting and pushing a
+  tag; worktrees.
+- **The remote**: fetching, pulling and pushing, with progress, and a fetch or a push stopped through an
+  `AbortSignal`; a branch fetched or deleted on a named remote; a GitHub pull request fetched from
+  `refs/pull/<n>/head`, a fork's included.
+- **Merges and rewrites**: what a merge or a pull would do before it is done (`previewMerge`); merging, rebasing
+  and cherry-picking, and carrying on with, skipping or giving up what git is in the middle of; rewriting the
+  commits after one by keeping, rewording, folding or dropping each (`rewrite`).
+- **Undo**: the last commit, amend, reset, deleted branch, dropped stash, merge, rebase or rewrite is taken back
+  by `undo`, and `lastUndoable` names it first. A merge, rebase, cherry-pick or rewrite takes a checkpoint of the
+  working tree before it, in a store outside the repository, which `restoreCheckpoint` puts back.
+- **Repositories**: cloning and initialising one, with progress; every repository under a folder
+  (`GitRepository.repositoriesUnder`); where a checkout's git state lives, a linked worktree's included.
+
+[`REFERENCE.md`](REFERENCE.md) has every one of them, with its comment and signature.
 
 ## What is supported
 
 Linux, macOS and Windows, with Node 24.12 or later, and git from 2.35.0 (`GIT_FLOOR`) to the newest. CI runs exactly
 that on every push: the whole suite on each of the three systems with the git its runner installs, which is the
 newest, and again against git 2.35.0 built from its source, Debian 12's own git and macOS's own (`.github/workflows/ci.yml`).
-An older git is refused by name (`GitUnusableError`) rather than half working.
+An older git is refused by name (`GitUnusableError`) rather than half working, and so is a git that cannot be found
+or run, with the reason. A read that needs a newer git says so rather than guessing: `previewMerge` answers `unknown`
+before 2.38.
 
 ## What holds it together
 
@@ -39,20 +74,27 @@ An older git is refused by name (`GitUnusableError`) rather than half working.
 - **Codes, not prose.** A failure carries a code (`GitErrorCode`) read from what git printed, in one place. A
   host writes the sentence.
 - **Hints in, news out.** A file event is a hint, and git says whether anything changed. The engine never
-  assumes a watcher saw everything: a host can always say "look again".
-- **What it runs with is handed in** (`RepositoryTies`): how a process is run, the environment git starts
-  from, what watches a git kept open, and where to log. With none it uses Node's `execFile` and the process's
-  own environment.
+  assumes a watcher saw everything: a host can always say "look again", and a watch that has stopped delivering
+  is said in the snapshot.
+- **What it runs with is handed in** (`RepositoryTies`): which git, how a process is run, the environment git
+  starts from, what watches a git kept open, where to log, how long a status may take, whether a repository is
+  trusted, and where checkpoints are kept. With none it uses Node's `execFile` and the process's own environment.
+- **A read never reaches the network, and nothing fetches unasked.** A partial clone's missing content is a
+  `content-missing` code, until a host lets one read fetch it (`fetchingMissing`); when to fetch is the host's to
+  decide.
 - **Nothing native, and no dependencies.** A tree is watched with Node's own `fs.watch`.
 - **A repository cannot make it run a program before it is trusted.** A repository's own configuration and hooks
   can name programs, and a plain status runs one of them. Until a host says the repository is trusted
   (`isTrusted`), the engine reads what it would run without running it (`readTrust`), and when that names
   anything it runs no git there but that reading: a command is refused with an `UntrustedError` carrying the
   list. The rule is a list of settings known to run nothing, and every other setting asks.
-- **A discard keeps what it removes.** Before a changed file is checked out again, or an untracked file or folder
-  deleted, what is about to go is written into git's object store as a tree built with an index of its own, and
-  `restoreDiscarded` puts it back. The user's index, refs and stash are not touched. Nothing refers to that tree,
-  so git keeps it for as long as it keeps such objects: two weeks, unless told otherwise.
+- **What a write destroys can be had back.** Before a changed file is checked out again, or an untracked file or
+  folder deleted, what is about to go is written into git's object store as a tree built with an index of its
+  own, and `restoreDiscarded` puts it back; the user's index, refs and stash are not touched, and git keeps that
+  tree as long as it keeps objects nothing refers to, two weeks unless told otherwise. A merge, rebase, cherry-pick
+  or rewrite checkpoints the working tree first, and `undo` takes back the last such write. An amend, a rewrite or an undo that
+  would change commits a remote branch already holds is refused as `published` unless the host says
+  `evenIfPublished`.
 
 ## Three entries
 
@@ -102,10 +144,10 @@ jobs; the million is a dispatch of CI by hand (`budget_sizes: 1000000`) and a ru
 
 ## The reference, and an example
 
-[`REFERENCE.md`](REFERENCE.md) is every export of both entries with its comment and its signature, generated from
-the source (`npm run reference:update`); CI fails when it differs from the source, or when an export or a public
-member is used by no spec. [`examples/news.mjs`](examples/news.mjs) is a host in thirty lines: it prints what a
-folder's repository is and then each piece of news as it happens (`npm run example -- <folder>`). It is the
+[`REFERENCE.md`](REFERENCE.md) is every export of the three entries with its comment and its signature, generated
+from the source (`npm run reference:update`); CI fails when it differs from the source, or when an export or a
+public member is used by no spec. [`examples/news.mjs`](examples/news.mjs) is a host in thirty lines: it prints what
+a folder's repository is and then each piece of news as it happens (`npm run example -- <folder>`). It is the
 diagnostic for a watch as well: an edit that prints nothing is one the watch did not deliver.
 
 ## Using it
@@ -120,4 +162,6 @@ npm run build
 npm test
 ```
 
-Every spec runs a real git in a throwaway repository. Node 24.12 or later.
+Every spec runs a real git in a throwaway repository. Beside the suite, `npm run budgets -- <sizes>` prints the
+readings above, and `npm run soak:sequences` runs random sequences of edits through the platform's own watch and
+counts the steps whose events never came. Neither fails anything.
