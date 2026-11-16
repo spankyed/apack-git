@@ -272,6 +272,15 @@ export type MergePreview =
   | { kind: 'up-to-date' | 'fast-forward' | 'clean' | 'unknown' }
   | { kind: 'conflicts'; files: string[] }
 
+/**
+ * One trailer at the end of a commit message — `Co-authored-by: A <a@example.com>` — as git reads it: its key as
+ * written, and its value with any lines that continue it unfolded into one
+ */
+export interface Trailer {
+  key: string
+  value: string
+}
+
 export interface CommitLogEntry {
   hash: string
   shortHash: string

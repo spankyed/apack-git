@@ -2,6 +2,7 @@
 // each method here is one of theirs.
 import * as path from 'path'
 import { GitReads } from './reads.ts'
+import { Trailers } from './trailers.ts'
 import { RepositoryModel } from './model.ts'
 import { GitRunner, failure, fetchingMissing } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
@@ -23,7 +24,7 @@ import { DiffData } from './diff-data.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  BranchCheckout, ChangedFile, FoundRepository, GitRemote, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep,
+  BranchCheckout, ChangedFile, FoundRepository, GitRemote, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, Trailer, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep,
 } from './types.ts'
 
 export class GitRepository {
@@ -62,6 +63,7 @@ export class GitRepository {
   private readonly checkpoints: CheckpointStore
   private readonly journal: Journal
   private readonly diffs: DiffData
+  private readonly trailers: Trailers
 
   constructor(private workingDirectory: string, ties: RepositoryTies = {}) {
     if (!path.isAbsolute(workingDirectory)) {
@@ -78,6 +80,7 @@ export class GitRepository {
     this.diffs = new DiffData(this.runner)
     this.histories = new History(this.runner)
     this.previews = new MergePreviews(this.runner)
+    this.trailers = new Trailers(this.runner)
   }
 
   getWorkingDir(): string {
@@ -339,6 +342,22 @@ export class GitRepository {
   /** A commit's whole message, its subject and its body, as it was written */
   commitMessage(commit: string): Promise<string> {
     return this.reads.commitMessage(commit)
+  }
+
+  /**
+   * The trailers git reads at the end of a message, in order: `Co-authored-by: …`, `Signed-off-by: …`. None when its
+   * last paragraph is not trailers, and a message of one paragraph has none, that being its subject
+   */
+  trailersIn(message: string): Promise<Trailer[]> {
+    return this.trailers.trailersIn(message)
+  }
+
+  /**
+   * A message without the trailers `remove` picks, each with the lines that continue it, and every other line as it
+   * was written: what to commit when some of what a message ends with is not to be kept
+   */
+  withoutTrailers(message: string, remove: (trailer: Trailer) => boolean): Promise<string> {
+    return this.trailers.withoutTrailers(message, remove)
   }
 
   /** Whether each of these names a commit in this repository */

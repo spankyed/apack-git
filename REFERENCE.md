@@ -435,9 +435,11 @@ interface GitRemote {
 - `stashList(): Promise<StashEntry[]>`
 - `stashPop(index: number): Promise<void>`
 - `stashPush(message?: string, stagedOnly?: boolean, paths?: string[]): Promise<string>` — Stashes the changes, untracked files included: only what is staged with `stagedOnly`, and only these paths (from the top of the checkout) when `paths` names any
+- `trailersIn(message: string): Promise<Trailer[]>` — The trailers git reads at the end of a message, in order: `Co-authored-by: …`, `Signed-off-by: …`. None when its last paragraph is not trailers, and a message of one paragraph has none, that being its subject
 - `trustOwnership(directory: string): Promise<void>` — Adds a repository git refused for who owns it to the user's `safe.directory` entries, which is what git's refusal says to do. It writes the user's global git configuration, so it is run only when the user asks. `directory` is an `UnsafeOwnershipError`'s, the path as git printed it.
 - `undo(options?: { evenIfPublished?: boolean; }): Promise<JournalEntry>` — Takes back the last write `lastUndoable` names, and answers it. A commit is taken off its branch with what it held left staged; a reset puts the branch and the index back; a branch is made again; a stash is put back on top. Refused with a `GitError` when a ref it moved has moved since, and with `published` for a commit a remote branch already holds, unless `evenIfPublished`.
 - `unstageFiles(filePaths: string[]): Promise<void>`
+- `withoutTrailers(message: string, remove: (trailer: Trailer) => boolean): Promise<string>` — A message without the trailers `remove` picks, each with the lines that continue it, and every other line as it was written: what to commit when some of what a message ends with is not to be kept
 - `worktreeAdd(wtPath: string, branch?: string, createBranch?: boolean): Promise<string>`
 - `worktreeList(): Promise<WorktreeEntry[]>`
 - `worktreeRemove(wtPath: string, force?: boolean): Promise<void>`
@@ -919,6 +921,18 @@ type SubscribeToDirectory = (
   onChanges: (error: Error | null, changes: WatchedChange[]) => void,
   options: { ignore: string[]; onEvent?: () => void },
 ) => Promise<DirectorySubscription>
+```
+
+### `Trailer`
+
+One trailer at the end of a commit message — `Co-authored-by: A <a@example.com>` — as git reads it: its key as
+written, and its value with any lines that continue it unfolded into one
+
+```ts
+interface Trailer {
+  key: string
+  value: string
+}
 ```
 
 ### `TrustAsk`
