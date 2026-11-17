@@ -128,6 +128,21 @@ export class GitWrites {
     })
   }
 
+  /**
+   * Applies a patch of any number of files — what `git diff` prints, binary files included — to the working tree,
+   * or with `staged` to what is staged and nothing else. Its paths are from the top of the checkout, wherever this
+   * repository was opened. It is applied whole or not at all: a patch any part of which does not apply, or that names
+   * a path outside the checkout, is refused and changes nothing.
+   */
+  async applyPatch(patch: string | Buffer, { staged = false }: { staged?: boolean } = {}): Promise<void> {
+    return this.withWriteFlag(async () => {
+      const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+      const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
+      const result = await this.runner.executeGitCommand(['-C', top, 'apply', ...(staged ? ['--cached'] : []), '--whitespace=nowarn', '-'], { input: patch })
+      if (!result.success) throw failure(result, 'Failed to apply the patch')
+    })
+  }
+
   async stageFiles(filePaths: string[]): Promise<void> {
     refuseNamesNotText(filePaths)
     if (filePaths.length === 0) return
