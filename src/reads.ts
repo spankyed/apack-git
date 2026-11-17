@@ -348,7 +348,7 @@ export class GitReads {
     }
   }
 
-  async readDiff(filePath?: string, staged: boolean = false): Promise<string> {
+  async readDiff(filePath?: string, staged: boolean = false, { signal }: { signal?: AbortSignal } = {}): Promise<string> {
     // For untracked files, we need to show the file content as an addition
     if (filePath) {
       const status = await this.model.readStatus()
@@ -367,7 +367,7 @@ export class GitReads {
       args.push('--', filePath)
     }
 
-    const result = await this.runner.executeGitCommand(args)
+    const result = await this.runner.executeGitCommand(args, { signal })
     if (!result.success) {
       throw failure(result, 'Failed to get diff')
     }

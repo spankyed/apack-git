@@ -76,7 +76,7 @@ export class Blame {
    * `onLines` is handed each group as git finds it, in the order git finds them. The path is from the top of the
    * checkout.
    */
-  async blame(filePath: string, { revision, onLines }: { revision?: string; onLines?: (lines: BlameLine[]) => void } = {}): Promise<BlameLine[]> {
+  async blame(filePath: string, { revision, onLines, signal }: { revision?: string; onLines?: (lines: BlameLine[]) => void; signal?: AbortSignal } = {}): Promise<BlameLine[]> {
     const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
     const top = path.resolve(this.runner.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
     // The repository's own file, when its settings name none: git reads the setting itself
@@ -86,7 +86,7 @@ export class Blame {
     const result = await this.runner.executeGitCommand([
       '-C', top, 'blame', '--incremental', ...(ignoring ? ['--ignore-revs-file', IGNORE_FILE] : []),
       ...(revision ? [refArgument(revision, 'revision')] : []), '--', filePath,
-    ], { onOutput: chunk => reader.take(chunk) })
+    ], { onOutput: chunk => reader.take(chunk), signal })
     if (!result.success) throw failure(result, `Failed to read who changed ${filePath}`)
     return [...reader.lines].sort((a, b) => a.line - b.line)
   }

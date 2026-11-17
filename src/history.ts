@@ -25,10 +25,10 @@ export class History {
    * starts from the last commit's first parent, under the name the file had there: git follows a rename afresh on
    * each read, so a skip past one would lose it.
    */
-  private async filePage(tip: string, path: string, limit: number): Promise<HistoryPage> {
+  private async filePage(tip: string, path: string, limit: number, signal: AbortSignal | undefined): Promise<HistoryPage> {
     const result = await this.runner.executeGitCommand([
       'log', '-z', '--follow', '--name-status', `--format=%x1e${FIELDS.join('%x00')}%x00`, `-n${limit + 1}`, tip, '--', path,
-    ])
+    ], { signal })
     if (!result.success) throw failure(result, `Failed to read the history of ${path}`)
     // Each commit is its fields, then what it did to the file: `M`, `A` or `D` and the name, or `R…`/`C…` and both
     const read = (result.output ?? '').split('\x1e').filter(Boolean).map((record) => {
@@ -60,13 +60,13 @@ export class History {
    * descends from it, or from where `cursor` left off. With `path`, that file's history, followed across renames:
    * then only one ref is walked, since git follows a file down one line of history.
    */
-  async page({ refs, cursor, path, limit = HISTORY_PAGE }: { refs?: string[]; cursor?: string; path?: string; limit?: number } = {}): Promise<HistoryPage> {
+  async page({ refs, cursor, path, limit = HISTORY_PAGE, signal }: { refs?: string[]; cursor?: string; path?: string; limit?: number; signal?: AbortSignal } = {}): Promise<HistoryPage> {
     // `HEAD` before the first commit names none, and that history is empty; a ref asked for by name must name one
     if (!cursor && !refs?.length && !(await this.runner.executeGitCommand(['rev-parse', '--verify', '--quiet', 'HEAD'])).success) return { commits: [] }
     const from: Cursor = cursor ? decode(cursor) : { tips: await this.tipsOf(refs?.length ? refs : ['HEAD']), read: 0, path }
-    if (from.path !== undefined) return this.filePage(from.tips[0]!, from.path, limit)
+    if (from.path !== undefined) return this.filePage(from.tips[0]!, from.path, limit, signal)
     const args = ['log', '-z', '--topo-order', `--format=${FIELDS.join('%x00')}`, `--skip=${from.read}`, `-n${limit + 1}`, ...from.tips, '--']
-    const result = await this.runner.executeGitCommand(args)
+    const result = await this.runner.executeGitCommand(args, { signal })
     if (!result.success) throw failure(result, 'Failed to read the history')
     const commits = historyRecords(result.output ?? '')
     // One more than a page was asked for, so that a page that ends the history says so without another read

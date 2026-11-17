@@ -212,8 +212,12 @@ export class GitRepository {
     return this.reads.listIgnoredDirectories()
   }
 
-  readDiff(filePath?: string, staged: boolean = false): Promise<string> {
-    return this.reads.readDiff(filePath, staged)
+  /**
+   * The diff of a file, or of every file when none is named: of the working tree against what is staged, or with
+   * `staged` of what is staged against the last commit. `signal` stops it, rejecting with a `GitError` coded `aborted`
+   */
+  readDiff(filePath?: string, staged: boolean = false, options?: { signal?: AbortSignal }): Promise<string> {
+    return this.reads.readDiff(filePath, staged, options)
   }
 
   /**
@@ -405,9 +409,10 @@ export class GitRepository {
    * A page of history to draw: from `refs` (`HEAD` when none), each commit with its parents and the refs at it,
    * never one before a commit that descends from it; or from the `cursor` the page before gave, which continues
    * from where the first page stood, so the pages neither repeat nor drop a commit whatever moves meanwhile. With
-   * `path`, that file's history from the first ref, followed across its renames.
+   * `path`, that file's history from the first ref, followed across its renames. `signal` stops the read, which then
+   * rejects with a `GitError` coded `aborted`: for a page whoever asked no longer wants.
    */
-  history(options?: { refs?: string[]; cursor?: string; path?: string; limit?: number }): Promise<HistoryPage> {
+  history(options?: { refs?: string[]; cursor?: string; path?: string; limit?: number; signal?: AbortSignal }): Promise<HistoryPage> {
     return this.histories.page(options)
   }
 
@@ -415,9 +420,9 @@ export class GitRepository {
    * Who last changed each line of a file, at `revision` or as the working tree has it, in line order, leaving out
    * the commits the repository lists to be ignored. `onLines` is handed each group of lines as git finds it. Blame
    * runs the conversion programs a repository names, as a diff does, so it is refused like any other command in a
-   * repository not trusted to.
+   * repository not trusted to. `signal` stops it, rejecting with a `GitError` coded `aborted`.
    */
-  blame(filePath: string, options?: { revision?: string; onLines?: (lines: BlameLine[]) => void }): Promise<BlameLine[]> {
+  blame(filePath: string, options?: { revision?: string; onLines?: (lines: BlameLine[]) => void; signal?: AbortSignal }): Promise<BlameLine[]> {
     return this.blames.blame(filePath, options)
   }
 
