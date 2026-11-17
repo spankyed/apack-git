@@ -242,6 +242,16 @@ export class GitRepository {
   }
 
   /**
+   * Applies a patch of any number of files — what `git diff` prints, binary files included — to the working tree, or
+   * with `staged` to what is staged and nothing else: a change an agent proposes, say. Its paths are from the top of
+   * the checkout, wherever this repository was opened. It is applied whole or not at all: a patch any part of which
+   * does not apply, or that names a path outside the checkout, is refused with a `GitError` and changes nothing.
+   */
+  applyPatch(patch: string | Buffer, options?: { staged?: boolean }): Promise<void> {
+    return this.writes.applyPatch(patch, options)
+  }
+
+  /**
    * Stages one piece of a file's change, or with `staged` takes one piece out of what is staged. The piece is
    * named by its id, and is one this repository cuts from the file as it is now: one whose file changed under
    * it is refused, rather than applied to lines it was not made from.
