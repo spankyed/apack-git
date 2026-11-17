@@ -634,6 +634,26 @@ export class GitWrites {
     })
   }
 
+  /**
+   * Brings submodules to the commits their parent records: those at `paths` (from the top of the checkout) when any
+   * are named, every one otherwise, each set up first where it is not yet, and the submodules in them in turn. What a
+   * submodule lacks is fetched, with git's progress handed to `onProgress`, and `signal` stops it. One whose own
+   * changes the checkout would overwrite is refused, and left as it is.
+   */
+  async updateSubmodules(paths: string[] = [], { onProgress, signal }: { onProgress?: (progress: GitProgress) => void; signal?: AbortSignal } = {}): Promise<void> {
+    return this.withWriteFlag(async () => {
+      const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+      const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
+      const result = await this.runner.executeGitCommand(
+        ['-C', top, 'submodule', 'update', '--init', '--recursive', '--progress', '--', ...paths.map(rowSpec)],
+        { onProgress, signal },
+      )
+      if (!result.success) {
+        throw new GitError(result.code === 'aborted' ? 'The submodule update was stopped' : result.error || 'git gave no reason', result.code)
+      }
+    })
+  }
+
   // --- Stash operations ---
 
   /**
