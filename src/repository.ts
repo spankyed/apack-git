@@ -345,6 +345,16 @@ export class GitRepository {
   }
 
   /**
+   * Brings submodules to the commits this repository records: those at `paths` (from the top of the checkout) when
+   * any are named, every one otherwise, each set up first where it is not yet, and the submodules in them in turn.
+   * What a submodule lacks is fetched, with git's progress handed to `onProgress`, and `signal` stops it, rejecting
+   * with a `GitError` coded `aborted`. One whose own changes the checkout would overwrite is refused, and left as it is
+   */
+  updateSubmodules(paths?: string[], options?: { onProgress?: (progress: GitProgress) => void; signal?: AbortSignal }): Promise<void> {
+    return this.writes.updateSubmodules(paths, options)
+  }
+
+  /**
    * The trailers git reads at the end of a message, in order: `Co-authored-by: …`, `Signed-off-by: …`. None when its
    * last paragraph is not trailers, and a message of one paragraph has none, that being its subject
    */
