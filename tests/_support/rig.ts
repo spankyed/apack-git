@@ -193,6 +193,40 @@ export function churn(root: string, random: ReturnType<typeof seeded>, operation
   return made
 }
 
+/** A path relative to the tree as the platform's watch names it, with `/` between its parts on every platform */
+const slashed = (relative: string) => relative.split(path.sep).join('/')
+
+/**
+ * A watch of the case's own on the whole tree, beside the engine's: whether the platform is delivering file events
+ * at all, which is not the engine's to decide. On macOS one service of the system's feeds every process's watches,
+ * and while another process writes files fast enough it delivers nothing to anyone for longer than a case waits: a
+ * build running beside the suite is enough. What the engine made of a change says something about the engine only
+ * once this watch has seen the change delivered.
+ *
+ * Opened on a quiet tree, and live once a file written in git's own directory is seen: nothing of the engine's
+ * reports on that file, so it moves no snapshot. A watch is not delivering the moment it opens, and on Linux Node's
+ * walks the tree as it opens, so it is opened after the tree has stopped changing and before the change it is for.
+ */
+export async function independentWatch(root: string) {
+  const seen = new Set<string>()
+  const watcher = fs.watch(root, { recursive: true, persistent: false }, (_eventType, filename) => {
+    if (filename !== null) seen.add(slashed(filename))
+  })
+  // A watch that fails delivers nothing more, which is what it is asked
+  watcher.on('error', () => {})
+  cleanups.push(() => watcher.close())
+  /** How many of these paths the platform delivered, waiting up to `withinMs` for all of them */
+  const delivered = async (paths: string[], withinMs = 30_000): Promise<number> => {
+    const wanted = paths.map(slashed)
+    const until = Date.now() + withinMs
+    while (Date.now() < until && !wanted.every(each => seen.has(each))) await new Promise<void>((resolve) => { setTimeout(resolve, 50) })
+    return wanted.filter(each => seen.has(each)).length
+  }
+  const sentinel = path.join('.git', 'rig-delivery')
+  fs.writeFileSync(path.join(root, sentinel), '')
+  return { live: await delivered([sentinel]) === 1, delivered }
+}
+
 /** Makes a file in every directory of the tree, which a watcher that follows the whole tree reports each of */
 export function probeEveryDirectory(root: string, label: string): number {
   const directories = directoriesOf(root)

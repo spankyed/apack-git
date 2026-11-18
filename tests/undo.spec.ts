@@ -130,6 +130,43 @@ it('refuses to take back a commit its branch has moved past since', async () => 
   expect(await git('log', '-1', '--format=%s')).toBe('made elsewhere');
 });
 
+it('takes back a merge on the branch it was made on, when another branch has been checked out since', async () => {
+  const { root, git, repo } = await repository();
+  const commit = async (file: string, message: string) => {
+    fs.writeFileSync(path.join(root, file), `${message}\n`);
+    await git('add', file);
+    await git('commit', '--quiet', '-m', message);
+  };
+  await git('checkout', '--quiet', '-b', 'side');
+  await commit('s.txt', 'on side');
+  await git('checkout', '--quiet', '-b', 'topic', 'main');
+  await commit('t.txt', 'on topic');
+  await git('checkout', '--quiet', 'main');
+  await commit('m.txt', 'on main');
+  const before = { main: await git('rev-parse', 'main'), topic: await git('rev-parse', 'topic') };
+
+  await repo.merge('side');
+  await git('checkout', '--quiet', 'topic');
+  await repo.undo();
+
+  expect({ main: await git('rev-parse', 'main'), topic: await git('rev-parse', 'topic') }).toEqual(before);
+  expect(fs.existsSync(path.join(root, 't.txt')), 'and the branch checked out keeps its files').toBe(true);
+  expect(await git('status', '--porcelain')).toBe('');
+});
+
+it('refuses an entry written with no branch checked out, once a branch is', async () => {
+  const { root, git, repo } = await repository();
+  await git('checkout', '--quiet', '--detach');
+  fs.writeFileSync(path.join(root, 'b.txt'), 'b\n');
+  await git('add', 'b.txt');
+  await repo.commit('detached');
+  await git('checkout', '--quiet', '-b', 'other');
+  const at = await git('rev-parse', 'other');
+
+  await expect(repo.undo()).rejects.toThrow(/has moved since/);
+  expect(await git('rev-parse', 'other')).toBe(at);
+});
+
 it('says there is nothing to undo when there is not', async () => {
   const { repo } = await repository();
 
