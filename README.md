@@ -76,6 +76,9 @@ before 2.38.
 - **Hints in, news out.** A file event is a hint, and git says whether anything changed. The engine never
   assumes a watcher saw everything: a host can always say "look again", and a watch that has stopped delivering
   is said in the snapshot.
+- **A prediction is never in a snapshot.** Where a file will be listed once it is staged is worked out ahead of
+  git, for a window to show at once (`apack-git/staging`). That lives in the entries that import nothing of
+  Node's. A snapshot the engine answers with is what git said, and nothing else.
 - **What it runs with is handed in** (`RepositoryTies`): which git, how a process is run, the environment git
   starts from, what watches a git kept open, where to log, how long a status may take, whether a repository is
   trusted, and where checkpoints are kept. With none it uses Node's `execFile` and the process's own environment.
@@ -89,9 +92,10 @@ before 2.38.
   anything it runs no git there but that reading: a command is refused with an `UntrustedError` carrying the
   list. The rule is a list of settings known to run nothing, and every other setting asks.
 - **What a write destroys can be had back.** Before a changed file is checked out again, or an untracked file or
-  folder deleted, what is about to go is written into git's object store as a tree built with an index of its
-  own, and `restoreDiscarded` puts it back; the user's index, refs and stash are not touched, and git keeps that
-  tree as long as it keeps objects nothing refers to, two weeks unless told otherwise. A merge, rebase, cherry-pick
+  folder deleted, what is about to go is kept as a checkpoint: a commit in a store outside the repository
+  (`RepositoryTies.checkpointDirectory`), and `restoreDiscarded` puts it back. The repository's index, refs,
+  objects and stash are not touched, and a checkpoint is dropped after 14 days, or as the oldest while the store is
+  larger than a gigabyte. A merge, rebase, cherry-pick
   or rewrite checkpoints the working tree first, and `undo` takes back the last such write. An amend, a rewrite or an undo that
   would change commits a remote branch already holds is refused as `published` unless the host says
   `evenIfPublished`.

@@ -37,8 +37,8 @@ that batches the read.
 - It runs none of the hooks a real rebase runs, so the result can differ from what the user's git would have done.
 - It moves refs under a working tree that has not moved.
 
-Previewing is a different matter and is accepted: the goal's Phase 8 says what a rebase or a cherry-pick would do,
-and moves nothing.
+Previewing is a different matter: saying what a rebase or a cherry-pick would do, and moving nothing, is
+[deferred](../deferred/preview-cherry-pick-and-rebase.md), not declined.
 
 **What would reopen it.** Git declaring `git replay` stable, and a host that needs to rewrite a branch that is not
 checked out.
@@ -81,7 +81,7 @@ The proposal was to reshape `GitStatusFile` that way, so that `src/staging.ts` p
 ## Smaller ideas
 
 - **An undo that claims to undo everything.** A push, a deleted remote branch and a pushed tag cannot be taken back
-  from here, and a copy of the working tree is dropped after 14 days. The goal's Phase 3 does the honest version:
+  from here, and a copy of the working tree is dropped after 14 days. The goal's Phases 3 and 4 do the honest version:
   every entry says whether it can be undone now, and why not.
 - **A `git update-index --stdin` kept open.** It holds `index.lock` for as long as it is open, which refuses the
   user's own git.

@@ -21,7 +21,7 @@ git cannot tell", and a case that runs on only some of CI's jobs.
 | 2.36 | Nothing is removed, and `git cat-file --batch-command` becomes usable: one git kept open that answers "is it there", "what is it" and "its content" on request. `git remote rename` also takes `--` from here | `src/objects.ts` keeps `cat-file --batch` open, which can only hand back content. `GitRepository.remoteCommand` refuses option-like names instead of using `--` |
 | 2.37 | The check for whether git has a file monitor of its own, and the case-insensitive match for "a branch named … already exists" | `FILE_MONITOR_FROM` in `src/repository.ts`; the `branch-exists` sign in `src/errors.ts` |
 | 2.38 | `unknown` from `previewMerge`: every supported git has `merge-tree --write-tree` | `MERGE_TREE_FROM` in `src/merge-preview.ts`; the `it.runIf(!mergeTree)` case in `tests/merge-preview.spec.ts` |
-| 2.40 | `unknown` from the cherry-pick and rebase previews, which need `merge-tree --merge-base` | Planned in [goal-what-git-would-do-and-undo](../../goals/goal-what-git-would-do-and-undo.md), Phase 8 |
+| 2.40 | `unknown` from the cherry-pick and rebase previews, which need `merge-tree --merge-base` | Not built: [the previews are deferred](preview-cherry-pick-and-rebase.md) |
 | 2.46 | The table of which patch releases can be told not to fetch, and the reads that wait in the network lane on a git that cannot | `NO_LAZY_FETCH_FROM`, `refusesLazyFetch` and `readLane` in `src/runner.ts` |
 
 The 2.36 and 2.40 rows are from memory of git's release notes. Confirm each against the notes before acting on it.
@@ -44,7 +44,7 @@ Any one of these:
    operation's time on some platform, and `cat-file --batch-command` is what would remove it. That argues for 2.36.
 2. Debian 12 leaves support, or macOS ships a git of 2.40 or later. Then 2.40 costs nothing either.
 3. The version checks keep multiplying. There are three today (`MERGE_TREE_FROM`, `FILE_MONITOR_FROM`,
-   `NO_LAZY_FETCH_FROM`) and the goal adds a fourth. A fifth is a reason to look again.
+   `NO_LAZY_FETCH_FROM`), and the deferred previews would add a fourth. A fifth is a reason to look again.
 
 ## The work, when it is taken up
 

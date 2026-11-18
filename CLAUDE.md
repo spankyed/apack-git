@@ -17,7 +17,10 @@ it is for and the rules that hold it together; this is what to know before chang
 - `src/trust.ts` reads what a repository would have git run and gates every command on it. **A setting is
   safe only when it is on its list of settings known to run nothing**: a new one git gains asks until it is
   added there, with a case in `tests/trust.spec.ts`.
-- `src/discards.ts` keeps what a discard removes, as a tree nothing refers to, and puts it back.
+- `src/discards.ts` keeps what a discard removes, as a checkpoint, and puts it back.
+- `src/checkpoints.ts` keeps copies of the working tree in a store outside the repository: a bare git
+  directory that borrows the repository's objects.
+- `src/journal.ts` writes down each write that can be taken back, and takes one back (`undo`).
 - `src/watcher.ts` turns file events into hints, over `directory-watch.ts`, the platform's watch on a tree.
 - `docs/` holds the goals and plans around the code: `docs/README.md` says what is where, `docs/goals/README.md`
   how a goal is written, and `docs/AGENTS.md` how they are kept.

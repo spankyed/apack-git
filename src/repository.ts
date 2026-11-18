@@ -745,8 +745,7 @@ export class GitRepository {
 
   /**
    * Puts back what a discard kept, by the id it answered with. A path changed or made again since is left as it
-   * is and named. Rejects when git no longer keeps it, which it does for as long as it keeps objects nothing
-   * refers to: two weeks, unless the user's settings or a prune say otherwise.
+   * is and named. Rejects once the store has dropped it: after 14 days, or as the oldest of too many.
    */
   restoreDiscarded(id: string): Promise<DiscardRestored> {
     return this.writes.restoreDiscarded(id)
