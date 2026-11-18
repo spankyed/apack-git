@@ -45,10 +45,10 @@ async function repository() {
   return { root, repo, startedBy };
 }
 
-it('opens a repository with the same six gits on every git', async () => {
+it('opens a repository with the same five gits on every git, asking where it is once', async () => {
   const { repo, startedBy } = await repository();
 
-  expect(await startedBy(() => repo.readSnapshot())).toEqual(['--version', 'rev-parse', 'config', 'status', 'for-each-ref', 'rev-parse']);
+  expect(await startedBy(() => repo.readSnapshot())).toEqual(['--version', 'rev-parse', 'config', 'status', 'for-each-ref']);
 });
 
 it('takes the settings afresh, with the status and the refs, when told to look again', async () => {

@@ -44,3 +44,15 @@ the budgets' own git 2.39.5 (Apple).
   last step waits for the platform to deliver the files made in every directory, and unlike the churn cases it has no
   watch of its own to tell the platform's silence from the engine's. Left for CI, which runs it where nothing else
   floods file events; a failure there is a failure.
+
+## 2026-11-18, Phase 2 (`25bce15`) and Phase 3
+
+- Phase 3: `npx vitest run tests/gits-started.spec.ts tests/settings-held.spec.ts tests/trust.spec.ts tests/worktrees.spec.ts tests/partial-clone.spec.ts tests/repositories-under.spec.ts`:
+  78 passed, 1 skipped, with `tests/trust.spec.ts` and `tests/worktrees.spec.ts` unchanged. Opening is `--version`,
+  `rev-parse`, `config`, `status`, `for-each-ref`.
+- The reading's own files are now `config` in the common git directory and `config.worktree` in the checkout's own,
+  from the directories it asks for once: this replaces Phase 2's interim, which found them from where the local
+  settings came from.
+- `readLane`'s read of the trust gate, added in Phase 2 to fix the order of opening, came out again: the settings'
+  first read now asks `rev-parse` before `config` whoever reads them first.
+- `npm test` on Phase 3: 60 files, 573 passed, 4 skipped, `tests/rig-loss.spec.ts` included.

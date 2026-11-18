@@ -255,7 +255,7 @@ export class RepositoryModel {
     const refreshesIndex = this.refreshIndexOnRead && !this.writing()
     this.refreshIndexOnRead = false
     // Another git holding the index is why git would skip the write, silently: the index is as suspect after
-    const gitDir = refreshesIndex ? (this.gitDirectories ?? await this.resolveGitDirectories())?.gitDir : undefined
+    const gitDir = refreshesIndex ? (await this.directories())?.gitDir : undefined
     const heldElsewhere = gitDir !== undefined && await fs.stat(path.join(gitDir, 'index.lock')).then(() => true, () => false)
     const statusStarted = performance.now()
     const status = await this.runner.executeGitCommand(['status', '--porcelain=v2', '--branch', '--show-stash', `--untracked-files=${untracked}`, '-z'], { refreshesIndex })
@@ -282,7 +282,7 @@ export class RepositoryModel {
     const refs = ((await this.runner.executeGitCommand(['for-each-ref', '--format=%(objectname) %(refname)'])).output ?? '').split('\n')
     const isStash = (ref: string) => ref.endsWith(' refs/stash')
     const isLocalBranch = (ref: string) => ref.includes(' refs/heads/')
-    const directories = this.gitDirectories ?? await this.resolveGitDirectories()
+    const directories = await this.directories()
 
     return this.snapshotOver({ headers, entries, untracked, ignoreCase, hasIdentity, slowStatus, operation: await this.readOperation(directories, refs) }, {
       // What is checked out, and the local branches: a remote's branch moving, as a fetch moves it, is not history
@@ -308,7 +308,7 @@ export class RepositoryModel {
     // A rename, a copy and a file added without its content are each read from two paths at once: asked for alone,
     // one of the two comes back as an addition or a deletion
     if (held.entries.some(entry => entry.originalPath !== undefined || entry.columns?.[1] === 'A')) return undefined
-    const directories = this.gitDirectories ?? await this.resolveGitDirectories()
+    const directories = await this.directories()
     if (!directories) return undefined
 
     const fold = pathFolding(held.ignoreCase)
@@ -494,6 +494,14 @@ export class RepositoryModel {
       return `${name} ${await read(path.join(directory, 'gitdir'))} ${await read(path.join(directory, 'HEAD'))}${locked}`
     }))
     return [`main ${await read(path.join(commonDir, 'HEAD'))}`, ...linked].join('\n')
+  }
+
+  /**
+   * Where the git state lives for a read: as git last said when the watches were checked, else as the settings'
+   * reading says, which asked git once when the repository was opened
+   */
+  private async directories(): Promise<GitDirectories | null> {
+    return this.gitDirectories ?? (await this.runner.settings.read()).directories ?? null
   }
 
   /**

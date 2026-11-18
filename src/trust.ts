@@ -11,7 +11,7 @@
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import { GitError } from './errors.ts'
-import type { HeldSettings, ReadGit, SettingsReading } from './settings.ts'
+import type { HeldSettings, SettingsReading } from './settings.ts'
 
 /** One thing a repository would have git run, or a setting not known to run nothing */
 export type TrustAsk =
@@ -121,8 +121,6 @@ export function settingRunsNothing(key: string, value: string): boolean {
   return allowed === ANY || (allowed?.has(variable) ?? false)
 }
 
-export type { ReadGit }
-
 /** Where a repository's git state is, by the paths a host and a hook are named by */
 interface Location {
   /** The common git directory as git named it, resolved, which holds the configuration and the hooks */
@@ -133,29 +131,27 @@ interface Location {
 }
 
 export class TrustGate {
-  /** Where the repository is, asked once it is found: until then each read asks again */
+  /** Where the repository is, from the settings' reading, with its real path looked up once */
   private location: Location | undefined
   /** The asks last worked out, from this reading of the settings and the hooks as they looked */
   private held: { reading: SettingsReading; hooks: string; asks: TrustAsk[] } | undefined
 
   constructor(
     private readonly workingDirectory: string,
-    private readonly readGit: ReadGit,
-    /** The repository's settings, held, which every setting that asks is worked out from */
+    /** The repository's settings, held, which say where it is and every setting that asks is worked out from */
     private readonly settings: HeldSettings,
     /** Whether a host has said the repository at this path is trusted. Without one, none is */
     private readonly isTrusted: (repository: string) => boolean = () => false,
   ) {}
 
-  /** Where the repository is: asked of git until it is found, and then held */
-  private async where(): Promise<Location | undefined> {
-    if (this.location) return this.location
-    const where = await this.readGit(['rev-parse', '--git-dir', '--git-common-dir'])
-    const [gitDir, commonDir] = (where.success ? where.output ?? '' : '').split('\n').map(line => line.trim())
+  /** Where the repository is, as the settings' reading says: nothing when the directory is in none */
+  private async where(reading: SettingsReading): Promise<Location | undefined> {
+    const common = reading.directories?.commonDir
     // No repository here: nothing to trust, and nothing a repository could have run
-    if (!gitDir || !commonDir) return undefined
-    const common = path.resolve(this.workingDirectory, commonDir)
-    this.location = { common, repository: await fs.realpath(common).catch(() => common), hooks: path.join(common, 'hooks') }
+    if (!common) return undefined
+    if (this.location?.common !== common) {
+      this.location = { common, repository: await fs.realpath(common).catch(() => common), hooks: path.join(common, 'hooks') }
+    }
     return this.location
   }
 
@@ -196,9 +192,9 @@ export class TrustGate {
    * reading is another than the one it was worked out from, or the hooks look different
    */
   async read(): Promise<TrustReading> {
-    const where = await this.where()
-    if (!where) return { trusted: false, asks: [] }
     const reading = await this.settings.read()
+    const where = await this.where(reading)
+    if (!where) return { trusted: false, asks: [] }
     const hooks = await this.hooksLook(where.hooks)
     if (this.held?.reading !== reading || this.held.hooks !== hooks) this.held = { reading, hooks, asks: await this.asksOf(reading, where) }
     return { trusted: this.isTrusted(where.repository), asks: this.held.asks, repository: where.repository }

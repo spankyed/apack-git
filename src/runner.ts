@@ -310,7 +310,7 @@ export class GitRunner {
     this.log = ties.log ?? {}
     // Its reads run beside every other, in no lane, and are not themselves gated
     this.settings = new HeldSettings(workingDirectory, args => this.runGitOnce(args), this.environment)
-    this.trust = new TrustGate(workingDirectory, args => this.runGitOnce(args), this.settings, ties.isTrusted)
+    this.trust = new TrustGate(workingDirectory, this.settings, ties.isTrusted)
   }
 
   /** What every git child of this repository runs with: the engine's own over what the host handed in */
@@ -353,9 +353,6 @@ export class GitRunner {
   private async readLane(fetches: boolean): Promise<'read' | 'network'> {
     if (fetches) return 'network'
     if (refusesLazyFetch(await this.passUsableGit())) return 'read'
-    // The trust gate first, which asks where the repository is before the settings are read: opening then asks git
-    // the same things in the same order whichever git it is
-    await this.trust.read()
     return await this.isPartialClone() ? 'network' : 'read'
   }
 

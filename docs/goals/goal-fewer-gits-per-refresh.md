@@ -1,6 +1,6 @@
 # Goal: a refresh asks git only what may have changed
 
-Status: active, 2026-11-18. Phases 1 and 2 have landed. The design is [the plan](../plans/fewer-gits-per-refresh.md).
+Status: active, 2026-11-18. Phases 1 to 3 have landed. The design is [the plan](../plans/fewer-gits-per-refresh.md).
 
 ```text
 # Goal: a refresh asks git only what may have changed
@@ -49,16 +49,15 @@ Out:
 
 ## Current handoff
 
-- **Source:** `feat/fewer-gits-per-refresh`, from `master` at `ad3f0f1`. Phase 1 is `187e5da`; Phase 2 is the
-  commit that carries this revision of the handoff.
-- **Next:** Phase 3.
-- **Proven:** Phases 1 and 2 pass their specs on macOS with git 2.38.1; the blind-hold check of Phase 2 is in
+- **Source:** `feat/fewer-gits-per-refresh`, from `master` at `ad3f0f1`. Phase 1 is `187e5da`, Phase 2
+  `25bce15`; Phase 3 is the commit that carries this revision of the handoff.
+- **Next:** Phase 4.
+- **Proven:** Phases 1 to 3 pass their specs on macOS with git 2.38.1; the blind-hold check of Phase 2 is in
   [the evidence](../evidence/fewer-gits-per-refresh.md). Not yet on CI.
 - **Unresolved:** nothing failing.
 - **Choices made where the plan did not say:** the trust gate asks where the repository is once it is found, so a
   changed reading adds no git to a look again; the repository's own configuration files are found from where its
-  local settings came from until Phase 3; and opening asks the trust gate before the partial-clone question, so it
-  is the same commands in the same order on every git. Each is in the evidence.
+  local settings came from until Phase 3, which replaced it. Each is in the evidence.
 
 ## Decisions
 
@@ -84,7 +83,7 @@ the commit in the last column as each phase lands.
 | # | Deliverable | Depends on | Done when | Landed |
 |---|---|---|---|---|
 | 1 | `tests/gits-started.spec.ts` asserts the commands each common operation starts, and `npm run budgets` takes its noted-path reading with a snapshot held (plan 1) | Nothing | The spec passes with today's counts; `npm run build && npm run budgets -- 1000 100000` prints a noted-path reading of one git; the README's paragraph on that reading says what the two readings show || `187e5da` |
-| 2 | `HeldSettings`: one `config --list`, held by how its files look, used by the trust gate, the status and the partial-clone question (plan 2) | Phase 1 | A whole status after a write is `status`, `for-each-ref`; opening is the same six commands on every git; a setting changed in the repository's configuration, an included file, a user's file made for the first time and the environment is each seen without a "look again"; `refreshSnapshot('everything')` takes the settings afresh | |
+| 2 | `HeldSettings`: one `config --list`, held by how its files look, used by the trust gate, the status and the partial-clone question (plan 2) | Phase 1 | A whole status after a write is `status`, `for-each-ref`; opening is the same six commands on every git; a setting changed in the repository's configuration, an included file, a user's file made for the first time and the environment is each seen without a "look again"; `refreshSnapshot('everything')` takes the settings afresh || `25bce15` |
 | 3 | Where the repository is, asked once at opening (plan 3) | Phase 2 | Opening is `--version`, `rev-parse`, `config`, `status`, `for-each-ref`; the trust and worktree specs pass unchanged | |
 | 4 | The `'index'` hint from the watcher and from the writes that move only the index (plan 4) | Phase 2 | Watched, the read after staging and after an index report is `status` alone; a commit made by another git is still seen; a ref moved with no report of it is found by a look again; a real `git add` is reported as `'index'` and a real `git commit` as `null` | |
 | 5 | `npm run budgets` prints what starting a git costs on Windows, by the `PATH` and directly (plan 5) | Nothing | The script runs unchanged elsewhere, and the line CI's Windows `budgets` job prints is recorded in the evidence | |
