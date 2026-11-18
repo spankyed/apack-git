@@ -29,6 +29,9 @@ export const CHECKPOINT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
 /** How large a repository's store may grow before its oldest checkpoints are dropped */
 export const CHECKPOINT_STORE_LIMIT = 1024 * 1024 * 1024
 
+/** What is said of a checkpoint the store no longer has */
+export const NO_LONGER_KEPT = 'That copy of the working tree is no longer kept: copies are kept for 14 days, and the oldest are dropped first when there are too many.'
+
 /** Where the refs naming checkpoints are, in the store */
 const REFS = 'refs/checkpoints/'
 
@@ -190,11 +193,17 @@ export class CheckpointStore {
     }))
   }
 
+  /** Whether a checkpoint is still kept */
+  async has(id: string): Promise<boolean> {
+    if (!/^[0-9a-f]{40,64}$/.test(id)) return false
+    return (await this.inStore(['rev-parse', '--verify', '--quiet', `${REFS}${id}`])).success
+  }
+
   /** What a checkpoint recorded, or a `GitError` when it is not kept any more */
   private async recorded(id: string): Promise<Recorded> {
     if (!/^[0-9a-f]{40,64}$/.test(id)) throw new Error(`Invalid checkpoint: ${JSON.stringify(id)}`)
     const read = await this.inStore(['cat-file', 'commit', `${REFS}${id}`])
-    if (!read.success) throw new GitError('That copy of the working tree is no longer kept: copies are kept for 14 days, and the oldest are dropped first when there are too many.')
+    if (!read.success) throw new GitError(NO_LONGER_KEPT, 'no-longer-kept')
     const message = (read.output ?? '').split('\n\n').slice(1).join('\n\n').trim()
     try {
       const parsed = JSON.parse(message) as Partial<Recorded>

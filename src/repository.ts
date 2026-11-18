@@ -20,11 +20,12 @@ import { Refs } from './refs.ts'
 import { MergePreviews } from './merge-preview.ts'
 import { CheckpointStore } from './checkpoints.ts'
 import { Journal } from './journal.ts'
+import { DiscardStore } from './discards.ts'
 import { DiffData } from './diff-data.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  BranchCheckout, ChangedFile, FoundRepository, GitRemote, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, Trailer, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep,
+  BranchCheckout, ChangedFile, FoundRepository, GitRemote, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, DiffHunk, DiscardKept, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, Trailer, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep, Undoable, Undone,
 } from './types.ts'
 
 export class GitRepository {
@@ -73,10 +74,11 @@ export class GitRepository {
     this.model = new RepositoryModel(this.runner, () => this.runner.writesInLine > 0 || this.writes.isWriteInProgress)
     this.reads = new GitReads(this.runner, this.model, ties)
     this.checkpoints = new CheckpointStore(this.runner, this.model, ties.checkpointDirectory)
-    this.journal = new Journal(this.runner, this.model, this.checkpoints)
+    const discards = new DiscardStore(this.runner, this.model, this.checkpoints)
+    this.journal = new Journal(this.runner, this.model, this.checkpoints, discards)
     this.blames = new Blame(this.runner, this.model)
     this.refs = new Refs(this.runner)
-    this.writes = new GitWrites(this.runner, this.model, this.reads, this.checkpoints, this.journal)
+    this.writes = new GitWrites(this.runner, this.model, this.reads, this.checkpoints, this.journal, discards)
     this.diffs = new DiffData(this.runner)
     this.histories = new History(this.runner)
     this.previews = new MergePreviews(this.runner)
@@ -270,13 +272,14 @@ export class GitRepository {
 
   /**
    * Discards a file's changes, or an untracked file or folder, and answers with what it kept of what that
-   * removed: `restoreDiscarded` puts it back. Nothing is removed when the copy could not be taken.
+   * removed: its id names the discard in the journal (`undoables`), and `undo` of it puts it back. Nothing is
+   * removed when the copy could not be taken.
    */
   revertFile(filePath: string): Promise<DiscardKept> {
     return this.writes.revertFile(filePath)
   }
 
-  /** The same for several at once, kept as one */
+  /** The same for several at once, kept as one discard in the journal */
   revertFiles(filePaths: string[]): Promise<DiscardKept> {
     return this.writes.revertFiles(filePaths)
   }
@@ -575,21 +578,26 @@ export class GitRepository {
   }
 
   /**
-   * The last write made here that `undo` would take back: a commit, a reset to a commit, a deleted branch, a
-   * dropped or cleared stash. Nothing when there is none in the last 14 days
+   * Every write made here that `undo` can take back, newest first, in the last 14 days: a commit, an amend, a reset
+   * to a commit, a merge, a rebase, a cherry-pick, a rewrite, a deleted branch, a dropped or cleared stash, and a
+   * discard. Each with
+   * whether `undo` would take it back now, and why not: what it says of an entry is what `undo` of it then does
    */
-  lastUndoable(): Promise<JournalEntry | undefined> {
-    return this.journal.last()
+  undoables(): Promise<Undoable[]> {
+    return this.journal.all()
   }
 
   /**
-   * Takes back the last write `lastUndoable` names, and answers it. A commit is taken off its branch with what it
-   * held left staged; a reset puts the branch and the index back; a branch is made again; a stash is put back on
-   * top. Refused with a `GitError` when a ref it moved has moved since, and with `published` for a commit a remote
-   * branch already holds, unless `evenIfPublished`.
+   * Takes back the write `undoables` lists under this id, and answers it: the one a host showed, whatever was
+   * written since. A commit is taken off its branch with what it held left staged; a reset puts the branch and the
+   * index back; a branch is made again; a stash is put back on top; a discard's files are put back, those changed
+   * or made again since left as they are and named in the answer's `discard`, and the discard stays in the list until
+   * a restore leaves nothing. Refused with `moved-since` when a ref it moved has moved since, with `published` for a
+   * commit a remote branch already holds unless `evenIfPublished`, with `no-longer-kept` for a discard the store has
+   * dropped, and with `nothing-to-undo` for an id the journal does not hold. A write like any other while it runs
    */
-  undo(options?: { evenIfPublished?: boolean }): Promise<JournalEntry> {
-    return this.journal.undo(options)
+  undo(id: string, options?: { evenIfPublished?: boolean }): Promise<Undone> {
+    return this.writes.withWriteFlag(() => this.journal.undo(id, options))
   }
 
   /**
@@ -741,14 +749,6 @@ export class GitRepository {
    */
   discardNotKept(filePaths: string[]): Promise<string[]> {
     return this.writes.discardNotKept(filePaths)
-  }
-
-  /**
-   * Puts back what a discard kept, by the id it answered with. A path changed or made again since is left as it
-   * is and named. Rejects once the store has dropped it: after 14 days, or as the oldest of too many.
-   */
-  restoreDiscarded(id: string): Promise<DiscardRestored> {
-    return this.writes.restoreDiscarded(id)
   }
 
   /**

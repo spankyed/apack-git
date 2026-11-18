@@ -39,6 +39,9 @@ it is for and the rules that hold it together; this is what to know before chang
 - **A spec's background process ends by itself**, and a spec removes the directories it made.
 - **A new reason a command failed is a new entry in `errors.ts`**, most telling first, with a case in
   `tests/failures.spec.ts` that fails a real git that way.
+- **What git printed is read in `errors.ts` and nowhere else.** A fact read from it, such as the files a
+  refused checkout lists, is optional: when the lines are not as expected the failure keeps its code and
+  git's words, and the fact is empty. Each has a case that fails a real git that way.
 - **A comment says how the code is, for whoever opens the file cold.** What changed and why goes in the
   commit message.
 - **Nothing is kept for compatibility.** The engine has one consumer, pinned by commit, and both move together.

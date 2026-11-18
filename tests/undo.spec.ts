@@ -32,6 +32,8 @@ async function repository() {
   await git('commit', '--quiet', '-am', 'second');
   return { root, git, repo: new GitRepository(root, { checkpointDirectory: () => store }) };
 }
+/** The id of the newest write `undo` can take back, as a host reads it from the list */
+const newest = async (repo: GitRepository) => (await repo.undoables())[0]!.entry.id;
 const refusal = (attempt: Promise<unknown>) => attempt.then(() => { throw new Error('it was not refused'); }, (error: unknown) => error);
 
 it('takes a commit back off its branch, leaving what it held staged', async () => {
@@ -41,13 +43,14 @@ it('takes a commit back off its branch, leaving what it held staged', async () =
   await git('add', 'a.txt');
 
   await repo.commit('third');
-  expect(await repo.lastUndoable()).toMatchObject({ operation: 'commit', summary: 'commit "third"' });
-  await repo.undo();
+  const [listed] = await repo.undoables();
+  expect(listed).toMatchObject({ entry: { operation: 'commit', summary: 'commit "third"' }, standing: 'ready' });
+  expect((await repo.undo(listed!.entry.id)).entry).toEqual(listed!.entry);
 
   expect(await git('rev-parse', 'HEAD')).toBe(before);
   expect(await git('status', '--porcelain')).toBe('M  a.txt');
   expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('three\n');
-  expect(await repo.lastUndoable(), 'and there is nothing more to take back').toBeUndefined();
+  expect(await repo.undoables(), 'and there is nothing more to take back').toEqual([]);
 });
 
 it('takes back a reset, putting the branch and the index back and the files as they are', async () => {
@@ -56,7 +59,7 @@ it('takes back a reset, putting the branch and the index back and the files as t
   fs.writeFileSync(path.join(root, 'a.txt'), 'edited\n');
 
   await repo.resetToCommit(await git('rev-parse', 'HEAD~1'));
-  await repo.undo();
+  await repo.undo(await newest(repo));
 
   expect(await git('rev-parse', 'HEAD')).toBe(before);
   expect(await git('diff', '--cached', '--name-only'), 'nothing staged, as before the reset').toBe('');
@@ -73,7 +76,7 @@ it('makes a deleted branch again where it was, with the branch it followed', asy
 
   await repo.deleteBranch('topic');
   expect(await git('branch', '--list', 'topic')).toBe('');
-  await repo.undo();
+  await repo.undo(await newest(repo));
 
   expect(await git('rev-parse', 'topic')).toBe(was);
   expect(await git('config', 'branch.topic.merge')).toBe('refs/heads/topic');
@@ -89,13 +92,13 @@ it('puts back a dropped stash on top, and cleared stashes in the order they stoo
 
   await repo.stashDrop(1);
   expect(await stashes()).toMatch(/^\w+ On main: newer$/);
-  await repo.undo();
+  await repo.undo(await newest(repo));
   expect(await stashes()).toMatch(/^\w+ On main: older\n\w+ On main: newer$/);
 
   const standing = await stashes();
   await repo.stashClear();
   expect(await stashes()).toBe('');
-  await repo.undo();
+  await repo.undo(await newest(repo));
   expect(await stashes()).toBe(standing);
 });
 
@@ -109,12 +112,14 @@ it('asks before taking back a commit a remote branch already holds', async () =>
   await repo.commit('third');
   await git('push', '--quiet', 'origin', 'main');
 
-  const refused = await refusal(repo.undo());
+  const [listed] = await repo.undoables();
+  expect(listed).toMatchObject({ standing: 'published', publishedOn: ['origin/main'] });
+  const refused = await refusal(repo.undo(listed!.entry.id));
   expect(refused).toBeInstanceOf(GitError);
   expect((refused as GitError).code).toBe('published');
   expect(await git('log', '-1', '--format=%s'), 'and nothing was undone').toBe('third');
 
-  await repo.undo({ evenIfPublished: true });
+  await repo.undo(listed!.entry.id, { evenIfPublished: true });
   expect(await git('log', '-1', '--format=%s')).toBe('second');
 });
 
@@ -126,7 +131,9 @@ it('refuses to take back a commit its branch has moved past since', async () => 
   fs.writeFileSync(path.join(root, 'b.txt'), 'b, again\n');
   await git('commit', '--quiet', '-am', 'made elsewhere');
 
-  await expect(repo.undo()).rejects.toThrow(/has moved since/);
+  const [listed] = await repo.undoables();
+  expect(listed).toMatchObject({ standing: 'moved-since', moved: ['refs/heads/main'] });
+  await expect(repo.undo(listed!.entry.id)).rejects.toMatchObject({ code: 'moved-since', message: expect.stringMatching(/has moved since/) });
   expect(await git('log', '-1', '--format=%s')).toBe('made elsewhere');
 });
 
@@ -147,7 +154,7 @@ it('takes back a merge on the branch it was made on, when another branch has bee
 
   await repo.merge('side');
   await git('checkout', '--quiet', 'topic');
-  await repo.undo();
+  await repo.undo(await newest(repo));
 
   expect({ main: await git('rev-parse', 'main'), topic: await git('rev-parse', 'topic') }).toEqual(before);
   expect(fs.existsSync(path.join(root, 't.txt')), 'and the branch checked out keeps its files').toBe(true);
@@ -163,13 +170,63 @@ it('refuses an entry written with no branch checked out, once a branch is', asyn
   await git('checkout', '--quiet', '-b', 'other');
   const at = await git('rev-parse', 'other');
 
-  await expect(repo.undo()).rejects.toThrow(/has moved since/);
+  const [listed] = await repo.undoables();
+  expect(listed).toMatchObject({ standing: 'moved-since', moved: ['HEAD'] });
+  await expect(repo.undo(listed!.entry.id)).rejects.toMatchObject({ code: 'moved-since' });
   expect(await git('rev-parse', 'other')).toBe(at);
 });
 
 it('says there is nothing to undo when there is not', async () => {
   const { repo } = await repository();
 
-  expect(await repo.lastUndoable()).toBeUndefined();
-  await expect(repo.undo()).rejects.toThrow('nothing to undo');
+  expect(await repo.undoables()).toEqual([]);
+  await expect(repo.undo('not-an-entry')).rejects.toMatchObject({ code: 'nothing-to-undo', message: expect.stringContaining('nothing to undo') });
+});
+
+it('refuses to take back the same entry twice', async () => {
+  const { root, git, repo } = await repository();
+  fs.writeFileSync(path.join(root, 'b.txt'), 'b\n');
+  await git('add', 'b.txt');
+  await repo.commit('third');
+  const id = await newest(repo);
+
+  await repo.undo(id);
+  await expect(repo.undo(id)).rejects.toMatchObject({ code: 'nothing-to-undo' });
+  expect(await git('log', '-1', '--format=%s'), 'and the branch was moved back once').toBe('second');
+});
+
+it('takes back an entry that is not the last, by its id', async () => {
+  const { root, git, repo } = await repository();
+  await git('branch', 'topic', 'HEAD~1');
+  const was = await git('rev-parse', 'topic');
+  await repo.deleteBranch('topic');
+  fs.writeFileSync(path.join(root, 'b.txt'), 'b\n');
+  await git('add', 'b.txt');
+  await repo.commit('third');
+
+  const listed = await repo.undoables();
+  expect(listed).toMatchObject([
+    { entry: { operation: 'commit' }, standing: 'ready' },
+    { entry: { operation: 'delete-branch' }, standing: 'ready' },
+  ]);
+  await repo.undo(listed[1]!.entry.id);
+
+  expect(await git('rev-parse', 'topic')).toBe(was);
+  expect(await git('log', '-1', '--format=%s'), 'and the commit is where it was').toBe('third');
+  expect(await repo.undoables()).toMatchObject([{ entry: { operation: 'commit' } }]);
+});
+
+it('takes back the entry it was handed, whatever was written since', async () => {
+  const { root, git, repo } = await repository();
+  await git('branch', 'topic');
+  fs.writeFileSync(path.join(root, 'b.txt'), 'b\n');
+  await git('add', 'b.txt');
+  await repo.commit('third');
+  const shown = await newest(repo);
+  await repo.deleteBranch('topic');
+
+  await repo.undo(shown);
+
+  expect(await git('log', '-1', '--format=%s'), 'the commit it was handed is taken back').toBe('second');
+  expect(await git('branch', '--list', 'topic'), 'and the branch deleted since stays deleted').toBe('');
 });

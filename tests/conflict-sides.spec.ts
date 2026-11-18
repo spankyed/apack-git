@@ -6,16 +6,21 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { run } from './_support/process.ts';
 import { removeDirectory } from './_support/remove.ts';
-import { GitRepository } from '../src/index.ts';
+import { GitRepository, runUnbounded, type RepositoryTies } from '../src/index.ts';
 
 const directories: string[] = [];
-afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });
+/** Reading a side starts the git kept open for reading files, which is in the repository's directory until closed */
+const repositories: GitRepository[] = [];
+afterEach(async () => {
+  await Promise.all(repositories.splice(0).map(repo => repo.close()));
+  for (const directory of directories.splice(0)) await removeDirectory(directory);
+});
 
 /**
  * A merge of `topic` into `main` that stops on conflicts: `a.txt` changed on both, `gone.txt` changed on `main`
  * and deleted on `topic`
  */
-async function conflicted() {
+async function conflicted(ties: RepositoryTies = {}) {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-conflict-')));
   directories.push(root);
   const git = async (...args: string[]) => (await run('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args])).stdout;
@@ -34,7 +39,9 @@ async function conflicted() {
   write('gone.txt', 'here, changed\n');
   await git('commit', '--quiet', '-am', 'ours');
   await git('merge', '--quiet', 'topic').catch(() => {});
-  return { root, git, repo: new GitRepository(root) };
+  const repo = new GitRepository(root, ties);
+  repositories.push(repo);
+  return { root, git, repo };
 }
 
 it('reads each side as the commit it came from holds it, and where the conflict is marked', async () => {
@@ -49,6 +56,18 @@ it('reads each side as the commit it came from holds it, and where the conflict 
   expect(sides.binary).toBe(false);
   expect(sides.regions).toEqual([{ start: 2, separator: 4, end: 6 }]);
   expect(sides.working!.split('\n').slice(1, 6)).toEqual(['<<<<<<< HEAD', 'ours', '=======', 'theirs', '>>>>>>> topic']);
+});
+
+it('reads the three sides without a git of their own', async () => {
+  const ran: string[][] = [];
+  const { git, repo } = await conflicted({ run: (file, args, options) => { ran.push(args); return runUnbounded(file, args, options); } });
+
+  const sides = await repo.conflictSides('a.txt');
+
+  expect(ran.filter(args => args.some((arg, at) => arg === 'cat-file' && args[at + 1] === 'blob')), 'no side was read by a git of its own').toEqual([]);
+  expect(sides.base).toBe(await git('show', 'main~1:a.txt'));
+  expect(sides.ours).toBe(await git('show', 'main:a.txt'));
+  expect(sides.theirs).toBe(await git('show', 'topic:a.txt'));
 });
 
 it('says a side that deleted the file has none', async () => {

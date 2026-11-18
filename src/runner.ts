@@ -6,7 +6,7 @@ import * as fs from 'fs/promises'
 import { watch } from 'fs'
 import { execFile, type ChildProcess } from 'node:child_process'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { CONTENT_MISSING, GitError, HookRefusedError, LOCKED, classifyGitError, type GitErrorCode } from './errors.ts'
+import { CONTENT_MISSING, GitError, HookRefusedError, LOCKED, classifyGitError, gitErrorOf, type GitErrorCode } from './errors.ts'
 import { hooksIn, traceFile, type HookRun } from './trace.ts'
 import { GitUnusableError, checkGit, type GitUnusable } from './git-check.ts'
 import { progressReader, withoutProgress } from './progress.ts'
@@ -253,7 +253,7 @@ export interface GitCommandResult {
 
 /** A failed command as an error, carrying why it failed for whoever shows it: a refusing hook's, as the hook's */
 export const failure = (result: GitCommandResult, otherwise: string): GitError =>
-  result.hook ? new HookRefusedError(result.hook.name, result.hook.exitCode, result.error ?? '') : new GitError(result.error || otherwise, result.code)
+  result.hook ? new HookRefusedError(result.hook.name, result.hook.exitCode, result.error ?? '') : gitErrorOf(result.error || otherwise, result.code, result.error ?? '')
 
 interface GitCommandError extends Error {
   code?: number | string

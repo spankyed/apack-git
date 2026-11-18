@@ -33,7 +33,7 @@ watcher.setChangeCallback(paths => { repo.noteChanged(paths); void repo.refreshS
   it; how many lines each change adds and removes; the folders git ignores; the three sides of a conflicted file,
   and resolving it with one side or with content written in its place.
 - **Writes**: staging, committing and amending; discarding a file's changes, which keeps what it removed
-  (`restoreDiscarded`); stashing all of it, only what is staged, or only some paths, and applying, popping and
+  for `undo`; stashing all of it, only what is staged, or only some paths, and applying, popping and
   dropping a stash, whose files are read without applying it.
 - **History**: pages of history to draw, with each commit's parents and refs, that neither repeat nor drop a commit
   while the repository moves; a file's history across its renames; blame, a group of lines at a time; a commit's
@@ -48,9 +48,11 @@ watcher.setChangeCallback(paths => { repo.noteChanged(paths); void repo.refreshS
 - **Merges and rewrites**: what a merge or a pull would do before it is done (`previewMerge`); merging, rebasing
   and cherry-picking, and carrying on with, skipping or giving up what git is in the middle of; rewriting the
   commits after one by keeping, rewording, folding or dropping each (`rewrite`).
-- **Undo**: the last commit, amend, reset, deleted branch, dropped stash, merge, rebase or rewrite is taken back
-  by `undo`, and `lastUndoable` names it first. A merge, rebase, cherry-pick or rewrite takes a checkpoint of the
-  working tree before it, in a store outside the repository, which `restoreCheckpoint` puts back.
+- **Undo**: every commit, amend, reset, deleted branch, dropped stash, merge, rebase, cherry-pick, rewrite and
+  discard made here in the last 14 days is listed with whether it can be taken back now (`undoables`), and `undo`
+  takes back the one a host names by its id: refused with a code when it has moved since, is published or is no
+  longer kept, and never another entry than the one named. A merge, rebase, cherry-pick or rewrite takes a
+  checkpoint of the working tree before it, in a store outside the repository, which `restoreCheckpoint` puts back.
 - **Repositories**: cloning and initialising one, with progress; every repository under a folder
   (`GitRepository.repositoriesUnder`); where a checkout's git state lives, a linked worktree's included.
 
@@ -72,7 +74,9 @@ before 2.38.
 - **Plain data out.** A snapshot crosses a host's bus to its windows, so it is data and never an object with
   methods.
 - **Codes, not prose.** A failure carries a code (`GitErrorCode`) read from what git printed, in one place. A
-  host writes the sentence.
+  host writes the sentence. Where git names what a failure is about, the error carries that too, as an optional
+  fact: the files a checkout, a merge or a pull would overwrite (`LocalChangesError.files`), and which of a hosting
+  service's rules refused a push (`HostRefusedError.rule`).
 - **Hints in, news out.** A file event is a hint, and git says whether anything changed. The engine never
   assumes a watcher saw everything: a host can always say "look again", and a watch that has stopped delivering
   is said in the snapshot.
@@ -90,13 +94,14 @@ before 2.38.
   can name programs, and a plain status runs one of them. Until a host says the repository is trusted
   (`isTrusted`), the engine reads what it would run without running it (`readTrust`), and when that names
   anything it runs no git there but that reading: a command is refused with an `UntrustedError` carrying the
-  list. The rule is a list of settings known to run nothing, and every other setting asks.
+  list. The rule is a list of settings known to run nothing, and every other setting asks. A git kept open while
+  the repository was trusted is ended when a read is refused.
 - **What a write destroys can be had back.** Before a changed file is checked out again, or an untracked file or
   folder deleted, what is about to go is kept as a checkpoint: a commit in a store outside the repository
-  (`RepositoryTies.checkpointDirectory`), and `restoreDiscarded` puts it back. The repository's index, refs,
+  (`RepositoryTies.checkpointDirectory`), and the discard is an entry `undo` puts back. The repository's index, refs,
   objects and stash are not touched, and a checkpoint is dropped after 14 days, or as the oldest while the store is
   larger than a gigabyte. A merge, rebase, cherry-pick
-  or rewrite checkpoints the working tree first, and `undo` takes back the last such write. An amend, a rewrite or an undo that
+  or rewrite checkpoints the working tree first, and `undo` takes back the write it is named. An amend, a rewrite or an undo that
   would change commits a remote branch already holds is refused as `published` unless the host says
   `evenIfPublished`.
 
@@ -113,7 +118,8 @@ before 2.38.
 What the engine's work should cost, by the number of files a repository tracks. They are statements, not gates:
 `npm run budgets -- <sizes>` prints a reading of each against a repository it generates, with the machine's
 conditions beside it, and fails on none of them. CI prints the readings for 1,000 and 100,000 files on Linux, macOS
-and Windows (the `budgets` jobs); a million files is read by hand.
+and Windows (the `budgets` jobs); a million files is read by hand. Each reading comes with the number of gits
+started for it, which counts every process the runner starts and not the one git kept open for reading files.
 
 | Files | Opening | A whole status | A status of one noted path | A checkpoint of the whole tree |
 |---|---|---|---|---|

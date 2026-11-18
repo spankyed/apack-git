@@ -55,13 +55,39 @@ it('puts back a changed file it discarded, with what is staged and the refs as t
   const kept = await repo.revertFile('kept.txt');
 
   expect(read(root, 'kept.txt')).toBe('one\n');
-  expect(kept).toEqual({ id: expect.stringMatching(/^[0-9a-f]{40,64}$/), notKept: [] });
+  expect(kept).toEqual({ id: expect.any(String), notKept: [] });
   expect((await standing(root)).refs, 'the copy is referred to by nothing').toBe(before.refs);
 
-  expect(await repo.restoreDiscarded(kept.id!)).toEqual({ restored: ['kept.txt'], left: [] });
+  expect((await repo.undo(kept.id!)).discard).toEqual({ restored: ['kept.txt'], left: [] });
 
   expect(read(root, 'kept.txt')).toBe('one\nand an edit nobody committed\n');
   expect(await standing(root)).toEqual(before);
+});
+
+it('lists a discard as the newest thing that can be undone, and undoing it puts the file back', async () => {
+  const { root, repo } = await repository();
+  write(root, 'kept.txt', 'an edit\n');
+
+  const kept = await repo.revertFile('kept.txt');
+
+  expect(await repo.undoables()).toMatchObject([{ entry: { id: kept.id, operation: 'discard', summary: 'discarding kept.txt' }, standing: 'ready' }]);
+  expect(await repo.undo(kept.id!)).toMatchObject({ entry: { id: kept.id }, discard: { restored: ['kept.txt'], left: [] } });
+  expect(read(root, 'kept.txt')).toBe('an edit\n');
+  expect(await repo.undoables()).toEqual([]);
+});
+
+it('puts back a discard a host finds in the list, without the id the discard answered', async () => {
+  const { root, repo } = await repository();
+  write(root, 'kept.txt', 'an edit\n');
+  write(root, 'fresh.txt', 'new\n');
+  await repo.revertFiles(['kept.txt', 'fresh.txt']);
+
+  const found = (await repo.undoables()).find(listed => listed.entry.operation === 'discard');
+  expect(found?.entry.summary).toBe('discarding 2 files');
+  await repo.undo(found!.entry.id);
+
+  expect(read(root, 'kept.txt')).toBe('an edit\n');
+  expect(read(root, 'fresh.txt')).toBe('new\n');
 });
 
 it('puts back an untracked file it deleted', async () => {
@@ -76,7 +102,7 @@ it('puts back an untracked file it deleted', async () => {
 
   expect(fs.existsSync(path.join(root, 'notes/draft.md'))).toBe(false);
   expect(indexBytes(root), 'keeping the copy wrote nothing to the index').toBe(index);
-  await repo.restoreDiscarded(kept.id!);
+  await repo.undo(kept.id!);
 
   expect(read(root, 'notes/draft.md')).toBe('# a draft\n');
   expect(await standing(root)).toEqual(before);
@@ -96,7 +122,7 @@ it('puts back an untracked folder it removed, which had left what git ignores th
 
   expect(fs.existsSync(path.join(root, 'vendor/lib'))).toBe(false);
   expect(read(root, 'vendor/build.log'), 'what git ignores is not removed').toBe('ignored by its name\n');
-  expect(await repo.restoreDiscarded(kept.id!)).toEqual({
+  expect((await repo.undo(kept.id!)).discard).toEqual({
     restored: ['vendor/lib/deep/two.js', 'vendor/lib/one.js', 'vendor/readme.md'], left: [],
   });
 
@@ -117,7 +143,7 @@ it('keeps several discarded at once as one, a staged change included', async () 
   const kept = await repo.revertFiles(['kept.txt', 'src/a.ts', 'fresh.txt']);
 
   expect(read(root, 'kept.txt'), 'back to what is staged').toBe('staged\n');
-  expect(await repo.restoreDiscarded(kept.id!)).toEqual({ restored: ['fresh.txt', 'kept.txt', 'src/a.ts'], left: [] });
+  expect((await repo.undo(kept.id!)).discard).toEqual({ restored: ['fresh.txt', 'kept.txt', 'src/a.ts'], left: [] });
   expect(await standing(root)).toEqual(before);
 });
 
@@ -131,10 +157,19 @@ it('leaves alone what was changed or made again since the discard, and says whic
   write(root, 'kept.txt', 'written since\n');
   write(root, 'fresh.txt', 'made again since\n');
 
-  expect(await repo.restoreDiscarded(kept.id!)).toEqual({ restored: ['src/a.ts'], left: ['fresh.txt', 'kept.txt'] });
+  expect((await repo.undo(kept.id!)).discard).toEqual({ restored: ['src/a.ts'], left: ['fresh.txt', 'kept.txt'] });
   expect(read(root, 'kept.txt')).toBe('written since\n');
   expect(read(root, 'fresh.txt')).toBe('made again since\n');
   expect(read(root, 'src/a.ts')).toBe('export const a = 2;\n');
+  expect(await repo.undoables(), 'what it kept of the files left is still in reach').toMatchObject([{ entry: { id: kept.id }, standing: 'ready' }]);
+
+  fs.rmSync(path.join(root, 'fresh.txt'));
+  await git(root, 'checkout', '--', 'kept.txt');
+  // The file the first put back is as the discard kept it, so it is restored again and not left
+  expect((await repo.undo(kept.id!)).discard).toEqual({ restored: ['fresh.txt', 'kept.txt', 'src/a.ts'], left: [] });
+  expect(read(root, 'kept.txt')).toBe('the edit that was discarded\n');
+  expect(read(root, 'fresh.txt')).toBe('the file that was discarded\n');
+  expect(await repo.undoables(), 'and once nothing is left, the discard is too').toEqual([]);
 });
 
 it('says which files are too large to keep, before the discard and after it, and keeps the rest', async () => {
@@ -146,7 +181,7 @@ it('says which files are too large to keep, before the discard and after it, and
   const kept = await repo.revertFile('big/');
 
   expect(kept.notKept).toEqual(['big/video.bin']);
-  expect(await repo.restoreDiscarded(kept.id!)).toEqual({ restored: ['big/small.txt'], left: [] });
+  expect((await repo.undo(kept.id!)).discard).toEqual({ restored: ['big/small.txt'], left: [] });
   expect(fs.existsSync(path.join(root, 'big/video.bin')), 'the one over the bound is gone').toBe(false);
 });
 
@@ -156,6 +191,7 @@ it('keeps nothing, and says so, when a deletion is what is discarded', async () 
 
   expect(await repo.revertFile('kept.txt')).toEqual({ notKept: [] });
   expect(read(root, 'kept.txt')).toBe('one\n');
+  expect(await repo.undoables(), 'and there is nothing to put back').toEqual([]);
 });
 
 // A row's path is from the top of the checkout, which the working directory may be under
@@ -170,7 +206,7 @@ it('keeps and puts back from a working directory under the top of the checkout',
 
   expect(read(root, 'src/a.ts')).toBe('export const a = 1;\n');
   expect(fs.existsSync(path.join(root, 'src/new'))).toBe(false);
-  expect(await repo.restoreDiscarded(kept.id!)).toEqual({ restored: ['src/a.ts', 'src/new/b.ts'], left: [] });
+  expect((await repo.undo(kept.id!)).discard).toEqual({ restored: ['src/a.ts', 'src/new/b.ts'], left: [] });
   expect(await standing(root)).toEqual(before);
 });
 
@@ -180,7 +216,7 @@ it('keeps what it discarded through a prune of the repository, since it is kept 
   const kept = await repo.revertFile('kept.txt');
   await git(root, 'prune', '--expire=now');
 
-  expect(await repo.restoreDiscarded(kept.id!)).toEqual({ restored: ['kept.txt'], left: [] });
+  expect((await repo.undo(kept.id!)).discard).toEqual({ restored: ['kept.txt'], left: [] });
   expect(read(root, 'kept.txt')).toBe('an edit\n');
 });
 
@@ -188,10 +224,12 @@ it('says what a discard kept is gone once the store has dropped it, and refuses 
   const { root, store, repo } = await repository();
   write(root, 'kept.txt', 'an edit\n');
   const kept = await repo.revertFile('kept.txt');
-  await run('git', ['--git-dir', store, 'update-ref', '-d', `refs/checkpoints/${kept.id}`]);
+  const [listed] = await repo.undoables();
+  await run('git', ['--git-dir', store, 'update-ref', '-d', `refs/checkpoints/${listed!.entry.checkpoint}`]);
 
-  await expect(repo.restoreDiscarded(kept.id!)).rejects.toThrow('no longer kept');
-  await expect(repo.restoreDiscarded('--upload-pack=x')).rejects.toThrow('Invalid checkpoint');
+  expect(await repo.undoables()).toMatchObject([{ entry: { id: kept.id }, standing: 'no-longer-kept' }]);
+  await expect(repo.undo(kept.id!)).rejects.toMatchObject({ code: 'no-longer-kept', message: expect.stringContaining('no longer kept') });
+  await expect(repo.undo('--upload-pack=x')).rejects.toMatchObject({ code: 'nothing-to-undo' });
   expect(read(root, 'kept.txt')).toBe('one\n');
 });
 
@@ -199,7 +237,7 @@ it('leaves no index of its own behind', async () => {
   const { root, store, repo } = await repository();
   write(root, 'kept.txt', 'an edit\n');
   const kept = await repo.revertFile('kept.txt');
-  await repo.restoreDiscarded(kept.id!);
+  await repo.undo(kept.id!);
 
   expect(fs.readdirSync(path.join(root, '.git')).filter(name => name.startsWith('apack-kept-'))).toEqual([]);
   expect(fs.readdirSync(store).filter(name => name.startsWith('index-'))).toEqual([]);

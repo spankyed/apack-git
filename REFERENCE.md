@@ -207,7 +207,7 @@ What a discard kept of what it removed
 
 ```ts
 interface DiscardKept {
-  /** Names what was kept, for `restoreDiscarded`. Absent when nothing was: every file was too large, or there was none */
+  /** Names the discard in the journal, for `undo`. Absent when nothing was kept: every file was too large, or there was none */
   id?: string
   /** The paths removed without a copy, each larger than a discard keeps: from the top of the checkout */
   notKept: string[]
@@ -298,7 +298,7 @@ interface GitDirectories {
 
 A git command that failed, with why where git said
 
-- `code: "locked" | "authentication" | "permission" | "remote-unreachable" | "non-fast-forward" | "diverged" | "conflict" | "local-changes" | "unknown-ref" | "not-a-repository" | "unsafe-ownership" | "signing-failed" | "unrelated-histories" | "nothing-to-commit" | "branch-exists" | "detached-head" | "no-remote" | "host-refused" | "aborted" | "git-not-found" | "developer-tools-missing" | "git-too-old" | "untrusted" | "content-missing" | "hook-refused" | "name-not-text" | "published" | undefined`
+- `code: "locked" | "authentication" | "permission" | "remote-unreachable" | "non-fast-forward" | "diverged" | "conflict" | "local-changes" | "unknown-ref" | "not-a-repository" | "unsafe-ownership" | "signing-failed" | "unrelated-histories" | "nothing-to-commit" | "branch-exists" | "detached-head" | "no-remote" | "host-refused" | "aborted" | "git-not-found" | "developer-tools-missing" | "git-too-old" | "untrusted" | "content-missing" | "hook-refused" | "name-not-text" | "published" | "moved-since" | "nothing-to-undo" | "no-longer-kept" | undefined`
 
 ### `GitErrorCode`
 
@@ -375,7 +375,6 @@ interface GitRemote {
 - `invalidateCache(paths?: string[]): void`
 - `isGitRepository(): Promise<boolean>` — Whether the working directory is in a repository. Rejects when there is no git to ask, and with an `UnsafeOwnershipError` naming the repository when git will not read it for who owns it.
 - `isWriteInProgress: boolean`
-- `lastUndoable(): Promise<JournalEntry | undefined>` — The last write made here that `undo` would take back: a commit, a reset to a commit, a deleted branch, a dropped or cleared stash. Nothing when there is none in the last 14 days
 - `lineCounts(): Promise<(LineCount & { staged: boolean; })[]>` — How many lines each changed file adds and removes, as git counts them: what is staged against the last commit, and the working tree against what is staged. A file git does not track yet has no count.
 - `listIgnoredDirectories(): Promise<string[]>` — The directories git ignores under the working directory, relative to it: what a watcher of the working tree need not report from.
 - `listUntracked(directory: string): Promise<{ files: string[]; truncated: boolean; }>` — The files in an untracked folder that git would list, were it asked to list every one: those it does not ignore. `directory` is a folder row's path, from the top of the checkout.
@@ -420,10 +419,9 @@ interface GitRemote {
 - `resolveConflict(filePath: string, answer: ConflictAnswer): Promise<void>` — Resolves a conflicted file with one side, or with content written in its place, and marks it resolved. A side that deleted the file resolves it by deleting it
 - `resolveGitDirectories(): Promise<GitDirectories | null>` — Where this checkout's git state lives: its own git directory (index, HEAD) and the common one holding refs. The two differ in a linked worktree. Null when the working directory is in no repository.
 - `restoreCheckpoint(id: string, paths?: string[]): Promise<CheckpointChange[]>` — Puts the working tree back as a checkpoint has it, of these paths when given: a file changed since is put back, one made since is removed, and one it left out is left alone. Answers what it changed. The index is not touched, so what was staged reads as changed against it.
-- `restoreDiscarded(id: string): Promise<DiscardRestored>` — Puts back what a discard kept, by the id it answered with. A path changed or made again since is left as it is and named. Rejects once the store has dropped it: after 14 days, or as the oldest of too many.
 - `revertCommit(hash: string): Promise<void>`
-- `revertFile(filePath: string): Promise<DiscardKept>` — Discards a file's changes, or an untracked file or folder, and answers with what it kept of what that removed: `restoreDiscarded` puts it back. Nothing is removed when the copy could not be taken.
-- `revertFiles(filePaths: string[]): Promise<DiscardKept>` — The same for several at once, kept as one
+- `revertFile(filePath: string): Promise<DiscardKept>` — Discards a file's changes, or an untracked file or folder, and answers with what it kept of what that removed: its id names the discard in the journal (`undoables`), and `undo` of it puts it back. Nothing is removed when the copy could not be taken.
+- `revertFiles(filePaths: string[]): Promise<DiscardKept>` — The same for several at once, kept as one discard in the journal
 - `rewrite(base: string, steps: RewriteStep[], options?: { evenIfPublished?: boolean; }): Promise<void>` — Rewrites the commits after `base` by the steps given, in the order they are to stand: each kept, reworded, folded into the one before, or dropped. Refused with `published` for a range a remote branch already holds part of unless `evenIfPublished`; checkpointed first, and undone with `undo`
 - `setRemoteUrl(name: string, url: string, { push }?: { push?: boolean; }): Promise<void>` — Changes where a remote is fetched from, or with `push` where it is pushed to
 - `setStatusNote(note: string): void` — What the host shows beside the status and is no part of git's, such as whether it is fetching: a change to it reads as a change to the status at the next check, so the windows showing the checkout are told
@@ -438,7 +436,8 @@ interface GitRemote {
 - `stashPush(message?: string, stagedOnly?: boolean, paths?: string[]): Promise<string>` — Stashes the changes, untracked files included: only what is staged with `stagedOnly`, and only these paths (from the top of the checkout) when `paths` names any
 - `trailersIn(message: string): Promise<Trailer[]>` — The trailers git reads at the end of a message, in order: `Co-authored-by: …`, `Signed-off-by: …`. None when its last paragraph is not trailers, and a message of one paragraph has none, that being its subject
 - `trustOwnership(directory: string): Promise<void>` — Adds a repository git refused for who owns it to the user's `safe.directory` entries, which is what git's refusal says to do. It writes the user's global git configuration, so it is run only when the user asks. `directory` is an `UnsafeOwnershipError`'s, the path as git printed it.
-- `undo(options?: { evenIfPublished?: boolean; }): Promise<JournalEntry>` — Takes back the last write `lastUndoable` names, and answers it. A commit is taken off its branch with what it held left staged; a reset puts the branch and the index back; a branch is made again; a stash is put back on top. Refused with a `GitError` when a ref it moved has moved since, and with `published` for a commit a remote branch already holds, unless `evenIfPublished`.
+- `undo(id: string, options?: { evenIfPublished?: boolean; }): Promise<Undone>` — Takes back the write `undoables` lists under this id, and answers it: the one a host showed, whatever was written since. A commit is taken off its branch with what it held left staged; a reset puts the branch and the index back; a branch is made again; a stash is put back on top; a discard's files are put back, those changed or made again since left as they are and named in the answer's `discard`, and the discard stays in the list until a restore leaves nothing. Refused with `moved-since` when a ref it moved has moved since, with `published` for a commit a remote branch already holds unless `evenIfPublished`, with `no-longer-kept` for a discard the store has dropped, and with `nothing-to-undo` for an id the journal does not hold. A write like any other while it runs
+- `undoables(): Promise<Undoable[]>` — Every write made here that `undo` can take back, newest first, in the last 14 days: a commit, an amend, a reset to a commit, a merge, a rebase, a cherry-pick, a rewrite, a deleted branch, a dropped or cleared stash, and a discard. Each with whether `undo` would take it back now, and why not: what it says of an entry is what `undo` of it then does
 - `unstageFiles(filePaths: string[]): Promise<void>`
 - `updateSubmodules(paths?: string[], options?: { onProgress?: (progress: GitProgress) => void; signal?: AbortSignal; }): Promise<void>` — Brings submodules to the commits this repository records: those at `paths` (from the top of the checkout) when any are named, every one otherwise, each set up first where it is not yet, and the submodules in them in turn. What a submodule lacks is fetched, with git's progress handed to `onProgress`, and `signal` stops it, rejecting with a `GitError` coded `aborted`. One whose own changes the checkout would overwrite is refused, and left as it is
 - `withoutTrailers(message: string, remove: (trailer: Trailer) => boolean): Promise<string>` — A message without the trailers `remove` picks, each with the lines that continue it, and every other line as it was written: what to commit when some of what a message ends with is not to be kept
@@ -557,6 +556,20 @@ A command a repository's hook refused, with the hook's name, the code it exited 
 - `hook: string`
 - `output: string`
 
+### `HostRefusedError`
+
+A push the hosting service refused for a rule of its own, with which rule
+
+- `rule: HostRule`
+
+### `HostRule`
+
+Which of a hosting service's own rules refused a push
+
+```ts
+type HostRule = 'file-too-large' | 'protected-branch' | 'private-email' | 'rule-violation'
+```
+
 ### `JournalEntry`
 
 A write the engine made that can be taken back (`GitRepository.undo`)
@@ -565,7 +578,7 @@ A write the engine made that can be taken back (`GitRepository.undo`)
 interface JournalEntry {
   id: string
   /** What was done */
-  operation: 'commit' | 'reset' | 'delete-branch' | 'drop-stash' | 'clear-stashes' | 'merge' | 'rebase' | 'cherry-pick' | 'amend' | 'rewrite'
+  operation: 'commit' | 'reset' | 'delete-branch' | 'drop-stash' | 'clear-stashes' | 'merge' | 'rebase' | 'cherry-pick' | 'amend' | 'rewrite' | 'discard'
   /** When, in milliseconds since the epoch */
   at: number
   /** What it was, in a few words: `commit "Fix the parser"`, `deleting branch topic` */
@@ -576,7 +589,7 @@ interface JournalEntry {
   config?: [string, string][]
   /** Stashes it removed, newest first */
   stashes?: { commit: string; message: string }[]
-  /** The checkpoint taken before it, of the whole working tree */
+  /** The checkpoint taken before it, of the whole working tree; for a discard, what the discard kept */
   checkpoint?: string
 }
 ```
@@ -602,6 +615,13 @@ interface LineCount {
   binary: boolean
 }
 ```
+
+### `LocalChangesError`
+
+A command refused because it would overwrite changes to these files, from the top of the checkout. The list is
+read from what git printed, and is empty when git did not print it as expected: a host shows it when there is one
+
+- `files: string[]`
 
 ### `MergePreview`
 
@@ -960,6 +980,35 @@ interface TrustReading {
   asks: TrustAsk[]
   /** What names the repository to a host that remembers trust: where its git state lives, by its real path */
   repository?: string
+}
+```
+
+### `Undoable`
+
+A write in the journal, and whether `undo` would take it back now (`GitRepository.undoables`)
+
+```ts
+interface Undoable {
+  entry: JournalEntry
+  /** `ready`, or why `undo` would refuse it: the code its refusal carries */
+  standing: 'ready' | 'moved-since' | 'published' | 'no-longer-kept'
+  /** For `moved-since`: the refs that are no longer where the write left them */
+  moved?: string[]
+  /** For `published`: the remote branches that hold the commit, as git names them short (`origin/main`) */
+  publishedOn?: string[]
+}
+```
+
+### `Undone`
+
+What taking an entry back did (`GitRepository.undo`)
+
+```ts
+interface Undone {
+  /** The entry taken back. No longer in the journal, unless it is a discard whose restore left any file */
+  entry: JournalEntry
+  /** For a discard: what was put back, and what was left because it changed or was made again since */
+  discard?: DiscardRestored
 }
 ```
 

@@ -1,26 +1,28 @@
 // What the engine itself did that can be taken back: each write that moves a ref or removes something, as an entry
 // of the operation, each ref it moved with where it was before and after, what it removed, and the checkpoint taken
-// before it. `undo` reverses the last entry, and only while every ref it moved is still where it left it: a ref
-// moved since by anyone else is refused, rather than moved back over what they did.
+// before it. `undo` reverses the entry it is handed by id, and only while every ref it moved is still where it left
+// it: a ref moved since by anyone else is refused, rather than moved back over what they did. Any entry can be taken
+// back that way, not only the last, and what the list says of an entry is what `undo` of it then does.
 //
 // The journal is a file in the repository's checkpoint store, a line an entry, so it is the repository's whichever
 // window or process wrote it. An entry is kept for as long as a checkpoint is.
 import { randomUUID } from 'node:crypto'
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { CHECKPOINT_MAX_AGE_MS, type CheckpointStore } from './checkpoints.ts'
+import { CHECKPOINT_MAX_AGE_MS, NO_LONGER_KEPT, type CheckpointStore } from './checkpoints.ts'
+import type { DiscardStore } from './discards.ts'
 import { GitError } from './errors.ts'
 import type { RepositoryModel } from './model.ts'
 import { failure, type GitRunner } from './runner.ts'
-import type { JournalEntry } from './types.ts'
+import type { JournalEntry, Undoable, Undone } from './types.ts'
 
-/** The most entries kept: past it the oldest go, since only the last is ever taken back first */
+/** The most entries kept: past it the oldest go, which are the likeliest to have moved since */
 const KEPT_ENTRIES = 100
 
 export class Journal {
   private line: Promise<unknown> = Promise.resolve()
 
-  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly checkpoints: CheckpointStore) {}
+  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly checkpoints: CheckpointStore, private readonly discards: DiscardStore) {}
 
   private inLine<T>(work: () => Promise<T>): Promise<T> {
     const done = this.line.then(work, work)
@@ -49,14 +51,13 @@ export class Journal {
     await fs.rename(temporary, file)
   }
 
-  /** Writes down what a write did, once it has */
-  record(entry: Omit<JournalEntry, 'id' | 'at'>): Promise<void> {
-    return this.inLine(async () => this.write([...await this.entries(), { ...entry, id: randomUUID(), at: Date.now() }]))
-  }
-
-  /** The last thing done that can be taken back, or nothing */
-  last(): Promise<JournalEntry | undefined> {
-    return this.inLine(async () => (await this.entries()).at(-1))
+  /** Writes down what a write did, once it has, and answers the entry it wrote */
+  record(entry: Omit<JournalEntry, 'id' | 'at'>): Promise<JournalEntry> {
+    return this.inLine(async () => {
+      const written = { ...entry, id: randomUUID(), at: Date.now() }
+      await this.write([...await this.entries(), written])
+      return written
+    })
   }
 
   /** Where a ref points now, or `null` when there is no such ref */
@@ -72,34 +73,79 @@ export class Journal {
   }
 
   /**
-   * Takes back the last entry and answers it. Refused when a ref it moved has moved since, and, for a commit that a
-   * remote branch already holds, unless `evenIfPublished`: taking it back here leaves it there.
+   * Whether `undo` would take an entry back now, and why not: the one place that decides it, so the list and `undo`
+   * cannot disagree. `at` is where each ref is now and `head` the branch checked out, read once for a whole list.
    */
-  undo({ evenIfPublished = false }: { evenIfPublished?: boolean } = {}): Promise<JournalEntry> {
+  private async standingOf(entry: JournalEntry, at: (ref: string) => Promise<string | null>, head: string): Promise<Undoable> {
+    // What a discard kept, which the store drops after its age or as the oldest of too many
+    if (entry.operation === 'discard' && !await this.checkpoints.has(entry.checkpoint ?? '')) return { entry, standing: 'no-longer-kept' }
+    const moved: string[] = []
+    for (const { ref, after } of entry.refs) {
+      // Written with no branch checked out, its ref is `HEAD` itself: with a branch checked out since, moving `HEAD`
+      // back would move that branch, which the write never touched
+      if (await at(ref) !== after || (ref === 'HEAD' && head !== 'HEAD')) moved.push(ref)
+    }
+    if (moved.length > 0) return { entry, standing: 'moved-since', moved }
+    const after = entry.refs[0]?.after
+    if (entry.operation === 'commit' && after) {
+      const holding = await this.runner.executeGitCommand(['for-each-ref', '--format=%(refname:short)', '--contains', after, 'refs/remotes/'])
+      const publishedOn = (holding.output ?? '').split('\n').filter(Boolean)
+      if (publishedOn.length > 0) return { entry, standing: 'published', publishedOn }
+    }
+    return { entry, standing: 'ready' }
+  }
+
+  /** Where each ref is now, each read once however many entries name it */
+  private refsNow(): (ref: string) => Promise<string | null> {
+    const read = new Map<string, Promise<string | null>>()
+    return (ref) => {
+      if (!read.has(ref)) read.set(ref, this.now(ref))
+      return read.get(ref)!
+    }
+  }
+
+  /** Every entry kept, newest first, each with whether `undo` would take it back now */
+  all(): Promise<Undoable[]> {
+    return this.inLine(async () => {
+      const at = this.refsNow()
+      const head = await this.headRef()
+      const entries = (await this.entries()).reverse()
+      return Promise.all(entries.map(entry => this.standingOf(entry, at, head)))
+    })
+  }
+
+  /**
+   * Takes back the entry with this id and answers it. Refused, with the standing as the code, when a ref it moved
+   * has moved since, and, for a commit a remote branch already holds, unless `evenIfPublished`: taking it back here
+   * leaves it there. An id the journal does not hold is `nothing-to-undo`.
+   */
+  undo(id: string, { evenIfPublished = false }: { evenIfPublished?: boolean } = {}): Promise<Undone> {
     return this.inLine(async () => {
       const entries = await this.entries()
-      const entry = entries.at(-1)
-      if (!entry) throw new GitError('There is nothing to undo.')
-      const head = await this.headRef()
-      for (const { ref, after } of entry.refs) {
-        // Written with no branch checked out, its ref is `HEAD` itself: with a branch checked out since, moving
-        // `HEAD` back would move that branch, which the write never touched
-        if (await this.now(ref) !== after || (ref === 'HEAD' && head !== 'HEAD')) {
-          throw new GitError(`${ref.replace(/^refs\/heads\//, '')} has moved since ${entry.summary}, so it is not undone: undoing it would undo what moved it too.`)
-        }
+      const entry = entries.find(each => each.id === id)
+      if (!entry) throw new GitError('There is nothing to undo.', 'nothing-to-undo')
+      const { standing, moved, publishedOn } = await this.standingOf(entry, this.refsNow(), await this.headRef())
+      if (standing === 'no-longer-kept') {
+        throw new GitError(NO_LONGER_KEPT, 'no-longer-kept')
       }
-      if (entry.operation === 'commit' && !evenIfPublished) {
-        const after = entry.refs[0]?.after
-        const holding = after ? await this.runner.executeGitCommand(['for-each-ref', '--format=%(refname:short)', '--contains', after, 'refs/remotes/']) : undefined
-        const remotes = (holding?.output ?? '').split('\n').filter(Boolean)
-        if (remotes.length > 0) {
-          throw new GitError(`That commit is already on ${remotes.join(', ')}. Undoing it here leaves it there.`, 'published')
-        }
+      if (standing === 'moved-since') {
+        const ref = moved![0]!
+        throw new GitError(`${ref.replace(/^refs\/heads\//, '')} has moved since ${entry.summary}, so it is not undone: undoing it would undo what moved it too.`, 'moved-since')
+      }
+      if (standing === 'published' && !evenIfPublished) {
+        throw new GitError(`That commit is already on ${publishedOn!.join(', ')}. Undoing it here leaves it there.`, 'published')
+      }
+      if (entry.operation === 'discard') {
+        const discard = await this.discards.restore(entry.checkpoint!)
+        // What it kept of a file left as it was is still there, and stays in reach until a restore leaves nothing
+        if (discard.left.length === 0) await this.write(entries.filter(each => each.id !== id))
+        this.model.markSnapshotStale()
+        return { entry, discard }
       }
       await this.reverse(entry)
-      await this.write(entries.slice(0, -1))
+      await this.write(entries.filter(each => each.id !== id))
       this.model.markSnapshotStale()
-      return entry
+      return { entry }
     })
   }
 

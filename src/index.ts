@@ -10,7 +10,7 @@ export {
   type DirectorySubscription, type SubscribeToDirectory, type WatchDirectory, type WatchTree, type WatchedChange,
 } from './directory-watch.ts'
 export { followFile, type FileFollower, type FollowFile, type WatchFile } from './file-watch.ts'
-export { GitError, HookRefusedError, UnsafeOwnershipError, classifyGitError, type GitErrorCode } from './errors.ts'
+export { GitError, HookRefusedError, HostRefusedError, LocalChangesError, UnsafeOwnershipError, classifyGitError, type GitErrorCode, type HostRule } from './errors.ts'
 export { GIT_FLOOR, GitUnusableError, gitVersionOf, olderThan, type GitUnusable } from './git-check.ts'
 export { UntrustedError, settingRunsNothing, type TrustAsk, type TrustReading } from './trust.ts'
 export { StashConflictError } from './writes.ts'
@@ -23,5 +23,5 @@ export { runUnbounded, type RepositoryLog, type RepositoryTies, type RunOptions,
 export {
   REPOSITORY_PARTS,
   type Checkpoint, type CheckpointChange, type CommitLogEntry, type ConflictAnswer, type ConflictKind, type ConflictSides, type JournalEntry, type DiffHunk, type DiscardKept, type DiscardRestored, type GitDirectories, type GitProgress, type GitStatusFile, type OperationKind, type OperationMove, type ChangedFile, type FoundRepository, type LineCount, type HistoryCommit, type HistoryPage, type BlameLine, type BranchStanding, type RefsModel, type MergePreview, type RewriteStep,
-  type BranchCheckout, type GitRemote, type RepositoryChange, type RepositoryOperation, type RepositoryPart, type RepositorySnapshot, type StashEntry, type Trailer, type WorktreeEntry,
+  type BranchCheckout, type GitRemote, type RepositoryChange, type RepositoryOperation, type RepositoryPart, type RepositorySnapshot, type StashEntry, type Trailer, type Undoable, type Undone, type WorktreeEntry,
 } from './types.ts'

@@ -294,7 +294,7 @@ export interface CommitLogEntry {
 
 /** What a discard kept of what it removed */
 export interface DiscardKept {
-  /** Names what was kept, for `restoreDiscarded`. Absent when nothing was: every file was too large, or there was none */
+  /** Names the discard in the journal, for `undo`. Absent when nothing was kept: every file was too large, or there was none */
   id?: string
   /** The paths removed without a copy, each larger than a discard keeps: from the top of the checkout */
   notKept: string[]
@@ -319,7 +319,7 @@ export interface CheckpointChange {
 export interface JournalEntry {
   id: string
   /** What was done */
-  operation: 'commit' | 'reset' | 'delete-branch' | 'drop-stash' | 'clear-stashes' | 'merge' | 'rebase' | 'cherry-pick' | 'amend' | 'rewrite'
+  operation: 'commit' | 'reset' | 'delete-branch' | 'drop-stash' | 'clear-stashes' | 'merge' | 'rebase' | 'cherry-pick' | 'amend' | 'rewrite' | 'discard'
   /** When, in milliseconds since the epoch */
   at: number
   /** What it was, in a few words: `commit "Fix the parser"`, `deleting branch topic` */
@@ -330,8 +330,27 @@ export interface JournalEntry {
   config?: [string, string][]
   /** Stashes it removed, newest first */
   stashes?: { commit: string; message: string }[]
-  /** The checkpoint taken before it, of the whole working tree */
+  /** The checkpoint taken before it, of the whole working tree; for a discard, what the discard kept */
   checkpoint?: string
+}
+
+/** A write in the journal, and whether `undo` would take it back now (`GitRepository.undoables`) */
+export interface Undoable {
+  entry: JournalEntry
+  /** `ready`, or why `undo` would refuse it: the code its refusal carries */
+  standing: 'ready' | 'moved-since' | 'published' | 'no-longer-kept'
+  /** For `moved-since`: the refs that are no longer where the write left them */
+  moved?: string[]
+  /** For `published`: the remote branches that hold the commit, as git names them short (`origin/main`) */
+  publishedOn?: string[]
+}
+
+/** What taking an entry back did (`GitRepository.undo`) */
+export interface Undone {
+  /** The entry taken back. No longer in the journal, unless it is a discard whose restore left any file */
+  entry: JournalEntry
+  /** For a discard: what was put back, and what was left because it changed or was made again since */
+  discard?: DiscardRestored
 }
 
 /**

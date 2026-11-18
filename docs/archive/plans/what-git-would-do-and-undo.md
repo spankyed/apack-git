@@ -1,8 +1,12 @@
 # An undo that takes what it was shown, and failures that name their files
 
-Status: planned, 2026-11-17, revised 2026-11-18. Sections 1 and 2 have landed; the rest is the design for
-[its goal](../goals/goal-what-git-would-do-and-undo.md), which owns the order, the dependencies and when each
-section is done. This document owns the design: the decisions, the shapes, the commands and the cases.
+> **Done, 2026-11-18.** Every section was built as [its goal](../goals/goal-what-git-would-do-and-undo.md)'s
+> Outcome records, with two findings written into sections 4 and 7. This is the design as it was; what the engine
+> does now is in `README.md`, `REFERENCE.md` and `CLAUDE.md`.
+
+Status: done, 2026-11-18. This document held the design for
+[its goal](../goals/goal-what-git-would-do-and-undo.md), which owned the order, the dependencies and when each
+section was done: the decisions, the shapes, the commands and the cases.
 
 ## Background
 
@@ -10,11 +14,11 @@ Surveyed at `cd73da3`, 2026-11-17, on macOS with git 2.38.1 (Homebrew) and 2.39.
 cited were checked again against `master` at `968139b`. What was run against a real git says "observed"; the rest
 was read. Inspect current code before relying on a path.
 
-The items came out of comparing the engine with isomorphic-git. What was declined is in
-[declined-engine-ideas](wont-do/declined-engine-ideas.md). Raising the git floor is
-[deferred](deferred/raise-git-floor.md), and so are
-[previews of a cherry-pick and a rebase](deferred/preview-cherry-pick-and-rebase.md) and
-[listing a folder at a commit](deferred/list-folder-at-a-commit.md), which were sections of this plan until
+What was declined is in
+[declined-engine-ideas](../../plans/wont-do/declined-engine-ideas.md). Raising the git floor is
+[deferred](../../plans/deferred/raise-git-floor.md), and so are
+[previews of a cherry-pick and a rebase](../../plans/deferred/preview-cherry-pick-and-rebase.md) and
+[listing a folder at a commit](../../plans/deferred/list-folder-at-a-commit.md), which were sections of this plan until
 2026-11-18.
 
 **Already there when surveyed**, so not designed here:
@@ -30,7 +34,7 @@ The items came out of comparing the engine with isomorphic-git. What was decline
 ## Decisions
 
 - **D1. The git floor stays at 2.35.0.** Nothing here needs a newer git.
-  [The deferred plan](deferred/raise-git-floor.md) says why the floor is where it is.
+  [The deferred plan](../../plans/deferred/raise-git-floor.md) says why the floor is where it is.
 - **D2. What git named in a failure is read from the lines git wrote, in `src/errors.ts`, and is best-effort.**
   Git has no machine-readable errors, and no command answers "which files block this checkout"; working it out from
   diffs would be the engine guessing git's rules. So the list is read from git's own, under the conditions that
@@ -198,6 +202,10 @@ Export `type Undoable` and `type Undone` from `src/index.ts`.
     and left as `Undone.discard`.
   - **An entry whose restore left any file stays in the journal.** What it kept of those files is still there, and
     removing the entry would put it out of reach. It is removed once a restore leaves nothing.
+  - **A file already as the discard kept it is restored, not left.** A first restore puts some files back, and they
+    then differ from git's copy: counted as changed since, a second restore would leave them, and the entry would
+    never leave the list. `DiscardStore.restore` compares a changed file with the checkpoint, and only one that
+    differs from it is left. (A finding of 2026-11-18, in the evidence.)
   - `standingOf` gains a first check, ahead of `moved-since`: `no-longer-kept` when the operation is `discard` and
     `checkpoints.has(entry.checkpoint)` is false.
 - `src/checkpoints.ts`, a public method on `CheckpointStore`:
@@ -340,7 +348,7 @@ engine started for it. Nothing in `src/` changes.
 - Add a fifth reading, after the checkpoint: the three sides of a conflict. Make the conflict with the script's
   own `git` helper: commit what the script changed, make a branch that changes `d0/f0.txt` and commit it, change
   `d0/f0.txt` another way on `main` and commit it, and merge the branch, which stops. Then time and count
-  `repo.conflictSides('d0/f0.txt')`, printed as `conflict sides 12 ms (4 gits)`. Section 7 is held to this
+  `repo.conflictSides('d0/f0.txt')`, printed as `conflict sides 12 ms (4 gits)`. Section 7 is measured by this
   count.
 - Update the script's header comment, and add one sentence to "Budgets" in `README.md`: the readings come with the
   number of gits started for each, which counts every process the runner starts and not the one git kept open for
@@ -350,7 +358,10 @@ engine started for it. Nothing in `src/` changes.
 ## 7. The git kept open
 
 **Deliverable.** Two small changes in `src/reads.ts`. The first is measured by section 6's fifth reading: taken
-before and after, its count of gits falls by three.
+before and after, the three `cat-file blob` gits are gone from it. It falls from four to two, not one: a first read
+of a file from a commit in a repository runs the engine's once-per-repository partial-clone check
+(`GitRunner.isPartialClone`), and in the script the sides are that first read. A later read starts one git. This
+was observed on 2026-11-18 and accepted by the user as it is.
 
 1. **A conflict's three sides are read through the git kept open.** `conflictSides` reads each side with a
    `git cat-file blob <object>` of its own: three processes. Read each through `this.fileInCommit(<object>)`

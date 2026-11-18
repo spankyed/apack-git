@@ -124,7 +124,7 @@ it('says a checkpoint it no longer has is gone', async () => {
   const { id } = await repo.checkpoint();
   await run('git', ['--git-dir', store, 'update-ref', '-d', `refs/checkpoints/${id}`]);
 
-  await expect(repo.restoreCheckpoint(id)).rejects.toThrow(/no longer kept/);
+  await expect(repo.restoreCheckpoint(id)).rejects.toMatchObject({ code: 'no-longer-kept', message: expect.stringMatching(/no longer kept/) });
 });
 
 it('drops checkpoints past their age when the next is taken', async () => {

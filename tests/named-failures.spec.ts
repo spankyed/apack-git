@@ -8,7 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { run } from './_support/process.ts';
 import { removeDirectory } from './_support/remove.ts';
-import { GitRepository } from '../src/index.ts';
+import { GitRepository, HostRefusedError } from '../src/index.ts';
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });
@@ -76,11 +76,11 @@ it('says a branch of that name already exists', async () => {
 });
 
 it.each([
-  ['a file too large', 'GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.'],
-  ['a protected branch', 'GH006: Protected branch update failed for refs/heads/main.'],
-  ['a private email address', 'GH007: Your push would publish a private email address.'],
-  ['a secret in it', 'GH013: Repository rule violations found for refs/heads/main.'],
-])('says the host refused a push for %s, keeping its words', async (_reason, said) => {
+  ['a file too large', 'GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.', 'file-too-large'],
+  ['a protected branch', 'GH006: Protected branch update failed for refs/heads/main.', 'protected-branch'],
+  ['a private email address', 'GH007: Your push would publish a private email address.', 'private-email'],
+  ['a secret in it', 'GH013: Repository rule violations found for refs/heads/main.', 'rule-violation'],
+] as const)('says the host refused a push for %s, keeping its words and naming the rule', async (_reason, said, rule) => {
   const root = await repository();
   const remote = scratch('apack-named-host-');
   await git(remote, 'init', '--quiet', '--bare', '--initial-branch=main');
@@ -89,8 +89,10 @@ it.each([
   fs.chmodSync(hook, 0o755);
   await git(root, 'remote', 'add', 'origin', remote);
 
-  const refused = await refusal(new GitRepository(root).pushBranch());
+  const refused = await new GitRepository(root).pushBranch().then(() => { throw new Error('it did not fail'); }, (error: unknown) => error);
 
-  expect(refused.code).toBe('host-refused');
-  expect(refused.message).toContain(said.split(':')[0]);
+  expect(refused).toBeInstanceOf(HostRefusedError);
+  expect((refused as HostRefusedError).rule).toBe(rule);
+  expect(refused).toMatchObject({ code: 'host-refused' });
+  expect((refused as Error).message).toContain(said.split(':')[0]);
 });

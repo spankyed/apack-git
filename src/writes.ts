@@ -3,16 +3,16 @@
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import { branchNameArgument, commitArgument, refArgument, rowSpec, stashArgument } from './arguments.ts'
-import { DiscardStore } from './discards.ts'
+import type { DiscardStore } from './discards.ts'
 import { rebaseWithTodo, refusePublished } from './rewrite.ts'
 import type { CheckpointStore } from './checkpoints.ts'
 import type { Journal } from './journal.ts'
-import { GitError, type GitErrorCode } from './errors.ts'
+import { GitError, gitErrorOf, type GitErrorCode } from './errors.ts'
 import { NOT_TEXT } from './status.ts'
 import type { RepositoryModel } from './model.ts'
 import { BASE_KEY, type GitReads } from './reads.ts'
 import { failure, type GitCommandResult, type GitRunner } from './runner.ts'
-import type { BranchCheckout, ConflictAnswer, DiscardKept, DiscardRestored, GitProgress, OperationMove, RewriteStep } from './types.ts'
+import type { BranchCheckout, ConflictAnswer, DiscardKept, GitProgress, OperationMove, RewriteStep } from './types.ts'
 
 /** A stash applied or popped with conflicts: its changes are in the working tree with conflict markers */
 export class StashConflictError extends GitError {
@@ -33,10 +33,16 @@ export class GitWrites {
 
   private _writeCompleteCallbacks: (() => void)[] = []
 
-  private readonly discards: DiscardStore
+  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly reads: GitReads, private readonly checkpoints: CheckpointStore, private readonly journal: Journal, private readonly discards: DiscardStore) {}
 
-  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly reads: GitReads, private readonly checkpoints: CheckpointStore, private readonly journal: Journal) {
-    this.discards = new DiscardStore(runner, model, checkpoints)
+  /**
+   * Writes a discard into the journal once it has gone through, and answers its entry's id as what was kept: what
+   * `undo` puts back. Nothing is written when nothing was kept, since there is nothing to put back
+   */
+  private async journalDiscard(kept: DiscardKept, summary: string): Promise<DiscardKept> {
+    if (!kept.id) return kept
+    const entry = await this.journal.record({ operation: 'discard', summary, refs: [], checkpoint: kept.id })
+    return { id: entry.id, notKept: kept.notKept }
   }
 
   /** Where a ref points, or `null` when there is none: `HEAD` before the first commit has none */
@@ -169,7 +175,8 @@ export class GitWrites {
 
   /**
    * Discards a file's changes, or an untracked file or folder, and answers with what it kept of what that
-   * removed (`restoreDiscarded`). Nothing is removed when the copy could not be taken.
+   * removed: its id names the discard in the journal, which `undo` puts back. Nothing is removed when the copy could
+   * not be taken.
    */
   async revertFile(filePath: string): Promise<DiscardKept> {
     refuseNamesNotText([filePath])
@@ -204,7 +211,7 @@ export class GitWrites {
         }
       }
       this.model.markSnapshotStale()
-      return kept
+      return this.journalDiscard(kept, `discarding ${filePath}`)
     })
   }
 
@@ -225,7 +232,7 @@ export class GitWrites {
     if (!result.success) throw failure(result, `Failed to discard folder: ${filePath}`)
   }
 
-  /** The same for several at once, kept as one */
+  /** The same for several at once, kept as one entry */
   async revertFiles(filePaths: string[]): Promise<DiscardKept> {
     refuseNamesNotText(filePaths)
     if (filePaths.length === 0) return { notKept: [] }
@@ -278,18 +285,13 @@ export class GitWrites {
       }
 
       this.model.markSnapshotStale()
-      return kept
+      return this.journalDiscard(kept, filePaths.length === 1 ? `discarding ${filePaths[0]}` : `discarding ${filePaths.length} files`)
     })
   }
 
   /** The paths, among what discarding these would remove, that are too large to keep a copy of */
   discardNotKept(filePaths: string[]): Promise<string[]> {
     return this.discards.notKeptOf(filePaths)
-  }
-
-  /** Puts back what a discard kept, leaving alone what has changed or been made again since */
-  async restoreDiscarded(id: string): Promise<DiscardRestored> {
-    return this.withWriteFlag(() => this.discards.restore(id))
   }
 
   /**
@@ -520,9 +522,9 @@ export class GitWrites {
 
       if (!result.success) {
         if (result.code === 'unknown-ref') {
-          throw new GitError(`There is no branch named ${branchName}, here or on a remote.`, result.code)
+          throw gitErrorOf(`There is no branch named ${branchName}, here or on a remote.`, result.code, result.error ?? '')
         } else if (result.code === 'local-changes') {
-          throw new GitError('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code)
+          throw gitErrorOf('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code, result.error ?? '')
         } else {
           throw failure(result, `Failed to checkout branch: ${branchName}`)
         }
@@ -567,7 +569,7 @@ export class GitWrites {
       const result = await this.runner.executeGitCommand(args, { onProgress })
       if (!result.success) {
         if (result.code === 'local-changes') {
-          throw new GitError('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code)
+          throw gitErrorOf('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code, result.error ?? '')
         }
         throw failure(result, `Failed to check out ${name}`)
       }
@@ -623,7 +625,7 @@ export class GitWrites {
       if (!result.success) {
         // What a stopped git did before it ended is read afresh
         if (result.code === 'aborted') this.model.markSnapshotStale()
-        throw new GitError(result.code === 'aborted' ? 'The push was stopped' : result.error || 'git gave no reason', result.code)
+        throw gitErrorOf(result.code === 'aborted' ? 'The push was stopped' : result.error || 'git gave no reason', result.code, result.error ?? '')
       }
 
       this.reads.clearCache()
@@ -642,7 +644,7 @@ export class GitWrites {
       const result = await this.runner.executeGitCommand(['pull', '--progress'], { onProgress })
 
       if (!result.success) {
-        throw new GitError(result.error || 'git gave no reason', result.code)
+        throw gitErrorOf(result.error || 'git gave no reason', result.code, result.error ?? '')
       }
 
       this.reads.clearCache()
@@ -664,7 +666,7 @@ export class GitWrites {
         { onProgress, signal },
       )
       if (!result.success) {
-        throw new GitError(result.code === 'aborted' ? 'The submodule update was stopped' : result.error || 'git gave no reason', result.code)
+        throw gitErrorOf(result.code === 'aborted' ? 'The submodule update was stopped' : result.error || 'git gave no reason', result.code, result.error ?? '')
       }
     })
   }

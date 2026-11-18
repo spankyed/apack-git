@@ -8,7 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { run } from './_support/process.ts';
-import { GitRepository, classifyGitError } from '../src/index.ts';
+import { GitRepository, LocalChangesError, classifyGitError } from '../src/index.ts';
 import { removeDirectory } from './_support/remove.ts';
 
 const directories: string[] = [];
@@ -52,6 +52,8 @@ async function sharedWithAnotherClone() {
 }
 
 const refusal = (attempt: Promise<unknown>) => attempt.then(() => { throw new Error('it did not fail'); }, (error: Error & { code?: string }) => ({ code: error.code, message: error.message }));
+/** The error itself, where a case needs what it carries beside its code */
+const thrown = (attempt: Promise<unknown>) => attempt.then(() => { throw new Error('it did not fail'); }, (error: unknown) => error);
 
 it('says a push was refused because the remote branch has moved on', async () => {
   const { root, other } = await sharedWithAnotherClone();
@@ -144,10 +146,50 @@ it('refuses a branch git does not know, naming it, and a checkout that would ove
   await git(root, 'checkout', '--quiet', 'main');
   write(root, 'a.txt', 'not committed\n');
 
-  expect(await refusal(repo.checkoutBranch('topic'))).toMatchObject({
-    code: 'local-changes', message: expect.stringContaining('Cannot switch branches'),
-  });
+  const refused = await thrown(repo.checkoutBranch('topic'));
+  expect(refused).toBeInstanceOf(LocalChangesError);
+  expect(refused).toMatchObject({ code: 'local-changes', message: expect.stringContaining('Cannot switch branches'), files: ['a.txt'] });
   expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'and the work is as it was').toBe('not committed\n');
+});
+
+it('names the files a merge would overwrite', async () => {
+  const root = await repository();
+  await git(root, 'checkout', '--quiet', '-b', 'topic');
+  write(root, 'a.txt', 'topic\n');
+  await git(root, 'commit', '--quiet', '-am', 'on topic');
+  await git(root, 'checkout', '--quiet', 'main');
+  write(root, 'a.txt', 'not committed\n');
+
+  const refused = await thrown(new GitRepository(root).merge('topic'));
+
+  expect(refused).toBeInstanceOf(LocalChangesError);
+  expect((refused as LocalChangesError).files).toEqual(['a.txt']);
+  expect(refused).toMatchObject({ code: 'local-changes' });
+  expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'and the work is as it was').toBe('not committed\n');
+});
+
+it('names the files in the way from the top of the checkout, as they are spelled', async () => {
+  const root = await repository();
+  fs.mkdirSync(path.join(root, 'sub', 'deep'), { recursive: true });
+  write(root, 'sub/deep/f.txt', 'one\n');
+  write(root, 'sp ace ü.txt', 'one\n');
+  await git(root, 'add', '.');
+  await git(root, 'commit', '--quiet', '-m', 'two files');
+  await git(root, 'checkout', '--quiet', '-b', 'other');
+  write(root, 'sub/deep/f.txt', 'other\n');
+  write(root, 'sp ace ü.txt', 'other\n');
+  await git(root, 'commit', '--quiet', '-am', 'on other');
+  await git(root, 'checkout', '--quiet', 'main');
+  write(root, 'sub/deep/f.txt', 'not committed\n');
+  write(root, 'sp ace ü.txt', 'not committed\n');
+
+  const refused = await thrown(new GitRepository(path.join(root, 'sub')).checkoutBranch('other'));
+
+  expect(refused).toMatchObject({ code: 'local-changes', files: ['sp ace ü.txt', 'sub/deep/f.txt'] });
+});
+
+it('keeps the code of a refusal over local changes when git does not list the files', () => {
+  expect(classifyGitError('error: Your local changes to the following files would be overwritten by checkout:\nAborting')).toBe('local-changes');
 });
 
 // What git prints for the failures a spec cannot bring about without a real host, as recorded from one
