@@ -33,7 +33,7 @@ watcher.setChangeCallback(paths => { repo.noteChanged(paths); void repo.refreshS
   it; how many lines each change adds and removes; the folders git ignores; the three sides of a conflicted file,
   and resolving it with one side or with content written in its place.
 - **Writes**: staging, committing and amending; discarding a file's changes, which keeps what it removed
-  (`restoreDiscarded`); stashing all of it, only what is staged, or only some paths, and applying, popping and
+  for `undo`; stashing all of it, only what is staged, or only some paths, and applying, popping and
   dropping a stash, whose files are read without applying it.
 - **History**: pages of history to draw, with each commit's parents and refs, that neither repeat nor drop a commit
   while the repository moves; a file's history across its renames; blame, a group of lines at a time; a commit's
@@ -94,10 +94,10 @@ before 2.38.
   list. The rule is a list of settings known to run nothing, and every other setting asks.
 - **What a write destroys can be had back.** Before a changed file is checked out again, or an untracked file or
   folder deleted, what is about to go is kept as a checkpoint: a commit in a store outside the repository
-  (`RepositoryTies.checkpointDirectory`), and `restoreDiscarded` puts it back. The repository's index, refs,
+  (`RepositoryTies.checkpointDirectory`), and the discard is an entry `undo` puts back. The repository's index, refs,
   objects and stash are not touched, and a checkpoint is dropped after 14 days, or as the oldest while the store is
   larger than a gigabyte. A merge, rebase, cherry-pick
-  or rewrite checkpoints the working tree first, and `undo` takes back the last such write. An amend, a rewrite or an undo that
+  or rewrite checkpoints the working tree first, and `undo` takes back the write it is named. An amend, a rewrite or an undo that
   would change commits a remote branch already holds is refused as `published` unless the host says
   `evenIfPublished`.
 

@@ -9,7 +9,8 @@
 import { randomUUID } from 'node:crypto'
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { CHECKPOINT_MAX_AGE_MS, type CheckpointStore } from './checkpoints.ts'
+import { CHECKPOINT_MAX_AGE_MS, NO_LONGER_KEPT, type CheckpointStore } from './checkpoints.ts'
+import type { DiscardStore } from './discards.ts'
 import { GitError } from './errors.ts'
 import type { RepositoryModel } from './model.ts'
 import { failure, type GitRunner } from './runner.ts'
@@ -21,7 +22,7 @@ const KEPT_ENTRIES = 100
 export class Journal {
   private line: Promise<unknown> = Promise.resolve()
 
-  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly checkpoints: CheckpointStore) {}
+  constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly checkpoints: CheckpointStore, private readonly discards: DiscardStore) {}
 
   private inLine<T>(work: () => Promise<T>): Promise<T> {
     const done = this.line.then(work, work)
@@ -50,9 +51,13 @@ export class Journal {
     await fs.rename(temporary, file)
   }
 
-  /** Writes down what a write did, once it has */
-  record(entry: Omit<JournalEntry, 'id' | 'at'>): Promise<void> {
-    return this.inLine(async () => this.write([...await this.entries(), { ...entry, id: randomUUID(), at: Date.now() }]))
+  /** Writes down what a write did, once it has, and answers the entry it wrote */
+  record(entry: Omit<JournalEntry, 'id' | 'at'>): Promise<JournalEntry> {
+    return this.inLine(async () => {
+      const written = { ...entry, id: randomUUID(), at: Date.now() }
+      await this.write([...await this.entries(), written])
+      return written
+    })
   }
 
   /** Where a ref points now, or `null` when there is no such ref */
@@ -72,6 +77,8 @@ export class Journal {
    * cannot disagree. `at` is where each ref is now and `head` the branch checked out, read once for a whole list.
    */
   private async standingOf(entry: JournalEntry, at: (ref: string) => Promise<string | null>, head: string): Promise<Undoable> {
+    // What a discard kept, which the store drops after its age or as the oldest of too many
+    if (entry.operation === 'discard' && !await this.checkpoints.has(entry.checkpoint ?? '')) return { entry, standing: 'no-longer-kept' }
     const moved: string[] = []
     for (const { ref, after } of entry.refs) {
       // Written with no branch checked out, its ref is `HEAD` itself: with a branch checked out since, moving `HEAD`
@@ -118,12 +125,22 @@ export class Journal {
       const entry = entries.find(each => each.id === id)
       if (!entry) throw new GitError('There is nothing to undo.', 'nothing-to-undo')
       const { standing, moved, publishedOn } = await this.standingOf(entry, this.refsNow(), await this.headRef())
+      if (standing === 'no-longer-kept') {
+        throw new GitError(NO_LONGER_KEPT, 'no-longer-kept')
+      }
       if (standing === 'moved-since') {
         const ref = moved![0]!
         throw new GitError(`${ref.replace(/^refs\/heads\//, '')} has moved since ${entry.summary}, so it is not undone: undoing it would undo what moved it too.`, 'moved-since')
       }
       if (standing === 'published' && !evenIfPublished) {
         throw new GitError(`That commit is already on ${publishedOn!.join(', ')}. Undoing it here leaves it there.`, 'published')
+      }
+      if (entry.operation === 'discard') {
+        const discard = await this.discards.restore(entry.checkpoint!)
+        // What it kept of a file left as it was is still there, and stays in reach until a restore leaves nothing
+        if (discard.left.length === 0) await this.write(entries.filter(each => each.id !== id))
+        this.model.markSnapshotStale()
+        return { entry, discard }
       }
       await this.reverse(entry)
       await this.write(entries.filter(each => each.id !== id))

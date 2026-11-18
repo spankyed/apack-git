@@ -1,6 +1,6 @@
 # Goal: an undo that takes what it was shown, and failures that name their files
 
-Status: active, 2026-11-18. Phases 1 and 2 have landed; the rest is not started. The design is
+Status: active, 2026-11-18. Phases 1 to 4 have landed on a branch; 5 to 7 are not started. The design is
 [the plan](../plans/what-git-would-do-and-undo.md).
 
 ```text
@@ -52,15 +52,16 @@ Out:
 
 ## Current handoff
 
-- **Source:** `master` at `9c964ff` has Phase 2 (`0b00d6f`). Phase 1 is in the commit that carries this revision of
-  the goal. No branch for the rest yet.
-- **Next:** Phase 3.
-- **Proven:** both Phase 2 cases pass, and both fail with `src/journal.ts` as it was (2026-11-17, macOS, git
-  2.38.1). [spankyed/apack-git#42](https://github.com/spankyed/apack-git/pull/42), which carried Phase 2, passed all
-  ten CI jobs: the suite on Linux, macOS and Windows, and the `git` jobs on Debian 12's git, Apple's and 2.35.0.
-- **Unresolved:** nothing failing. Phase 1 changed text and one doc comment; `npm run typecheck` and
-  `npm run reference:check` passed on it, and the suite was not run for it.
-- **Choices made where the plan did not say:** none yet.
+- **Source:** branch `feat/undo-list-and-named-failures`, made from `master` at `bb24b4e`. Phase 3 is `add9bb5`;
+  Phase 4 is the commit that carries this revision of the handoff.
+- **Next:** Phase 5.
+- **Proven:** Phases 3 and 4 pass their specs on macOS with git 2.38.1, with typecheck, build and the reference
+  check clean; the commands and a mutation check are in [the evidence](../evidence/what-git-would-do-and-undo.md).
+  Not yet on CI, and the whole suite not yet run on this branch.
+- **Unresolved:** nothing failing.
+- **Choices made where the plan did not say:** `GitRepository.undo` runs inside `GitWrites.withWriteFlag`, as
+  `restoreDiscarded` did, so a watcher's report waits for any undo. A finding changed `DiscardStore.restore`: a file
+  already as the discard kept it is restored, not left (plan section 4, and the evidence).
 
 ## Decisions
 
@@ -91,7 +92,7 @@ the last column as each phase lands.
 |---|---|---|---|---|
 | 1 | `README.md`, `CLAUDE.md` and the doc comment of `restoreDiscarded` describe discards as checkpoints, and the README states that a prediction is never in a snapshot (plan 1) | Nothing | No sentence in those three files says a discard is kept as a tree in git's own object store or for git's two weeks; `REFERENCE.md` is regenerated | with this revision |
 | 2 | An undo moves the branch its entry recorded, whatever is checked out (plan 2) | Nothing | A merge on `main` undone while `topic` is checked out puts `main` back and leaves `topic` and its files alone; an entry written on a detached `HEAD` is refused once a branch is checked out | `0b00d6f` |
-| 3 | Codes for a refused undo and a dropped copy; `undoables` lists every entry with where it stands; `undo` takes the entry's id; `lastUndoable` is gone (plan 3) | Phase 2 | Each refusal carries its code; an entry's standing in the list is what `undo` of it then does; an entry that is not the last is undone by its id; an entry read before a later write is the one undone after it; no source or spec names `lastUndoable` | |
+| 3 | Codes for a refused undo and a dropped copy; `undoables` lists every entry with where it stands; `undo` takes the entry's id; `lastUndoable` is gone (plan 3) | Phase 2 | Each refusal carries its code; an entry's standing in the list is what `undo` of it then does; an entry that is not the last is undone by its id; an entry read before a later write is the one undone after it; no source or spec names `lastUndoable` | `add9bb5` |
 | 4 | A discard is a journal entry, put back by `undo`; `restoreDiscarded` is gone (plan 4) | Phase 3 | A discard answers its entry's id and is in the list; `undo` of it puts the files back and answers what it restored and left; an entry that left files stays until a restore leaves none; a dropped copy reads as `no-longer-kept` in the list and from `undo`; no source or spec names `restoreDiscarded` | |
 | 5 | `LocalChangesError.files` and `HostRefusedError.rule`, and the rule in `CLAUDE.md` for what is read from git's output (plan 5) | Nothing | A refused checkout and a refused merge name the files git listed, from the top of the checkout, with a space and a non-ASCII letter in a name; the failure keeps its code when the list is not there; each of the four host refusals names its rule | |
 | 6 | `npm run budgets` prints the gits started for each reading, and a fifth reading: a conflict's three sides (plan 6) | Nothing | `npm run build && npm run budgets -- 1000` prints a count beside each of its five readings, and that line is recorded in the handoff | |

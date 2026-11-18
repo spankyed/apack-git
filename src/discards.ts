@@ -61,7 +61,8 @@ export class DiscardStore {
 
   /**
    * Puts back what a discard kept. A path that has changed in the working tree since, or been made again, is
-   * left as it is and named: what is there now is not overwritten.
+   * left as it is and named: what is there now is not overwritten. One already as the discard kept it, put back
+   * by an earlier restore, is restored: there is nothing of it left to put back.
    */
   async restore(id: string): Promise<DiscardRestored> {
     const files = await this.checkpoints.filesIn(id)
@@ -72,9 +73,11 @@ export class DiscardStore {
     const changed = new Set(splitStatus(status.output ?? '').entries
       .filter(entry => !entry.columns || entry.columns[1] !== '.')
       .map(entry => entry.path))
-    const left = files.filter(file => changed.has(file)).sort()
-    const restored = files.filter(file => !changed.has(file)).sort()
-    if (restored.length > 0) await this.checkpoints.restore(id, restored)
-    return { restored, left }
+    const changedNow = files.filter(file => changed.has(file))
+    const differ = changedNow.length === 0 ? new Set<string>() : new Set((await this.checkpoints.changedSince(id, changedNow)).map(change => change.path))
+    const left = changedNow.filter(file => differ.has(file)).sort()
+    const written = files.filter(file => !changed.has(file))
+    if (written.length > 0) await this.checkpoints.restore(id, written)
+    return { restored: files.filter(file => !differ.has(file)).sort(), left }
   }
 }

@@ -198,6 +198,10 @@ Export `type Undoable` and `type Undone` from `src/index.ts`.
     and left as `Undone.discard`.
   - **An entry whose restore left any file stays in the journal.** What it kept of those files is still there, and
     removing the entry would put it out of reach. It is removed once a restore leaves nothing.
+  - **A file already as the discard kept it is restored, not left.** A first restore puts some files back, and they
+    then differ from git's copy: counted as changed since, a second restore would leave them, and the entry would
+    never leave the list. `DiscardStore.restore` compares a changed file with the checkpoint, and only one that
+    differs from it is left. (A finding of 2026-11-18, in the evidence.)
   - `standingOf` gains a first check, ahead of `moved-since`: `no-longer-kept` when the operation is `discard` and
     `checkpoints.has(entry.checkpoint)` is false.
 - `src/checkpoints.ts`, a public method on `CheckpointStore`:
