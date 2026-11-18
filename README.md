@@ -79,7 +79,9 @@ before 2.38.
   service's rules refused a push (`HostRefusedError.rule`).
 - **Hints in, news out.** A file event is a hint, and git says whether anything changed. The engine never
   assumes a watcher saw everything: a host can always say "look again", and a watch that has stopped delivering
-  is said in the snapshot.
+  is said in the snapshot. A hint asks git only what it says may have changed: named paths read a status of those
+  paths, a change to git's index (`'index'`) reads the whole status and keeps the refs, and anything reads both. The
+  settings are held until a file they came from looks different, and a look again takes them afresh.
 - **A prediction is never in a snapshot.** Where a file will be listed once it is staged is worked out ahead of
   git, for a window to show at once (`apack-git/staging`). That lives in the entries that import nothing of
   Node's. A snapshot the engine answers with is what git said, and nothing else.

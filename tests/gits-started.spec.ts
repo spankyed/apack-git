@@ -68,14 +68,23 @@ it('reads a noted path with a snapshot held by a status of it alone', async () =
   expect(await startedBy(() => repo.refreshSnapshot('noted'))).toEqual(['status']);
 });
 
-it('reads the status and the refs after staging a file, watched, with the settings held', async () => {
+it('reads the status alone after staging a file, watched, since staging moves no ref', async () => {
   const { root, repo, startedBy } = await repository();
   repo.setWatched(true);
   await repo.readSnapshot();
   fs.writeFileSync(path.join(root, 'a.txt'), 'two\n');
   await repo.stageFiles(['a.txt']);
 
-  expect(await startedBy(() => repo.readSnapshot())).toEqual(['status', 'for-each-ref']);
+  expect(await startedBy(() => repo.readSnapshot())).toEqual(['status']);
+});
+
+it('reads the status alone after a report that git\'s index changed, watched', async () => {
+  const { repo, startedBy } = await repository();
+  repo.setWatched(true);
+  await repo.readSnapshot();
+  repo.noteChanged('index');
+
+  expect(await startedBy(() => repo.readSnapshot())).toEqual(['status']);
 });
 
 it('reads the status and the refs when anything may have changed, with the settings held', async () => {

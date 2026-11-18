@@ -103,13 +103,18 @@ export class GitWrites {
     }
   }
 
-  /** Wrap a write operation to track write-in-progress for watcher suppression. */
-  async withWriteFlag<T>(fn: () => Promise<T>): Promise<T> {
+  /**
+   * Runs a write, saying while it runs that one is, so a watcher's report waits for it. When it ends the snapshot is
+   * marked by what it may have moved: only the index and the files (`index`), when the next read is the status and
+   * the refs are kept; or anything
+   */
+  async withWriteFlag<T>(fn: () => Promise<T>, moved: 'index' | 'everything' = 'everything'): Promise<T> {
     this._writeInProgress++
     try {
       return await fn()
     } finally {
-      this.model.markSnapshotStale()
+      if (moved === 'index') this.model.markStatusStale()
+      else this.model.markSnapshotStale()
       this._writeInProgress--
       if (this._writeInProgress === 0 && this._writeCompleteCallbacks.length > 0) {
         const callbacks = this._writeCompleteCallbacks.splice(0)
@@ -131,7 +136,7 @@ export class GitWrites {
       if (!hunk) throw new GitError('The file has changed since this change was read. It is shown as it is now: try again.')
       const result = await this.runner.executeGitCommand(['apply', '--cached', ...(staged ? ['--reverse'] : []), '--whitespace=nowarn', '-'], { input: Buffer.from(hunk.apply, 'latin1') })
       if (!result.success) throw failure(result, staged ? 'Failed to unstage the change' : 'Failed to stage the change')
-    })
+    }, 'index')
   }
 
   /**
@@ -146,7 +151,7 @@ export class GitWrites {
       const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
       const result = await this.runner.executeGitCommand(['-C', top, 'apply', ...(staged ? ['--cached'] : []), '--whitespace=nowarn', '-'], { input: patch })
       if (!result.success) throw failure(result, 'Failed to apply the patch')
-    })
+    }, 'index')
   }
 
   async stageFiles(filePaths: string[]): Promise<void> {
@@ -157,8 +162,7 @@ export class GitWrites {
       if (!result.success) {
         throw failure(result, 'Failed to stage files')
       }
-      this.model.markSnapshotStale()
-    })
+    }, 'index')
   }
 
   async unstageFiles(filePaths: string[]): Promise<void> {
@@ -169,8 +173,7 @@ export class GitWrites {
       if (!result.success) {
         throw failure(result, 'Failed to unstage files')
       }
-      this.model.markSnapshotStale()
-    })
+    }, 'index')
   }
 
   /**
@@ -310,7 +313,6 @@ export class GitWrites {
         if ((answer === 'ours' ? sides.ours : sides.theirs) === null) {
           const removed = await this.runner.executeGitCommand(['-C', top, 'rm', '--quiet', '--force', '--', spec])
           if (!removed.success) throw failure(removed, `Failed to resolve conflict with ${answer}`)
-          this.model.markSnapshotStale()
           return
         }
         const result = await this.runner.executeGitCommand(['-C', top, 'checkout', `--${answer}`, '--', spec])
@@ -318,8 +320,7 @@ export class GitWrites {
       }
       const added = await this.runner.executeGitCommand(['-C', top, 'add', '--', spec])
       if (!added.success) throw failure(added, `Failed to mark ${filePath} resolved`)
-      this.model.markSnapshotStale()
-    })
+    }, 'index')
   }
 
   /**

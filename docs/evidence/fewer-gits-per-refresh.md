@@ -56,3 +56,31 @@ the budgets' own git 2.39.5 (Apple).
 - `readLane`'s read of the trust gate, added in Phase 2 to fix the order of opening, came out again: the settings'
   first read now asks `rev-parse` before `config` whoever reads them first.
 - `npm test` on Phase 3: 60 files, 573 passed, 4 skipped, `tests/rig-loss.spec.ts` included.
+
+## 2026-11-18, Phase 3 (`4b411e9`) and Phase 4
+
+- Phase 4: `tests/gits-started.spec.ts` 8 passed, `tests/index-hint.spec.ts` 4 passed, `tests/watcher.spec.ts` 16
+  passed. Watched, the read after staging and after an index report is `status` alone.
+- **Blind hold.** With `noteChanged('index')` made to do nothing, "lists a file staged by another git as staged
+  after a report of the index" and the count after an index report failed. The two commit cases passed blind, as
+  they should: the `null` a watcher also reports for a commit reads everything. Restored after.
+- **Finding: a real commit is reported as `'index'` first.** On macOS, with the platform's own watch, `git commit`
+  was reported first as `'index'`, from the follower of the index file, and as `null` once the tree's watch
+  delivered the ref; with the followers off it was `null` alone. The two reports widen to everything in the model
+  whichever arrives first, which `tests/index-hint.spec.ts` holds in both orders. The watcher case waits for the
+  `null`.
+- **Finding: the platform delivers the setup's own events late.** With `fseventsd` at 100 to 150% of a core, the
+  watch received the setup commit's events some seconds after it opened, as `null`. The real-watch case therefore
+  turns off the startup catch-up and waits for two seconds without a report before each step, and asserts that
+  nothing wider than `'index'` came after `git add` once reports stopped.
+- **Choice: the commit cases read the branch's commit from `refsModel`.** The plan says the snapshot's branch commit
+  is the new one; a snapshot names its branch and carries no commit, so the case reads the current branch's commit
+  from `refsModel` and compares it with `git rev-parse HEAD`, beside `history` and `refs` being said to change.
+- `tests/watcher.spec.ts`: two existing expectations changed with the design. The index written by another git,
+  seen by its follower, is `'index'` where it was `null`; and a file noted before an index report is covered by it,
+  `['index']` where it was `[null]`, with a case added that an index and a ref together are `null`.
+- `examples/news.mjs` named a report by joining its paths, and now names an index report as "the index".
+- The consumer, read and not edited: `git-watcher-actor.ts` hands each report straight to
+  `repository.noteChanged(paths)`, and `AppGitRepository` does not override `noteChanged`, so the plan's section 4
+  "nothing has to change" holds for what was built.
+- `npm test` on Phase 4: 62 files, 578 passed, 5 skipped.

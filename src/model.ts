@@ -41,9 +41,10 @@ export class RepositoryModel {
 
   /**
    * What may have changed since `snapshot` was read: paths in the working tree that a watcher named, relative to
-   * the working directory, or anything. Nothing in it is what lets the snapshot be reused.
+   * the working directory; any file's standing and no ref (`status`), as when git's index alone changed; or anything.
+   * Nothing in it is what lets the snapshot be reused.
    */
-  unread: Set<string> | 'anything' = 'anything'
+  unread: Set<string> | 'status' | 'anything' = 'anything'
 
   /**
    * Whether the index may hold stale facts about the files: something changed many of them, or git's own state,
@@ -83,6 +84,15 @@ export class RepositoryModel {
   }
 
   /**
+   * Any file's standing may have changed, and no ref: the next snapshot asked for reads the whole status and keeps
+   * the refs it holds. What a write that moves only the index says when it ends
+   */
+  markStatusStale(): void {
+    this.snapshotVersion++
+    if (this.unread !== 'anything') this.unread = 'status'
+  }
+
+  /**
    * Notes what a watcher saw change, which is what the next snapshot asked for reads: these paths in the working
    * tree, relative to the working directory with `/` between their parts, or everything when it could not name them
    */
@@ -96,11 +106,14 @@ export class RepositoryModel {
     return this.watched && !this.watchFailed && this.missedChecks >= MISSED_CHECKS_SILENT
   }
 
-  noteChanged(paths: string[] | null): void {
+  noteChanged(paths: string[] | 'index' | null): void {
     this.notedSinceCheck++
     // A change too wide to name, or to git's own state: a checkout, a formatter over the tree, a commit elsewhere
     if (paths === null) this.indexMayBeStale = true
-    if (paths === null || this.unread === 'anything' || this.unread.size + paths.length > NOTED_PATHS_LIMIT) return this.markSnapshotStale()
+    if (paths === null || this.unread === 'anything') return this.markSnapshotStale()
+    // Git's index changed and no ref did: every file's standing may have, and the whole status says it
+    if (paths === 'index' || this.unread === 'status') return this.markStatusStale()
+    if (this.unread.size + paths.length > NOTED_PATHS_LIMIT) return this.markSnapshotStale()
     this.snapshotVersion++
     for (const changed of paths) this.unread.add(changed)
   }
@@ -200,7 +213,7 @@ export class RepositoryModel {
   currentSnapshot(): Promise<LoadedSnapshot> {
     // Not while a read is under way: it took what was noted when it began and holds the new snapshot only when
     // it ends, so until then the one held is from before it, with nothing left noted against it
-    if (!this.snapshotRead && this.snapshot && this.watched && this.unread !== 'anything' && this.unread.size === 0) return Promise.resolve(this.snapshot)
+    if (!this.snapshotRead && this.snapshot && this.watched && this.unread instanceof Set && this.unread.size === 0) return Promise.resolve(this.snapshot)
     if (this.snapshotRead?.version === this.snapshotVersion) return this.snapshotRead.promise
 
     // One read at a time, each starting from what the one before it left: a read of a few paths is put into the
@@ -219,9 +232,11 @@ export class RepositoryModel {
     // Whatever is noted from here on may be a change this read does not see, so it stays unread
     const noted = this.unread
     this.unread = new Set()
-    if (held && noted !== 'anything' && noted.size === 0) return held
+    if (held && noted instanceof Set && noted.size === 0) return held
     try {
-      const loaded = (held && noted !== 'anything' ? await this.loadNoted(held, [...noted]) : undefined) ?? await this.loadSnapshot()
+      // With a snapshot held, a few paths are read alone, and a change no ref can have made reads the status alone
+      const loaded = (held && noted instanceof Set ? await this.loadNoted(held, [...noted]) : undefined)
+        ?? await this.loadSnapshot(held && noted !== 'anything' ? held.refs : undefined)
       this.snapshot = loaded
       this.lastIdentity = loaded.identity
       return loaded
@@ -231,7 +246,11 @@ export class RepositoryModel {
     }
   }
 
-  async loadSnapshot(): Promise<LoadedSnapshot> {
+  /**
+   * The whole status, with the settings and the refs. `refs`, what `for-each-ref` printed for the snapshot held, is
+   * used in place of asking again, when nothing that happened since can have moved one
+   */
+  async loadSnapshot(refs?: string[]): Promise<LoadedSnapshot> {
     // Two things git was told that decide what a status lists. An untracked folder is one row, as git lists it
     // when told nothing: a folder of thousands of files nobody ignored is then one line and not walked. The user
     // may have told git to list every file, or none, which is theirs to decide. And whether two spellings of a
@@ -279,12 +298,12 @@ export class RepositoryModel {
     const isBranch = (header: string) => header.startsWith('# branch.')
     const isStashCount = (header: string) => header.startsWith('# stash ')
     // Refs move without the status moving: a fetch, a branch made or deleted, a stash
-    const refs = ((await this.runner.executeGitCommand(['for-each-ref', '--format=%(objectname) %(refname)'])).output ?? '').split('\n')
+    refs ??= ((await this.runner.executeGitCommand(['for-each-ref', '--format=%(objectname) %(refname)'])).output ?? '').split('\n')
     const isStash = (ref: string) => ref.endsWith(' refs/stash')
     const isLocalBranch = (ref: string) => ref.includes(' refs/heads/')
     const directories = await this.directories()
 
-    return this.snapshotOver({ headers, entries, untracked, ignoreCase, hasIdentity, slowStatus, operation: await this.readOperation(directories, refs) }, {
+    return this.snapshotOver({ headers, entries, untracked, ignoreCase, hasIdentity, slowStatus, refs, operation: await this.readOperation(directories, refs) }, {
       // What is checked out, and the local branches: a remote's branch moving, as a fetch moves it, is not history
       history: [...headers.filter(isBranch), ...refs.filter(isLocalBranch)].join('\n'),
       // Every ref but the stash, and the settings that name the remotes, read from the file and not by running git
@@ -387,7 +406,7 @@ export class RepositoryModel {
    * the snapshot this one was made from by reading some paths again: how its other files looked is kept, not read.
    */
   async snapshotOver(
-    read: Pick<LoadedSnapshot, 'headers' | 'entries' | 'untracked' | 'ignoreCase' | 'hasIdentity' | 'slowStatus' | 'operation'>,
+    read: Pick<LoadedSnapshot, 'headers' | 'entries' | 'untracked' | 'ignoreCase' | 'hasIdentity' | 'slowStatus' | 'operation' | 'refs'>,
     rest: Pick<SnapshotIdentity, 'history' | 'stashes' | 'worktrees' | 'refs'>,
     { directories, truncated, held }: { directories: GitDirectories | null; truncated: boolean; held?: { files?: Map<string, string>; kept: Set<StatusEntry> } },
   ): Promise<LoadedSnapshot> {
