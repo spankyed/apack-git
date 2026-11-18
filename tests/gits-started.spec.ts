@@ -45,16 +45,13 @@ async function repository() {
   return { root, repo, startedBy };
 }
 
-it('opens a repository with at most eight gits, ending with the status, the refs and where it is', async () => {
+it('opens a repository with the same six gits on every git', async () => {
   const { repo, startedBy } = await repository();
 
-  const opening = await startedBy(() => repo.readSnapshot());
-
-  expect(opening.slice(-3)).toEqual(['status', 'for-each-ref', 'rev-parse']);
-  expect(opening.length, opening.join(', ')).toBeLessThanOrEqual(8);
+  expect(await startedBy(() => repo.readSnapshot())).toEqual(['--version', 'rev-parse', 'config', 'status', 'for-each-ref', 'rev-parse']);
 });
 
-it('reads a whole status, unwatched, with the settings, the status and the refs', async () => {
+it('takes the settings afresh, with the status and the refs, when told to look again', async () => {
   const { repo, startedBy } = await repository();
   await repo.readSnapshot();
 
@@ -71,14 +68,23 @@ it('reads a noted path with a snapshot held by a status of it alone', async () =
   expect(await startedBy(() => repo.refreshSnapshot('noted'))).toEqual(['status']);
 });
 
-it('reads everything after staging a file, watched', async () => {
+it('reads the status and the refs after staging a file, watched, with the settings held', async () => {
   const { root, repo, startedBy } = await repository();
   repo.setWatched(true);
   await repo.readSnapshot();
   fs.writeFileSync(path.join(root, 'a.txt'), 'two\n');
   await repo.stageFiles(['a.txt']);
 
-  expect(await startedBy(() => repo.readSnapshot())).toEqual(['config', 'status', 'for-each-ref']);
+  expect(await startedBy(() => repo.readSnapshot())).toEqual(['status', 'for-each-ref']);
+});
+
+it('reads the status and the refs when anything may have changed, with the settings held', async () => {
+  const { repo, startedBy } = await repository();
+  repo.setWatched(true);
+  await repo.readSnapshot();
+  repo.noteChanged(null);
+
+  expect(await startedBy(() => repo.readSnapshot())).toEqual(['status', 'for-each-ref']);
 });
 
 it('starts no git for a read with nothing noted, watched', async () => {

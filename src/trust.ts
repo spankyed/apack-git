@@ -11,6 +11,7 @@
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import { GitError } from './errors.ts'
+import type { HeldSettings, ReadGit, SettingsReading } from './settings.ts'
 
 /** One thing a repository would have git run, or a setting not known to run nothing */
 export type TrustAsk =
@@ -120,39 +121,46 @@ export function settingRunsNothing(key: string, value: string): boolean {
   return allowed === ANY || (allowed?.has(variable) ?? false)
 }
 
-/** `scope`, `origin`, `key` and `value` of each setting `git config --list --show-scope --show-origin -z` printed */
-function settingsOf(output: string): { scope: string; origin: string; key: string; value: string }[] {
-  const fields = output.split('\0')
-  const settings = []
-  for (let at = 0; at + 2 < fields.length; at += 3) {
-    const [scope, origin, entry] = [fields[at]!, fields[at + 1]!, fields[at + 2]!]
-    // A key ends at the line break, and a setting with no value has none
-    const end = entry.indexOf('\n')
-    settings.push({ scope, origin, key: end === -1 ? entry : entry.slice(0, end), value: end === -1 ? '' : entry.slice(end + 1) })
-  }
-  return settings
+export type { ReadGit }
+
+/** Where a repository's git state is, by the paths a host and a hook are named by */
+interface Location {
+  /** The common git directory as git named it, resolved, which holds the configuration and the hooks */
+  common: string
+  /** Its real path: what names the repository to a host that remembers trust */
+  repository: string
+  hooks: string
 }
 
-/** Runs one git that reads and runs nothing: `rev-parse` for where the repository is, `config --list` for what it says */
-export type ReadGit = (args: string[]) => Promise<{ success: boolean; output?: string; error?: string }>
-
 export class TrustGate {
-  /**
-   * The last reading, with the files it was read from and how they looked. It holds until one of them differs,
-   * so a command pays for a handful of looks at files and no git
-   */
-  private held: { repository: string; hooks: string; files: string[]; signature: string; asks: TrustAsk[] } | undefined
+  /** Where the repository is, asked once it is found: until then each read asks again */
+  private location: Location | undefined
+  /** The asks last worked out, from this reading of the settings and the hooks as they looked */
+  private held: { reading: SettingsReading; hooks: string; asks: TrustAsk[] } | undefined
 
   constructor(
     private readonly workingDirectory: string,
     private readonly readGit: ReadGit,
+    /** The repository's settings, held, which every setting that asks is worked out from */
+    private readonly settings: HeldSettings,
     /** Whether a host has said the repository at this path is trusted. Without one, none is */
     private readonly isTrusted: (repository: string) => boolean = () => false,
   ) {}
 
-  /** How the files a reading depends on look, without reading them: a change to one is a reading to take again */
-  private async signatureOf(files: string[], hooks: string): Promise<string> {
-    const looks = await Promise.all(files.map(file => fs.stat(file).then(stats => `${file}:${stats.mtimeMs}:${stats.size}`, () => `${file}:gone`)))
+  /** Where the repository is: asked of git until it is found, and then held */
+  private async where(): Promise<Location | undefined> {
+    if (this.location) return this.location
+    const where = await this.readGit(['rev-parse', '--git-dir', '--git-common-dir'])
+    const [gitDir, commonDir] = (where.success ? where.output ?? '' : '').split('\n').map(line => line.trim())
+    // No repository here: nothing to trust, and nothing a repository could have run
+    if (!gitDir || !commonDir) return undefined
+    const common = path.resolve(this.workingDirectory, commonDir)
+    this.location = { common, repository: await fs.realpath(common).catch(() => common), hooks: path.join(common, 'hooks') }
+    return this.location
+  }
+
+  /** How the hooks directory looks, without reading what is in it: a change to it is asks to work out again */
+  private async hooksLook(hooks: string): Promise<string> {
     const listed = await fs.readdir(hooks, { withFileTypes: true }).then(
       entries => Promise.all(entries.filter(entry => !entry.name.endsWith('.sample')).map(async (entry) => {
         const stats = await fs.stat(path.join(hooks, entry.name)).catch(() => undefined)
@@ -160,46 +168,40 @@ export class TrustGate {
       })),
       () => [],
     )
-    return [...looks, ...listed.sort()].join('\n')
+    return listed.sort().join('\n')
   }
 
-  /** Reads the repository afresh: where it is, what its own configuration says, and the hooks it holds */
-  private async take(): Promise<TrustGate['held']> {
-    const where = await this.readGit(['rev-parse', '--git-dir', '--git-common-dir'])
-    const [gitDir, commonDir] = (where.success ? where.output ?? '' : '').split('\n').map(line => line.trim())
-    // No repository here: nothing to trust, and nothing a repository could have run
-    if (!gitDir || !commonDir) return undefined
-    const common = path.resolve(this.workingDirectory, commonDir)
-    const repository = await fs.realpath(common).catch(() => common)
-    const hooks = path.join(common, 'hooks')
-
-    const listed = await this.readGit(['config', '--list', '--show-scope', '--show-origin', '--includes', '-z'])
-    const own = settingsOf(listed.success ? listed.output ?? '' : '').filter(setting => setting.scope === 'local' || setting.scope === 'worktree')
+  /** What the repository would have git run: its own settings that are not known to run nothing, and its hooks */
+  private async asksOf(reading: SettingsReading, where: Location): Promise<TrustAsk[]> {
+    const own = reading.settings.filter(setting => setting.scope === 'local' || setting.scope === 'worktree')
     const fileOf = (origin: string) => path.resolve(this.workingDirectory, origin.replace(/^file:/, ''))
     const asks: TrustAsk[] = own
       .filter(setting => !settingRunsNothing(setting.key, setting.value))
       .map(setting => ({ kind: 'setting', key: setting.key, value: setting.value, file: fileOf(setting.origin) }))
     // What it says could not be read, so what it names is not known: it asks, rather than passing for a
     // repository that names nothing
-    if (!listed.success) asks.push({ kind: 'setting', key: UNREADABLE, value: (listed.error ?? '').trim().split('\n')[0] ?? '', file: path.join(common, 'config') })
+    if (reading.unreadable !== undefined) asks.push({ kind: 'setting', key: UNREADABLE, value: reading.unreadable, file: path.join(where.common, 'config') })
     // A hook is a file in the hooks directory under the name git runs it by: the samples git writes there are
     // not, and on a platform with no executable bit every other file is
-    const entries = await fs.readdir(hooks, { withFileTypes: true }).catch(() => [])
+    const entries = await fs.readdir(where.hooks, { withFileTypes: true }).catch(() => [])
     for (const entry of entries.filter(found => !found.name.endsWith('.sample')).sort((a, b) => a.name.localeCompare(b.name))) {
-      const stats = await fs.stat(path.join(hooks, entry.name)).catch(() => undefined)
-      if (stats?.isFile() && (process.platform === 'win32' || (stats.mode & 0o111) !== 0)) asks.push({ kind: 'hook', name: entry.name, file: path.join(hooks, entry.name) })
+      const stats = await fs.stat(path.join(where.hooks, entry.name)).catch(() => undefined)
+      if (stats?.isFile() && (process.platform === 'win32' || (stats.mode & 0o111) !== 0)) asks.push({ kind: 'hook', name: entry.name, file: path.join(where.hooks, entry.name) })
     }
-    // The repository's own configuration, a worktree's, and every file either includes
-    const files = [...new Set([path.join(common, 'config'), path.join(path.resolve(this.workingDirectory, gitDir), 'config.worktree'), ...own.map(setting => fileOf(setting.origin))])]
-    return { repository, hooks, files, signature: await this.signatureOf(files, hooks), asks }
+    return asks
   }
 
-  /** What the repository would have git run, read without running any of it */
+  /**
+   * What the repository would have git run, read without running any of it. Worked out again when the settings'
+   * reading is another than the one it was worked out from, or the hooks look different
+   */
   async read(): Promise<TrustReading> {
-    if (!this.held || this.held.signature !== await this.signatureOf(this.held.files, this.held.hooks)) this.held = await this.take()
-    const held = this.held
-    if (!held) return { trusted: false, asks: [] }
-    return { trusted: this.isTrusted(held.repository), asks: held.asks, repository: held.repository }
+    const where = await this.where()
+    if (!where) return { trusted: false, asks: [] }
+    const reading = await this.settings.read()
+    const hooks = await this.hooksLook(where.hooks)
+    if (this.held?.reading !== reading || this.held.hooks !== hooks) this.held = { reading, hooks, asks: await this.asksOf(reading, where) }
+    return { trusted: this.isTrusted(where.repository), asks: this.held.asks, repository: where.repository }
   }
 
   /** Lets a git command through, or refuses it when the repository would have git run something and is not trusted */

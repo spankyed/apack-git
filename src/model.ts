@@ -158,6 +158,8 @@ export class RepositoryModel {
     // before this runs, and this is what tells the others
     const before = this.checkedIdentity ?? (this.lastIdentity && seen(this.lastIdentity))
     if (reading === 'everything') {
+      // A host saying to look again is what takes the settings afresh, whatever their files look like
+      this.runner.settings.forget()
       this.markSnapshotStale()
       if (refreshIndex && this.indexMayBeStale) this.refreshIndexOnRead = true
     }
@@ -234,11 +236,12 @@ export class RepositoryModel {
     // when told nothing: a folder of thousands of files nobody ignored is then one line and not walked. The user
     // may have told git to list every file, or none, which is theirs to decide. And whether two spellings of a
     // name that differ by case are one file
-    const config = await this.runner.executeGitCommand(['config', '--get-regexp', '^(status\\.showuntrackedfiles|core\\.ignorecase|user\\.name|user\\.email|core\\.fsmonitor|core\\.untrackedcache)$'])
-    const told = new Map((config.success ? config.output ?? '' : '').split('\n').filter(Boolean).map((line): [string, string] => {
-      const space = line.indexOf(' ')
-      return [line.slice(0, space), line.slice(space + 1).trim()]
-    }))
+    // Read from the settings as they are held, which asks git only when a file they came from looks different. As
+    // for any command, whether git can be used and the repository read come first, and the trust gate reads them
+    await this.runner.passUsableGit()
+    await this.runner.trust.pass()
+    const settings = await this.runner.settings.read()
+    const told = { get: (key: string) => settings.value(key)?.trim() }
     const said = told.get('status.showuntrackedfiles')
     const untracked = said === 'no' || said === 'all' ? said : 'normal'
     const ignoreCase = /^(true|yes|on|1)$/i.test(told.get('core.ignorecase') ?? '')
