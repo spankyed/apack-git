@@ -65,6 +65,12 @@ export class Journal {
     return result.success ? (result.output ?? '').trim() || null : null
   }
 
+  /** The branch `HEAD` is on, as a full ref, or `HEAD` itself when it is on none */
+  private async headRef(): Promise<string> {
+    const result = await this.runner.executeGitCommand(['symbolic-ref', '--quiet', 'HEAD'])
+    return result.success ? (result.output ?? '').trim() || 'HEAD' : 'HEAD'
+  }
+
   /**
    * Takes back the last entry and answers it. Refused when a ref it moved has moved since, and, for a commit that a
    * remote branch already holds, unless `evenIfPublished`: taking it back here leaves it there.
@@ -74,8 +80,11 @@ export class Journal {
       const entries = await this.entries()
       const entry = entries.at(-1)
       if (!entry) throw new GitError('There is nothing to undo.')
+      const head = await this.headRef()
       for (const { ref, after } of entry.refs) {
-        if (await this.now(ref) !== after) {
+        // Written with no branch checked out, its ref is `HEAD` itself: with a branch checked out since, moving
+        // `HEAD` back would move that branch, which the write never touched
+        if (await this.now(ref) !== after || (ref === 'HEAD' && head !== 'HEAD')) {
           throw new GitError(`${ref.replace(/^refs\/heads\//, '')} has moved since ${entry.summary}, so it is not undone: undoing it would undo what moved it too.`)
         }
       }
@@ -95,7 +104,10 @@ export class Journal {
   }
 
   private async reverse(entry: JournalEntry): Promise<void> {
-    if (entry.operation === 'merge' || entry.operation === 'rebase' || entry.operation === 'cherry-pick' || entry.operation === 'rewrite') {
+    // A reset moves whatever is checked out. A write to a branch that is not checked out now is taken back by
+    // moving that branch alone, below: the working tree is on another and is left as it is
+    const checkedOut = entry.refs[0]?.ref === await this.headRef()
+    if (checkedOut && (entry.operation === 'merge' || entry.operation === 'rebase' || entry.operation === 'cherry-pick' || entry.operation === 'rewrite')) {
       // The branch back where it was, and the files that changed with it, keeping what the user changed since: git
       // refuses rather than overwrite a change of theirs
       const before = entry.refs[0]!.before!
@@ -103,7 +115,7 @@ export class Journal {
       if (!reset.success) throw failure(reset, `Failed to undo ${entry.summary}`)
       return
     }
-    if (entry.operation === 'reset') {
+    if (checkedOut && entry.operation === 'reset') {
       // The branch and the index back where they were; the files were never touched, and are left as they are
       const before = entry.refs[0]!.before!
       const reset = await this.runner.executeGitCommand(['reset', '--quiet', before])
