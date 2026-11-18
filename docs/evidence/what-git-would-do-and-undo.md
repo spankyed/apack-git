@@ -30,3 +30,19 @@ until a restore leaves none".
 `restoreDiscarded` ran inside `GitWrites.withWriteFlag`, so a watcher's report waited for it. A discard is now put
 back through `undo`, so `GitRepository.undo` runs inside the same flag, and with it every undo, which before ran
 outside it. That is the nearest existing pattern: every other write of the engine runs inside it.
+
+## 2026-11-18, Phase 4 (`ceb2abb`)
+
+- `npx vitest run tests/discards.spec.ts tests/undo.spec.ts tests/names-not-text.spec.ts tests/untracked-folders.spec.ts tests/checkpoints.spec.ts`:
+  45 passed, 1 skipped (a case that runs only on Linux). The plan named `names-not-text.spec.ts` and
+  `untracked-folders.spec.ts` as callers of `restoreDiscarded`; on `bb24b4e` neither called it, so neither changed.
+
+## 2026-11-18, Phase 5
+
+- `npx vitest run tests/failures.spec.ts tests/named-failures.spec.ts tests/start-operations.spec.ts tests/checkout-and-publish.spec.ts`:
+  42 passed.
+- Mutation: `filesInTheWay` made to answer no files. The three cases that expect them failed: the existing checkout
+  case, "names the files a merge would overwrite" and "names the files in the way from the top of the checkout, as
+  they are spelled"; restored after.
+- `checkoutBranch` built its own error in two places, so the five methods the plan names are six call sites, all
+  through `gitErrorOf` now.

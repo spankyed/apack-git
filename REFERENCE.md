@@ -556,6 +556,20 @@ A command a repository's hook refused, with the hook's name, the code it exited 
 - `hook: string`
 - `output: string`
 
+### `HostRefusedError`
+
+A push the hosting service refused for a rule of its own, with which rule
+
+- `rule: HostRule`
+
+### `HostRule`
+
+Which of a hosting service's own rules refused a push
+
+```ts
+type HostRule = 'file-too-large' | 'protected-branch' | 'private-email' | 'rule-violation'
+```
+
 ### `JournalEntry`
 
 A write the engine made that can be taken back (`GitRepository.undo`)
@@ -601,6 +615,13 @@ interface LineCount {
   binary: boolean
 }
 ```
+
+### `LocalChangesError`
+
+A command refused because it would overwrite changes to these files, from the top of the checkout. The list is
+read from what git printed, and is empty when git did not print it as expected: a host shows it when there is one
+
+- `files: string[]`
 
 ### `MergePreview`
 

@@ -10,7 +10,7 @@ export {
   type DirectorySubscription, type SubscribeToDirectory, type WatchDirectory, type WatchTree, type WatchedChange,
 } from './directory-watch.ts'
 export { followFile, type FileFollower, type FollowFile, type WatchFile } from './file-watch.ts'
-export { GitError, HookRefusedError, UnsafeOwnershipError, classifyGitError, type GitErrorCode } from './errors.ts'
+export { GitError, HookRefusedError, HostRefusedError, LocalChangesError, UnsafeOwnershipError, classifyGitError, type GitErrorCode, type HostRule } from './errors.ts'
 export { GIT_FLOOR, GitUnusableError, gitVersionOf, olderThan, type GitUnusable } from './git-check.ts'
 export { UntrustedError, settingRunsNothing, type TrustAsk, type TrustReading } from './trust.ts'
 export { StashConflictError } from './writes.ts'

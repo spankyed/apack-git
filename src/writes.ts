@@ -7,7 +7,7 @@ import type { DiscardStore } from './discards.ts'
 import { rebaseWithTodo, refusePublished } from './rewrite.ts'
 import type { CheckpointStore } from './checkpoints.ts'
 import type { Journal } from './journal.ts'
-import { GitError, type GitErrorCode } from './errors.ts'
+import { GitError, gitErrorOf, type GitErrorCode } from './errors.ts'
 import { NOT_TEXT } from './status.ts'
 import type { RepositoryModel } from './model.ts'
 import { BASE_KEY, type GitReads } from './reads.ts'
@@ -522,9 +522,9 @@ export class GitWrites {
 
       if (!result.success) {
         if (result.code === 'unknown-ref') {
-          throw new GitError(`There is no branch named ${branchName}, here or on a remote.`, result.code)
+          throw gitErrorOf(`There is no branch named ${branchName}, here or on a remote.`, result.code, result.error ?? '')
         } else if (result.code === 'local-changes') {
-          throw new GitError('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code)
+          throw gitErrorOf('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code, result.error ?? '')
         } else {
           throw failure(result, `Failed to checkout branch: ${branchName}`)
         }
@@ -569,7 +569,7 @@ export class GitWrites {
       const result = await this.runner.executeGitCommand(args, { onProgress })
       if (!result.success) {
         if (result.code === 'local-changes') {
-          throw new GitError('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code)
+          throw gitErrorOf('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code, result.error ?? '')
         }
         throw failure(result, `Failed to check out ${name}`)
       }
@@ -625,7 +625,7 @@ export class GitWrites {
       if (!result.success) {
         // What a stopped git did before it ended is read afresh
         if (result.code === 'aborted') this.model.markSnapshotStale()
-        throw new GitError(result.code === 'aborted' ? 'The push was stopped' : result.error || 'git gave no reason', result.code)
+        throw gitErrorOf(result.code === 'aborted' ? 'The push was stopped' : result.error || 'git gave no reason', result.code, result.error ?? '')
       }
 
       this.reads.clearCache()
@@ -644,7 +644,7 @@ export class GitWrites {
       const result = await this.runner.executeGitCommand(['pull', '--progress'], { onProgress })
 
       if (!result.success) {
-        throw new GitError(result.error || 'git gave no reason', result.code)
+        throw gitErrorOf(result.error || 'git gave no reason', result.code, result.error ?? '')
       }
 
       this.reads.clearCache()
@@ -666,7 +666,7 @@ export class GitWrites {
         { onProgress, signal },
       )
       if (!result.success) {
-        throw new GitError(result.code === 'aborted' ? 'The submodule update was stopped' : result.error || 'git gave no reason', result.code)
+        throw gitErrorOf(result.code === 'aborted' ? 'The submodule update was stopped' : result.error || 'git gave no reason', result.code, result.error ?? '')
       }
     })
   }

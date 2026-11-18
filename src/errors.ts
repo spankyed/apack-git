@@ -122,10 +122,22 @@ const OWNED_BY_ANOTHER = /^fatal: detected dubious ownership in repository at '(
  * anywhere in that reads those as git's reason; a whole line of git's does not. A reason with no line here
  * gets no code, and git's own words are what is shown.
  */
+/** What a hosting service prints when a rule of its own refused a push, with the rule's number */
+const HOST_RULE = /^remote: error: GH0(01|06|07|13):/m
+
+/** Which of a hosting service's own rules refused a push */
+export type HostRule = 'file-too-large' | 'protected-branch' | 'private-email' | 'rule-violation'
+
+/** Each rule by the number GitHub prints for it */
+const HOST_RULES: Readonly<Record<string, HostRule>> = { '01': 'file-too-large', '06': 'protected-branch', '07': 'private-email', '13': 'rule-violation' }
+
+/** The line git prints above the files a command would overwrite, one to a line after it, each after a tab */
+const LOCAL_CHANGES = /^error: Your local changes to the following files would be overwritten by \w+:$/m
+
 const SIGNS: readonly (readonly [GitErrorCode, RegExp])[] = [
   ['locked', LOCKED],
   // The host's reason, ahead of git's own lines after it: a refused push also ends `[remote rejected]`
-  ['host-refused', /^remote: error: GH0(01|06|07|13):/m],
+  ['host-refused', HOST_RULE],
   ['authentication', /^fatal: Authentication failed|^fatal: could not read (Username|Password)|^\S+: Permission denied \(publickey|^remote: Invalid username or (password|token)/m],
   ['permission', /^(remote: |ERROR: )?Permission to \S+ denied|^fatal: unable to access .*The requested URL returned error: 403/m],
   ['remote-unreachable', /^fatal: unable to access .*(Could not resolve host|Failed to connect|Couldn't connect|Connection refused|Connection timed out|Network is unreachable)|^fatal: Could not read from remote repository|^ssh: .*(Could not resolve hostname|Connection refused|Connection timed out|Network is unreachable)|^fatal: unable to (connect to|look up) /m],
@@ -159,6 +171,49 @@ export class GitError extends Error {
     super(message)
     this.name = 'GitError'
   }
+}
+
+/**
+ * A command refused because it would overwrite changes to these files, from the top of the checkout. The list is
+ * read from what git printed, and is empty when git did not print it as expected: a host shows it when there is one
+ */
+export class LocalChangesError extends GitError {
+  constructor(message: string, readonly files: string[]) {
+    super(message, 'local-changes')
+    this.name = 'LocalChangesError'
+  }
+}
+
+/** A push the hosting service refused for a rule of its own, with which rule */
+export class HostRefusedError extends GitError {
+  constructor(message: string, readonly rule: HostRule) {
+    super(message, 'host-refused')
+    this.name = 'HostRefusedError'
+  }
+}
+
+/** The files git listed under the line that says they would be overwritten, or none when it did not list them */
+function filesInTheWay(printed: string): string[] {
+  const said = LOCAL_CHANGES.exec(printed)
+  if (!said) return []
+  const files: string[] = []
+  for (const line of printed.slice(said.index + said[0].length).replace(/^\r?\n/, '').split(/\r?\n/)) {
+    if (!line.startsWith('\t')) break
+    files.push(line.slice(1))
+  }
+  return files
+}
+
+/**
+ * A failed command as the error that carries what git named: the files a `local-changes` lists, the rule a
+ * `host-refused` gives, and a plain `GitError` for every other code. What is read is optional: lines not as
+ * expected leave the fact empty, and the failure its code and git's words
+ */
+export function gitErrorOf(message: string, code: GitErrorCode | undefined, printed: string): GitError {
+  if (code === 'local-changes') return new LocalChangesError(message, filesInTheWay(printed))
+  const rule = code === 'host-refused' ? HOST_RULES[HOST_RULE.exec(printed)?.[1] ?? ''] : undefined
+  if (rule) return new HostRefusedError(message, rule)
+  return new GitError(message, code)
 }
 
 /** A command a repository's hook refused, with the hook's name, the code it exited with and what it printed */
