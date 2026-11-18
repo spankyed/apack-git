@@ -96,6 +96,13 @@ it('reads the status and the refs when anything may have changed, with the setti
   expect(await startedBy(() => repo.readSnapshot())).toEqual(['status', 'for-each-ref']);
 });
 
+it('takes a checkpoint, once opened, without asking again where the repository is', async () => {
+  const { repo, startedBy } = await repository();
+  await repo.readSnapshot();
+
+  expect(await startedBy(() => repo.checkpoint())).not.toContain('rev-parse');
+});
+
 it('starts no git for a read with nothing noted, watched', async () => {
   const { repo, startedBy } = await repository();
   repo.setWatched(true);

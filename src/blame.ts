@@ -77,7 +77,7 @@ export class Blame {
    * checkout.
    */
   async blame(filePath: string, { revision, onLines, signal }: { revision?: string; onLines?: (lines: BlameLine[]) => void; signal?: AbortSignal } = {}): Promise<BlameLine[]> {
-    const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+    const directories = await this.model.directories()
     const top = path.resolve(this.runner.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
     // The repository's own file, when its settings name none: git reads the setting itself
     const configured = await this.runner.executeGitCommand(['config', '--get', 'blame.ignoreRevsFile'])

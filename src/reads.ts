@@ -555,7 +555,7 @@ export class GitReads {
    * and 3 theirs. The path is from the top of the checkout. A path git has no conflict for has no sides.
    */
   async conflictSides(filePath: string): Promise<ConflictSides> {
-    const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+    const directories = await this.model.directories()
     const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
     const listed = await this.runner.executeGitCommand(['-C', top, 'ls-files', '--unmerged', '-z', '--', `:(top,literal)${filePath}`])
     if (!listed.success) throw failure(listed, `Failed to read the conflict in ${filePath}`)

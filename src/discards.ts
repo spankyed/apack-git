@@ -21,7 +21,7 @@ export class DiscardStore {
    * it removes. A path with no file is a deletion being discarded, which removes nothing.
    */
   private async filesOf(rows: string[]): Promise<{ file: string; size: number }[]> {
-    const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+    const directories = await this.model.directories()
     const top = path.resolve(this.runner.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
     const named = new Set<string>()
     for (const row of rows) {

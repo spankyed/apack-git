@@ -74,7 +74,7 @@ export class CheckpointStore {
   /** The top of the checkout, its git directory, and the store, made the first time it is needed */
   private open() {
     this.opened ??= (async () => {
-      const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+      const directories = await this.model.directories()
       if (!directories) throw new GitError('Not a git repository', 'not-a-repository')
       const commonDir = await fs.realpath(directories.commonDir)
       const store = this.locate(commonDir)

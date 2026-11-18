@@ -147,7 +147,7 @@ export class GitWrites {
    */
   async applyPatch(patch: string | Buffer, { staged = false }: { staged?: boolean } = {}): Promise<void> {
     return this.withWriteFlag(async () => {
-      const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+      const directories = await this.model.directories()
       const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
       const result = await this.runner.executeGitCommand(['-C', top, 'apply', ...(staged ? ['--cached'] : []), '--whitespace=nowarn', '-'], { input: patch })
       if (!result.success) throw failure(result, 'Failed to apply the patch')
@@ -224,7 +224,7 @@ export class GitWrites {
    */
   async discardUntracked(filePath: string, isDirectory: boolean): Promise<void> {
     // A row's path is from the top of the checkout, which the working directory may be under
-    const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+    const directories = await this.model.directories()
     const onDisk = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'), filePath)
     if (!isDirectory) return fs.unlink(onDisk)
     // Git leaves a repository of its own where it is, and says nothing: said here, where it would read as done
@@ -303,7 +303,7 @@ export class GitWrites {
    */
   async resolveConflict(filePath: string, answer: ConflictAnswer): Promise<void> {
     return this.withWriteFlag(async () => {
-      const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+      const directories = await this.model.directories()
       const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
       const spec = rowSpec(filePath)
       if (typeof answer === 'object') {
@@ -660,7 +660,7 @@ export class GitWrites {
    */
   async updateSubmodules(paths: string[] = [], { onProgress, signal }: { onProgress?: (progress: GitProgress) => void; signal?: AbortSignal } = {}): Promise<void> {
     return this.withWriteFlag(async () => {
-      const directories = this.model.gitDirectories ?? await this.model.resolveGitDirectories()
+      const directories = await this.model.directories()
       const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
       const result = await this.runner.executeGitCommand(
         ['-C', top, 'submodule', 'update', '--init', '--recursive', '--progress', '--', ...paths.map(rowSpec)],

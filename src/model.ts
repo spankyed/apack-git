@@ -519,7 +519,7 @@ export class RepositoryModel {
    * Where the git state lives for a read: as git last said when the watches were checked, else as the settings'
    * reading says, which asked git once when the repository was opened
    */
-  private async directories(): Promise<GitDirectories | null> {
+  async directories(): Promise<GitDirectories | null> {
     return this.gitDirectories ?? (await this.runner.settings.read()).directories ?? null
   }
 
