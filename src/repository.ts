@@ -172,7 +172,7 @@ export class GitRepository {
    * The checkout's changed files, branch and distance from its upstream.
    *
    * A snapshot is reused until something says the repository may have changed: a watcher's event, a write made
-   * here, a reconcile. It never waits on the remote: `fetchIfDue` is what fetches.
+   * here, a reconcile. It never reaches the remote: `fetch` does, when the host asks.
    */
   readSnapshot(): Promise<RepositorySnapshot> {
     return this.model.readSnapshot()
