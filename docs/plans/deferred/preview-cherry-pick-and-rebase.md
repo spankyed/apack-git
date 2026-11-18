@@ -1,8 +1,8 @@
 # Previews of a cherry-pick and a rebase
 
 Status: deferred, 2026-11-18. It was Phase 8 of
-[goal-what-git-would-do-and-undo](../../goals/goal-what-git-would-do-and-undo.md) and section 8 of
-[its plan](../what-git-would-do-and-undo.md), and was taken out before any of it was built. The design below is as
+[goal-what-git-would-do-and-undo](../../archive/goals/goal-what-git-would-do-and-undo.md) and section 8 of
+[its plan](../../archive/plans/what-git-would-do-and-undo.md), and was taken out before any of it was built. The design below is as
 drafted on 2026-11-17 and has not been run.
 
 ## What it is

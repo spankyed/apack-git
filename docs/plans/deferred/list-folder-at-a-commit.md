@@ -1,8 +1,8 @@
 # A folder as a commit has it
 
 Status: deferred, 2026-11-18. It was Phase 6 of
-[goal-what-git-would-do-and-undo](../../goals/goal-what-git-would-do-and-undo.md) and section 6 of
-[its plan](../what-git-would-do-and-undo.md), and was taken out before any of it was built.
+[goal-what-git-would-do-and-undo](../../archive/goals/goal-what-git-would-do-and-undo.md) and section 6 of
+[its plan](../../archive/plans/what-git-would-do-and-undo.md), and was taken out before any of it was built.
 
 ## What it is
 

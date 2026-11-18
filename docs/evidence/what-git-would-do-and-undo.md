@@ -1,6 +1,6 @@
 # Evidence: an undo that takes what it was shown, and failures that name their files
 
-Checkpoint logs and findings for [the goal](../goals/goal-what-git-would-do-and-undo.md), dated, newest last. Each
+Checkpoint logs and findings for [the goal](../archive/goals/goal-what-git-would-do-and-undo.md), dated, newest last. Each
 names the commit and the command. This is history: the goal and the plan say what is current.
 
 ## 2026-11-18, Phase 3 (`add9bb5`)
@@ -96,3 +96,13 @@ macOS, git 2.38.1 first on `PATH` for the suite, load 18 to 26.
 - `npm run typecheck`, `npm run reference:check` (215 exports and members) and `npm run build`: clean.
 - `npm test`: 59 files, 560 passed and 6 skipped, the skips being the cases that run only on another platform.
 - Not shown here, and left to CI: Linux, Windows, and gits 2.35.0, Debian 12's and Apple's.
+
+## 2026-11-18, CI (`6b6c54d`)
+
+- The first run on the pushed branch (`1dff438`) failed its Linux and Windows budgets jobs: `GitError: d0/f0.txt has
+  no conflict`. A runner has no git identity of its own, and unlike macOS cannot make one up from the user and host
+  names, so the merge the script makes refused before it started. Fixed in `6b6c54d` by telling the merge who it is
+  by, as the script's commits already were.
+- [Run 44302131547](https://github.com/spankyed/apack-git/actions/runs/44302131547) on `6b6c54d`: all ten jobs passed,
+  `suite` on ubuntu-24.04, macos-15 and windows-2025, `git` on Debian 12, Apple git and the 2.35.0 floor, `budgets`
+  on all three, and `ci-pass`.

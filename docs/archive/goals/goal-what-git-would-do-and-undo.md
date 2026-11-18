@@ -1,7 +1,11 @@
 # Goal: an undo that takes what it was shown, and failures that name their files
 
-Status: active, 2026-11-18. Phases 1 to 7 have landed on a branch; final validation is open. The design is
-[the plan](../plans/what-git-would-do-and-undo.md).
+> **Done, 2026-11-18.** Every phase landed; see [Outcome](#outcome-2026-11-18). Archived with
+> [its plan](../plans/what-git-would-do-and-undo.md). Two phases that were here are deferred, each with its own
+> plan: [the previews](../../plans/deferred/preview-cherry-pick-and-rebase.md) and
+> [the listing](../../plans/deferred/list-folder-at-a-commit.md).
+
+Status: done, 2026-11-18. The design is [the plan](../plans/what-git-would-do-and-undo.md).
 
 ```text
 # Goal: an undo that takes what it was shown, and failures that name their files
@@ -42,35 +46,19 @@ Out:
 
 - Previews of a cherry-pick and a rebase, and listing a folder at a commit. Both were phases here until 2026-11-18
   and are deferred, each with what would justify taking it up:
-  [the previews](../plans/deferred/preview-cherry-pick-and-rebase.md) because nothing in them has been run, and
-  [the listing](../plans/deferred/list-folder-at-a-commit.md) because no host calls it.
-- Raising the git floor, which is [deferred](../plans/deferred/raise-git-floor.md), and everything in
-  [declined-engine-ideas](../plans/wont-do/declined-engine-ideas.md).
+  [the previews](../../plans/deferred/preview-cherry-pick-and-rebase.md) because nothing in them has been run, and
+  [the listing](../../plans/deferred/list-folder-at-a-commit.md) because no host calls it.
+- Raising the git floor, which is [deferred](../../plans/deferred/raise-git-floor.md), and everything in
+  [declined-engine-ideas](../../plans/wont-do/declined-engine-ideas.md).
 - The plan's own "Out of scope, on purpose" list, under its Decisions.
 - The consumer. The apack monorepo is not edited from here; the plan's "What the consumer must change" is kept
   correct for whoever moves its pin.
 
 ## Current handoff
 
-- **Source:** branch `feat/undo-list-and-named-failures`, made from `master` at `bb24b4e`. Phase 3 is `add9bb5`,
-  Phase 4 `ceb2abb`, Phase 5 `5e47156`, Phase 6 `84b6ff2`; Phase 7 is the commit that carries this revision of
-  the handoff.
-- **Next:** final validation: the whole suite here, then CI, which needs the branch pushed.
-- **Phase 6's reading**, `npm run build && npm run budgets -- 1000`, macOS, git 2.39.5 (Apple), 2026-11-18:
-  `1,000 files: open 213 ms (7 gits), whole status 85 ms (3 gits), one noted path 94 ms (3 gits), checkpoint 187 ms
-  (7 gits), conflict sides 45 ms (4 gits) (generated in 211 ms)`.
-- **Phase 7's reading**, the same command and machine, 2026-11-18: `1,000 files: open 183 ms (7 gits), whole status
-  83 ms (3 gits), one noted path 95 ms (3 gits), checkpoint 234 ms (7 gits), conflict sides 223 ms (2 gits)
-  (generated in 209 ms)`. The two are `ls-files --unmerged` and the partial-clone check; a second read is one.
-- **Proven:** Phases 3 to 7 pass their specs on macOS with git 2.38.1, with typecheck, build and the reference
-  check clean; the commands and a mutation check are in [the evidence](../evidence/what-git-would-do-and-undo.md).
-  Not yet on CI, and the whole suite not yet run on this branch.
-- **Unresolved:** nothing failing.
-- **Choices made where the plan did not say:** `GitRepository.undo` runs inside `GitWrites.withWriteFlag`, as
-  `restoreDiscarded` did, so a watcher's report waits for any undo. A finding changed `DiscardStore.restore`: a file
-  already as the discard kept it is restored, not left (plan section 4, and the evidence). The Phase 7 trust case
-  checks the process at once rather than waiting with `settles`, which would pass without the fix. Phase 7's
-  count falls by two, not three, accepted by the user (the evidence).
+Closed. Every phase landed on `feat/undo-list-and-named-failures`
+([spankyed/apack-git#43](https://github.com/spankyed/apack-git/pull/43)); see the Outcome. Nothing is left to hand
+off: the deferred phases have their own plans, and the consumer's changes are listed in the plan.
 
 ## Decisions
 
@@ -99,13 +87,13 @@ the last column as each phase lands.
 
 | # | Deliverable | Depends on | Done when | Landed |
 |---|---|---|---|---|
-| 1 | `README.md`, `CLAUDE.md` and the doc comment of `restoreDiscarded` describe discards as checkpoints, and the README states that a prediction is never in a snapshot (plan 1) | Nothing | No sentence in those three files says a discard is kept as a tree in git's own object store or for git's two weeks; `REFERENCE.md` is regenerated | with this revision |
+| 1 | `README.md`, `CLAUDE.md` and the doc comment of `restoreDiscarded` describe discards as checkpoints, and the README states that a prediction is never in a snapshot (plan 1) | Nothing | No sentence in those three files says a discard is kept as a tree in git's own object store or for git's two weeks; `REFERENCE.md` is regenerated | `bb24b4e` |
 | 2 | An undo moves the branch its entry recorded, whatever is checked out (plan 2) | Nothing | A merge on `main` undone while `topic` is checked out puts `main` back and leaves `topic` and its files alone; an entry written on a detached `HEAD` is refused once a branch is checked out | `0b00d6f` |
 | 3 | Codes for a refused undo and a dropped copy; `undoables` lists every entry with where it stands; `undo` takes the entry's id; `lastUndoable` is gone (plan 3) | Phase 2 | Each refusal carries its code; an entry's standing in the list is what `undo` of it then does; an entry that is not the last is undone by its id; an entry read before a later write is the one undone after it; no source or spec names `lastUndoable` | `add9bb5` |
 | 4 | A discard is a journal entry, put back by `undo`; `restoreDiscarded` is gone (plan 4) | Phase 3 | A discard answers its entry's id and is in the list; `undo` of it puts the files back and answers what it restored and left; an entry that left files stays until a restore leaves none; a dropped copy reads as `no-longer-kept` in the list and from `undo`; no source or spec names `restoreDiscarded` | `ceb2abb` |
 | 5 | `LocalChangesError.files` and `HostRefusedError.rule`, and the rule in `CLAUDE.md` for what is read from git's output (plan 5) | Nothing | A refused checkout and a refused merge name the files git listed, from the top of the checkout, with a space and a non-ASCII letter in a name; the failure keeps its code when the list is not there; each of the four host refusals names its rule || `5e47156` |
 | 6 | `npm run budgets` prints the gits started for each reading, and a fifth reading: a conflict's three sides (plan 6) | Nothing | `npm run build && npm run budgets -- 1000` prints a count beside each of its five readings, and that line is recorded in the handoff || `84b6ff2` |
-| 7 | A conflict's sides are read through the git kept open, which ends when the repository is refused as untrusted (plan 7) | Phase 6 | The same command prints fewer gits for a conflict's sides than Phase 6 recorded, and that line is recorded beside it: the three `cat-file blob` gits are gone, and a first read of a file from a commit in a repository still runs the once-per-repository partial-clone check (4 to 2; 1 on a later read; settled with the user 2026-11-18); reading the sides starts no `cat-file blob` of its own; after a read is refused as untrusted, the process that was kept open has gone | |
+| 7 | A conflict's sides are read through the git kept open, which ends when the repository is refused as untrusted (plan 7) | Phase 6 | The same command prints fewer gits for a conflict's sides than Phase 6 recorded, and that line is recorded beside it: the three `cat-file blob` gits are gone, and a first read of a file from a commit in a repository still runs the once-per-repository partial-clone check (4 to 2; 1 on a later read; settled with the user 2026-11-18); reading the sides starts no `cat-file blob` of its own; after a read is refused as untrusted, the process that was kept open has gone || `4fbf892` |
 
 A phase that adds, changes or removes an export or a public method also regenerates `REFERENCE.md`, and a phase that
 changes what a host sees updates the plan's "What the consumer must change" in the same commit.
@@ -119,3 +107,30 @@ changes what a host sees updates the plan's "What the consumer must change" in t
   delivered no file events to the case. That is the machine, not this work; a failure there is still a failure.
 - **Evidence.** Checkpoint logs, and anything observed that the plan did not expect, go in
   `docs/evidence/what-git-would-do-and-undo.md`, dated, with the commit and the command.
+
+## Outcome (2026-11-18)
+
+A host can list what can be undone and why not (`undoables`), undo the entry it showed by its id (`undo(id)`), and
+put a discard back the same way. A checkout, a merge or a pull refused over local changes names the files in the way,
+and a push a hosting service refused names its rule. The budgets count the gits each reading starts, and a conflict's
+sides are read through the git kept open, which ends when trust is refused. All of it is on
+`feat/undo-list-and-named-failures`, [spankyed/apack-git#43](https://github.com/spankyed/apack-git/pull/43).
+
+| Phase | Disposition | Source and evidence |
+|---|---|---|
+| 1. The documentation describes discards as checkpoints | Done | `bb24b4e` |
+| 2. An undo moves the branch it recorded | Done | `0b00d6f`, through [#42](https://github.com/spankyed/apack-git/pull/42)'s CI |
+| 3. `undoables`, undo by id, three codes | Done | `add9bb5`; `tests/undo.spec.ts`, and a mutation in the evidence |
+| 4. A discard is in the journal, and `undo` puts it back | Done, with a finding | `ceb2abb`; a file already put back is restored, not left (plan section 4) |
+| 5. `LocalChangesError.files`, `HostRefusedError.rule` | Done | `5e47156`; `tests/failures.spec.ts`, `tests/named-failures.spec.ts`, a mutation |
+| 6. The budgets count gits, and read a conflict's sides | Done | `84b6ff2`, and `6b6c54d` for a runner without an identity of its own |
+| 7. The sides through the git kept open; it ends on a trust refusal | Done, with a finding | `4fbf892`; the count fell from 4 to 2, not 1, accepted by the user (plan section 7) |
+
+`README.md` describes undo and its list, discards, the two failure facts and the git kept open; `CLAUDE.md` holds the
+rule for facts read from git's output; `REFERENCE.md` is regenerated. On macOS the four commands passed on
+`4fbf892` (560 passed, 6 skipped); CI's run on `6b6c54d`, the last commit with code, passed all ten jobs ([run 44302131547](https://github.com/spankyed/apack-git/actions/runs/44302131547)): the suite on Linux, macOS and Windows, the `git` jobs on Debian 12's git, Apple's and 2.35.0, and the budgets on all three. The checkpoint log
+is [the evidence](../../evidence/what-git-would-do-and-undo.md).
+
+Out of this goal, each with its plan: [the previews](../../plans/deferred/preview-cherry-pick-and-rebase.md),
+[the listing](../../plans/deferred/list-folder-at-a-commit.md) and [the git floor](../../plans/deferred/raise-git-floor.md).
+The apack monorepo moves its pin by the plan's "What the consumer must change".

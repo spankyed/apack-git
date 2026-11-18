@@ -1,7 +1,7 @@
 # Ideas for the engine, declined
 
 Status: declined, 2026-11-17. Each idea below was weighed for the engine and declined, with its reason and what
-would reopen it. What was accepted is in [goal-what-git-would-do-and-undo](../../goals/goal-what-git-would-do-and-undo.md),
+would reopen it. What was accepted is in [goal-what-git-would-do-and-undo](../../archive/goals/goal-what-git-would-do-and-undo.md),
 and the one deferral is [raise-git-floor](../deferred/raise-git-floor.md).
 
 Most of them come back to one choice. The engine runs the user's git and keeps a picture of what it did, so it

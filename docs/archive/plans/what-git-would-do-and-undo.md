@@ -1,8 +1,12 @@
 # An undo that takes what it was shown, and failures that name their files
 
-Status: planned, 2026-11-17, revised 2026-11-18. Sections 1 and 2 have landed; the rest is the design for
-[its goal](../goals/goal-what-git-would-do-and-undo.md), which owns the order, the dependencies and when each
-section is done. This document owns the design: the decisions, the shapes, the commands and the cases.
+> **Done, 2026-11-18.** Every section was built as [its goal](../goals/goal-what-git-would-do-and-undo.md)'s
+> Outcome records, with two findings written into sections 4 and 7. This is the design as it was; what the engine
+> does now is in `README.md`, `REFERENCE.md` and `CLAUDE.md`.
+
+Status: done, 2026-11-18. This document held the design for
+[its goal](../goals/goal-what-git-would-do-and-undo.md), which owned the order, the dependencies and when each
+section was done: the decisions, the shapes, the commands and the cases.
 
 ## Background
 
@@ -11,10 +15,10 @@ cited were checked again against `master` at `968139b`. What was run against a r
 was read. Inspect current code before relying on a path.
 
 What was declined is in
-[declined-engine-ideas](wont-do/declined-engine-ideas.md). Raising the git floor is
-[deferred](deferred/raise-git-floor.md), and so are
-[previews of a cherry-pick and a rebase](deferred/preview-cherry-pick-and-rebase.md) and
-[listing a folder at a commit](deferred/list-folder-at-a-commit.md), which were sections of this plan until
+[declined-engine-ideas](../../plans/wont-do/declined-engine-ideas.md). Raising the git floor is
+[deferred](../../plans/deferred/raise-git-floor.md), and so are
+[previews of a cherry-pick and a rebase](../../plans/deferred/preview-cherry-pick-and-rebase.md) and
+[listing a folder at a commit](../../plans/deferred/list-folder-at-a-commit.md), which were sections of this plan until
 2026-11-18.
 
 **Already there when surveyed**, so not designed here:
@@ -30,7 +34,7 @@ What was declined is in
 ## Decisions
 
 - **D1. The git floor stays at 2.35.0.** Nothing here needs a newer git.
-  [The deferred plan](deferred/raise-git-floor.md) says why the floor is where it is.
+  [The deferred plan](../../plans/deferred/raise-git-floor.md) says why the floor is where it is.
 - **D2. What git named in a failure is read from the lines git wrote, in `src/errors.ts`, and is best-effort.**
   Git has no machine-readable errors, and no command answers "which files block this checkout"; working it out from
   diffs would be the engine guessing git's rules. So the list is read from git's own, under the conditions that
