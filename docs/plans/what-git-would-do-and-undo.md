@@ -10,7 +10,7 @@ Surveyed at `cd73da3`, 2026-11-17, on macOS with git 2.38.1 (Homebrew) and 2.39.
 cited were checked again against `master` at `968139b`. What was run against a real git says "observed"; the rest
 was read. Inspect current code before relying on a path.
 
-The items came out of comparing the engine with isomorphic-git. What was declined is in
+What was declined is in
 [declined-engine-ideas](wont-do/declined-engine-ideas.md). Raising the git floor is
 [deferred](deferred/raise-git-floor.md), and so are
 [previews of a cherry-pick and a rebase](deferred/preview-cherry-pick-and-rebase.md) and
