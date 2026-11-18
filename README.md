@@ -114,7 +114,8 @@ before 2.38.
 What the engine's work should cost, by the number of files a repository tracks. They are statements, not gates:
 `npm run budgets -- <sizes>` prints a reading of each against a repository it generates, with the machine's
 conditions beside it, and fails on none of them. CI prints the readings for 1,000 and 100,000 files on Linux, macOS
-and Windows (the `budgets` jobs); a million files is read by hand.
+and Windows (the `budgets` jobs); a million files is read by hand. Each reading comes with the number of gits
+started for it, which counts every process the runner starts and not the one git kept open for reading files.
 
 | Files | Opening | A whole status | A status of one noted path | A checkpoint of the whole tree |
 |---|---|---|---|---|

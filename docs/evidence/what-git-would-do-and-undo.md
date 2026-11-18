@@ -46,3 +46,16 @@ outside it. That is the nearest existing pattern: every other write of the engin
   they are spelled"; restored after.
 - `checkoutBranch` built its own error in two places, so the five methods the plan names are six call sites, all
   through `gitErrorOf` now.
+
+## 2026-11-18, Phase 5 (`5e47156`) and Phase 6
+
+- Phase 5: `npm run reference:check` first failed on `LocalChangesError.files` and `HostRefusedError.rule`, which
+  the cases matched by key inside `toMatchObject`, where the checker does not see a use. The cases now read each by
+  name; folded into `5e47156`.
+- Phase 6, `npm run build && npm run budgets -- 1000`, on macOS (Apple M1 Pro, load 22 to 28), git 2.39.5 (Apple):
+
+  ```text
+  1,000 files: open 213 ms (7 gits), whole status 85 ms (3 gits), one noted path 94 ms (3 gits), checkpoint 187 ms (7 gits), conflict sides 45 ms (4 gits) (generated in 211 ms)
+  ```
+
+  A conflict's sides start four gits: `ls-files --unmerged`, then a `cat-file blob` for each of the three sides.

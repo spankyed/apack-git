@@ -1,6 +1,9 @@
 // What the engine's work costs on a repository of each size: opening it, a whole status, a status of one path the
-// watcher named, and a checkpoint of the whole tree. Prints a reading per size with the machine's conditions beside
-// it, and fails on none of them: a reading informs the budgets the README states, and is never compared with one.
+// watcher named, a checkpoint of the whole tree, and the three sides of a conflicted file. Prints a reading per size
+// with the machine's conditions beside it, and fails on none of them: a reading informs the budgets the README
+// states, and is never compared with one. Beside each reading is how many git processes the engine started for it,
+// counted at the `run` tie, which every command passes through: the one git kept open for reading files is not
+// started there, and is not counted.
 //
 //   npm run build && npm run budgets -- 1000 100000      (the sizes CI reads)
 //   npm run budgets -- 1000000                           (by hand: it writes a million files)
@@ -8,7 +11,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { GitRepository } from '../dist/index.js'
+import { GitRepository, runUnbounded } from '../dist/index.js'
 
 const sizes = process.argv.slice(2).map(Number).filter(size => size > 0)
 if (sizes.length === 0) {
@@ -49,26 +52,38 @@ for (const size of sizes) {
   const root = generate(size)
   const generated = ms(made)
   const store = fs.mkdtempSync(path.join(os.tmpdir(), 'apack-budget-store-'))
-  const repo = new GitRepository(root, { checkpointDirectory: () => path.join(store, 'store') })
+  let started = 0
+  const run = (file, args, options) => { started++; return runUnbounded(file, args, options) }
+  const repo = new GitRepository(root, { checkpointDirectory: () => path.join(store, 'store'), run })
+  /** How long `work` took and how many gits it started, as a reading prints them */
+  const reading = async (work) => {
+    started = 0
+    const at = performance.now()
+    await work()
+    return `${ms(at)} ms (${started} gits)`
+  }
   try {
-    let at = performance.now()
-    await repo.readSnapshot()
-    const open = ms(at)
+    const open = await reading(() => repo.readSnapshot())
     fs.writeFileSync(path.join(root, 'd0', 'f0.txt'), 'changed\n')
-    at = performance.now()
-    await repo.refreshSnapshot('everything')
-    const whole = ms(at)
+    const whole = await reading(() => repo.refreshSnapshot('everything'))
     // A watched repository reads only what its watcher named, which is the read a file event makes
     repo.setWatched(true)
     fs.writeFileSync(path.join(root, 'd0', 'f1.txt'), 'changed\n')
     repo.noteChanged([path.join(root, 'd0', 'f1.txt')])
-    at = performance.now()
-    await repo.refreshSnapshot('noted')
-    const noted = ms(at)
-    at = performance.now()
-    await repo.checkpoint()
-    const checkpoint = ms(at)
-    console.log(`${size.toLocaleString('en')} files: open ${open} ms, whole status ${whole} ms, one noted path ${noted} ms, checkpoint ${checkpoint} ms (generated in ${generated} ms)`)
+    const noted = await reading(() => repo.refreshSnapshot('noted'))
+    const checkpoint = await reading(() => repo.checkpoint())
+    // A merge that stops on `d0/f0.txt`, changed one way on a branch and another on `main`
+    const commit = (...args) => git(root, '-c', 'user.name=budget', '-c', 'user.email=budget@example.com', 'commit', '--quiet', ...args)
+    commit('-am', 'changed')
+    git(root, 'checkout', '--quiet', '-b', 'side')
+    fs.writeFileSync(path.join(root, 'd0', 'f0.txt'), 'side\n')
+    commit('-am', 'side')
+    git(root, 'checkout', '--quiet', 'main')
+    fs.writeFileSync(path.join(root, 'd0', 'f0.txt'), 'main\n')
+    commit('-am', 'main')
+    try { git(root, 'merge', '--quiet', 'side') } catch { /* it stops on the conflict, which is what is read */ }
+    const sides = await reading(() => repo.conflictSides('d0/f0.txt'))
+    console.log(`${size.toLocaleString('en')} files: open ${open}, whole status ${whole}, one noted path ${noted}, checkpoint ${checkpoint}, conflict sides ${sides} (generated in ${generated} ms)`)
   } finally {
     await repo.close()
     fs.rmSync(root, { recursive: true, force: true })
