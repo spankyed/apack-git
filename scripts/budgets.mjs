@@ -3,7 +3,7 @@
 // with the machine's conditions beside it, and fails on none of them: a reading informs the budgets the README
 // states, and is never compared with one. Beside each reading is how many git processes the engine started for it,
 // counted at the `run` tie, which every command passes through: the one git kept open for reading files is not
-// started there, and is not counted.
+// started there, and is not counted. On Windows it first prints what starting a git costs, by the PATH and directly.
 //
 //   npm run build && npm run budgets -- 1000 100000      (the sizes CI reads)
 //   npm run budgets -- 1000000                           (by hand: it writes a million files)
@@ -46,6 +46,25 @@ function generate(size) {
 
 console.log(`machine: ${os.platform()} ${os.arch()}, ${os.cpus().length} cores (${os.cpus()[0]?.model ?? 'unknown'}), load ${os.loadavg().map(load => load.toFixed(2)).join(' ')}, ${Math.round(os.totalmem() / 2 ** 30)} GiB`)
 console.log(`git: ${git(os.tmpdir(), '--version').trim()}, node ${process.version}`)
+
+/**
+ * On Windows, what starting a git costs: Git for Windows' `git.exe` on the PATH starts a second `git.exe`, under
+ * `mingw64\bin`, which does the work. Each is started fifty times, one after another, for the mean of each
+ */
+if (os.platform() === 'win32') {
+  const execPath = git(os.tmpdir(), '--exec-path').trim()
+  const inner = path.join(execPath, '..', '..', 'bin', 'git.exe')
+  if (!fs.existsSync(inner)) {
+    console.log(`starting a git: the git.exe that does the work was not found beside ${execPath}`)
+  } else {
+    const mean = (file) => {
+      const at = performance.now()
+      for (let run = 0; run < 50; run++) execFileSync(file, ['--version'], { stdio: 'ignore' })
+      return Math.round((performance.now() - at) / 50)
+    }
+    console.log(`starting a git: ${mean('git')} ms by the PATH, ${mean(inner)} ms directly (${inner})`)
+  }
+}
 
 for (const size of sizes) {
   const made = performance.now()

@@ -84,3 +84,22 @@ the budgets' own git 2.39.5 (Apple).
   `repository.noteChanged(paths)`, and `AppGitRepository` does not override `noteChanged`, so the plan's section 4
   "nothing has to change" holds for what was built.
 - `npm test` on Phase 4: 62 files, 578 passed, 5 skipped.
+
+## 2026-11-18, Phase 4 (`da432e0`), a regression from Phase 3, and Phase 5
+
+- **Finding: Phase 3 added a git to the first checkpoint, discard, blame and others.** `npm run budgets -- 1000`
+  after Phase 4 printed `checkpoint 223 ms (8 gits)`, one more than before. The status used to set
+  `RepositoryModel.gitDirectories` when it opened; since Phase 3 it reads the directories from the settings and
+  sets nothing, so eight callers outside the model (`reads.ts`, `blame.ts`, `writes.ts` four times,
+  `checkpoints.ts`, `discards.ts`) each asked `rev-parse` the first time they ran. They now read
+  `RepositoryModel.directories()`, the same as the status. `tests/gits-started.spec.ts` gains "takes a checkpoint,
+  once opened, without asking again where the repository is", which failed with the checkpoint store's read put back
+  as it was. Requirement served: Phase 3's "opening asks where the repository is once".
+- `npm test` on that fix and Phase 5: 62 files, 580 passed, 4 skipped.
+- Phase 5: `npm run build && npm run budgets -- 1000` on macOS prints no starting-cost line and is otherwise as before:
+
+  ```text
+  1,000 files: open 185 ms (5 gits), whole status 77 ms (3 gits), one noted path 19 ms (1 gits), checkpoint 223 ms (8 gits), conflict sides 40 ms (1 gits) (generated in 213 ms)
+  ```
+
+  (Taken before the fix above, hence the checkpoint's 8.) The Windows line is CI's to print.
