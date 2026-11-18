@@ -36,6 +36,33 @@ async function repository() {
 }
 const refused = (attempt: Promise<unknown>) => attempt.then(() => { throw new Error('it was not refused'); }, (error: unknown) => error as UntrustedError);
 
+// Checked at once, not waited for: the git kept open ends by itself a few seconds after its last read, and a wait
+// that long would see it gone whether or not the refusal ended it
+it('ends the git kept open for reading files once the repository is no longer trusted', async () => {
+  const { root, program } = await repository();
+  const hook = path.join(root, '.git', 'hooks', 'pre-commit');
+  fs.copyFileSync(program, hook);
+  fs.chmodSync(hook, 0o755);
+  let trusted = true;
+  const watched: number[] = [];
+  const repo = new GitRepository(root, {
+    isTrusted: () => trusted,
+    watchProcess: (pid) => { watched.push(pid); return { output() {}, stop() {} }; },
+  });
+  try {
+    expect(await repo.readFileContent('a.txt', 'HEAD')).toBe('one\n');
+    const [pid] = watched;
+    expect(pid, 'a git was kept open to read it').toBeDefined();
+
+    trusted = false;
+    expect(await refused(repo.readFileContent('a.txt', 'HEAD'))).toBeInstanceOf(UntrustedError);
+
+    expect(() => process.kill(pid!, 0), 'the git kept open has gone').toThrow();
+  } finally {
+    await repo.close();
+  }
+});
+
 it('runs git as it always has in a repository that names nothing to run, trusted or not', async () => {
   const { root } = await repository();
   await git(root, 'config', 'pull.rebase', 'true');

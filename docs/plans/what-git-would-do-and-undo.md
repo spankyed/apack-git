@@ -344,7 +344,7 @@ engine started for it. Nothing in `src/` changes.
 - Add a fifth reading, after the checkpoint: the three sides of a conflict. Make the conflict with the script's
   own `git` helper: commit what the script changed, make a branch that changes `d0/f0.txt` and commit it, change
   `d0/f0.txt` another way on `main` and commit it, and merge the branch, which stops. Then time and count
-  `repo.conflictSides('d0/f0.txt')`, printed as `conflict sides 12 ms (4 gits)`. Section 7 is held to this
+  `repo.conflictSides('d0/f0.txt')`, printed as `conflict sides 12 ms (4 gits)`. Section 7 is measured by this
   count.
 - Update the script's header comment, and add one sentence to "Budgets" in `README.md`: the readings come with the
   number of gits started for each, which counts every process the runner starts and not the one git kept open for
@@ -354,7 +354,10 @@ engine started for it. Nothing in `src/` changes.
 ## 7. The git kept open
 
 **Deliverable.** Two small changes in `src/reads.ts`. The first is measured by section 6's fifth reading: taken
-before and after, its count of gits falls by three.
+before and after, the three `cat-file blob` gits are gone from it. It falls from four to two, not one: a first read
+of a file from a commit in a repository runs the engine's once-per-repository partial-clone check
+(`GitRunner.isPartialClone`), and in the script the sides are that first read. A later read starts one git. This
+was observed on 2026-11-18 and accepted by the user as it is.
 
 1. **A conflict's three sides are read through the git kept open.** `conflictSides` reads each side with a
    `git cat-file blob <object>` of its own: three processes. Read each through `this.fileInCommit(<object>)`

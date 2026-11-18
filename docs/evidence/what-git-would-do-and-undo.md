@@ -59,3 +59,32 @@ outside it. That is the nearest existing pattern: every other write of the engin
   ```
 
   A conflict's sides start four gits: `ls-files --unmerged`, then a `cat-file blob` for each of the three sides.
+
+## 2026-11-18, Phase 7
+
+- `npx vitest run tests/trust.spec.ts tests/conflict-sides.spec.ts tests/objects.spec.ts`: 77 passed.
+- Mutations, each restored after: without closing the git kept open on a trust refusal, "ends the git kept open for
+  reading files once the repository is no longer trusted" failed; with the sides read by `cat-file blob` again, "reads
+  the three sides without a git of their own" failed.
+- The trust case checks the process at once, where the plan said to wait for it with `settles`: the git kept open
+  ends by itself five seconds after its last read, so a wait would pass whether or not the refusal ended it, and the
+  mutation above would not have failed it.
+- `tests/conflict-sides.spec.ts` now closes each repository before removing its directory: reading a side starts the
+  git kept open, which is a process in the directory, and Windows deletes none with a process in it.
+- `npm run build && npm run budgets -- 1000`, macOS, git 2.39.5 (Apple):
+
+  ```text
+  1,000 files: open 183 ms (7 gits), whole status 83 ms (3 gits), one noted path 95 ms (3 gits), checkpoint 234 ms (7 gits), conflict sides 223 ms (2 gits) (generated in 209 ms)
+  ```
+
+- **Finding.** The goal held this reading to four gits falling by three; it fell by two. The gits each read
+  started, listed through the `run` tie on a small conflicted repository after a snapshot was read:
+
+  ```text
+  first read:  ls-files --unmerged, config --get-regexp ^(extensions\.partialclone|remote\..*\.promisor)$
+  second read: ls-files --unmerged
+  ```
+
+  The second is `GitRunner.isPartialClone`, asked once per repository before the first file is read from a commit,
+  and in the script the sides are that first read. The three `cat-file blob` gits are gone. Put to the user, who
+  accepted it as it is; the goal's Phase 7 condition and the plan's section 7 now say so.

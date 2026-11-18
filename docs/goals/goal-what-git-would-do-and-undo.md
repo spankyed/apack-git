@@ -1,6 +1,6 @@
 # Goal: an undo that takes what it was shown, and failures that name their files
 
-Status: active, 2026-11-18. Phases 1 to 6 have landed on a branch; 7 is not started. The design is
+Status: active, 2026-11-18. Phases 1 to 7 have landed on a branch; final validation is open. The design is
 [the plan](../plans/what-git-would-do-and-undo.md).
 
 ```text
@@ -53,19 +53,24 @@ Out:
 ## Current handoff
 
 - **Source:** branch `feat/undo-list-and-named-failures`, made from `master` at `bb24b4e`. Phase 3 is `add9bb5`,
-  Phase 4 `ceb2abb`, Phase 5 `5e47156`; Phase 6 is the commit that carries this revision of the handoff.
-- **Next:** Phase 7.
+  Phase 4 `ceb2abb`, Phase 5 `5e47156`, Phase 6 `84b6ff2`; Phase 7 is the commit that carries this revision of
+  the handoff.
+- **Next:** final validation: the whole suite here, then CI, which needs the branch pushed.
 - **Phase 6's reading**, `npm run build && npm run budgets -- 1000`, macOS, git 2.39.5 (Apple), 2026-11-18:
   `1,000 files: open 213 ms (7 gits), whole status 85 ms (3 gits), one noted path 94 ms (3 gits), checkpoint 187 ms
-  (7 gits), conflict sides 45 ms (4 gits) (generated in 211 ms)`. Phase 7 is held to the conflict sides' 4 falling
-  by three.
-- **Proven:** Phases 3 to 6 pass their specs on macOS with git 2.38.1, with typecheck, build and the reference
+  (7 gits), conflict sides 45 ms (4 gits) (generated in 211 ms)`.
+- **Phase 7's reading**, the same command and machine, 2026-11-18: `1,000 files: open 183 ms (7 gits), whole status
+  83 ms (3 gits), one noted path 95 ms (3 gits), checkpoint 234 ms (7 gits), conflict sides 223 ms (2 gits)
+  (generated in 209 ms)`. The two are `ls-files --unmerged` and the partial-clone check; a second read is one.
+- **Proven:** Phases 3 to 7 pass their specs on macOS with git 2.38.1, with typecheck, build and the reference
   check clean; the commands and a mutation check are in [the evidence](../evidence/what-git-would-do-and-undo.md).
   Not yet on CI, and the whole suite not yet run on this branch.
 - **Unresolved:** nothing failing.
 - **Choices made where the plan did not say:** `GitRepository.undo` runs inside `GitWrites.withWriteFlag`, as
   `restoreDiscarded` did, so a watcher's report waits for any undo. A finding changed `DiscardStore.restore`: a file
-  already as the discard kept it is restored, not left (plan section 4, and the evidence).
+  already as the discard kept it is restored, not left (plan section 4, and the evidence). The Phase 7 trust case
+  checks the process at once rather than waiting with `settles`, which would pass without the fix. Phase 7's
+  count falls by two, not three, accepted by the user (the evidence).
 
 ## Decisions
 
@@ -99,8 +104,8 @@ the last column as each phase lands.
 | 3 | Codes for a refused undo and a dropped copy; `undoables` lists every entry with where it stands; `undo` takes the entry's id; `lastUndoable` is gone (plan 3) | Phase 2 | Each refusal carries its code; an entry's standing in the list is what `undo` of it then does; an entry that is not the last is undone by its id; an entry read before a later write is the one undone after it; no source or spec names `lastUndoable` | `add9bb5` |
 | 4 | A discard is a journal entry, put back by `undo`; `restoreDiscarded` is gone (plan 4) | Phase 3 | A discard answers its entry's id and is in the list; `undo` of it puts the files back and answers what it restored and left; an entry that left files stays until a restore leaves none; a dropped copy reads as `no-longer-kept` in the list and from `undo`; no source or spec names `restoreDiscarded` | `ceb2abb` |
 | 5 | `LocalChangesError.files` and `HostRefusedError.rule`, and the rule in `CLAUDE.md` for what is read from git's output (plan 5) | Nothing | A refused checkout and a refused merge name the files git listed, from the top of the checkout, with a space and a non-ASCII letter in a name; the failure keeps its code when the list is not there; each of the four host refusals names its rule || `5e47156` |
-| 6 | `npm run budgets` prints the gits started for each reading, and a fifth reading: a conflict's three sides (plan 6) | Nothing | `npm run build && npm run budgets -- 1000` prints a count beside each of its five readings, and that line is recorded in the handoff | |
-| 7 | A conflict's sides are read through the git kept open, which ends when the repository is refused as untrusted (plan 7) | Phase 6 | The same command prints three fewer gits for a conflict's sides than Phase 6 recorded, and that line is recorded beside it; reading the sides starts no `cat-file blob` of its own; after a read is refused as untrusted, the process that was kept open has gone | |
+| 6 | `npm run budgets` prints the gits started for each reading, and a fifth reading: a conflict's three sides (plan 6) | Nothing | `npm run build && npm run budgets -- 1000` prints a count beside each of its five readings, and that line is recorded in the handoff || `84b6ff2` |
+| 7 | A conflict's sides are read through the git kept open, which ends when the repository is refused as untrusted (plan 7) | Phase 6 | The same command prints fewer gits for a conflict's sides than Phase 6 recorded, and that line is recorded beside it: the three `cat-file blob` gits are gone, and a first read of a file from a commit in a repository still runs the once-per-repository partial-clone check (4 to 2; 1 on a later read; settled with the user 2026-11-18); reading the sides starts no `cat-file blob` of its own; after a read is refused as untrusted, the process that was kept open has gone | |
 
 A phase that adds, changes or removes an export or a public method also regenerates `REFERENCE.md`, and a phase that
 changes what a host sees updates the plan's "What the consumer must change" in the same commit.

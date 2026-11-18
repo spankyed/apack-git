@@ -137,8 +137,14 @@ export class GitReads {
    * The second is a `GitError` with `content-missing`, unless reads may fetch (`GitRepository.fetchingMissing`).
    */
   async fileInCommit(name: string): Promise<Buffer | undefined> {
-    // The git kept open is a git like any other: none is started in a repository that is not trusted
-    await this.runner.trust.pass()
+    // The git kept open is a git like any other: none is started in a repository that is not trusted, and one
+    // started while it was is ended once it is not
+    try {
+      await this.runner.trust.pass()
+    } catch (error) {
+      await this.objects.close()
+      throw error
+    }
     if (!mayFetch() && !await this.runner.isPartialClone()) {
       try {
         return await this.objects.read(name)
@@ -560,9 +566,12 @@ export class GitReads {
       if (object && stage) stages.set(Number(stage), object)
     }
     if (stages.size === 0) throw new GitError(`${filePath} has no conflict`)
-    const read = (stage: number) => {
+    // Through the git kept open, which an object's name always answers with the same content. One larger than it
+    // hands back is read by a process of its own, so a large side is never read as a side that deleted the file
+    const read = async (stage: number): Promise<Buffer | null> => {
       const object = stages.get(stage)
-      return object ? this.runner.executeGitCommandBinary(['cat-file', 'blob', object]) : Promise.resolve(null)
+      if (!object) return null
+      return await this.fileInCommit(object) ?? this.runner.executeGitCommandBinary(['cat-file', 'blob', object])
     }
     const [base, ours, theirs, working] = await Promise.all([read(1), read(2), read(3), fs.readFile(path.join(top, filePath)).catch(() => null)])
     const binary = [base, ours, theirs, working].some(side => side?.includes(0))
