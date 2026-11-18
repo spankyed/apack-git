@@ -72,8 +72,10 @@ for (const size of sizes) {
     repo.noteChanged([path.join(root, 'd0', 'f1.txt')])
     const noted = await reading(() => repo.refreshSnapshot('noted'))
     const checkpoint = await reading(() => repo.checkpoint())
-    // A merge that stops on `d0/f0.txt`, changed one way on a branch and another on `main`
-    const commit = (...args) => git(root, '-c', 'user.name=budget', '-c', 'user.email=budget@example.com', 'commit', '--quiet', ...args)
+    // A merge that stops on `d0/f0.txt`, changed one way on a branch and another on `main`. Each is told who it is
+    // by: a runner has no identity of its own, and a merge refuses before it starts without one
+    const as = ['-c', 'user.name=budget', '-c', 'user.email=budget@example.com']
+    const commit = (...args) => git(root, ...as, 'commit', '--quiet', ...args)
     commit('-am', 'changed')
     git(root, 'checkout', '--quiet', '-b', 'side')
     fs.writeFileSync(path.join(root, 'd0', 'f0.txt'), 'side\n')
@@ -81,7 +83,7 @@ for (const size of sizes) {
     git(root, 'checkout', '--quiet', 'main')
     fs.writeFileSync(path.join(root, 'd0', 'f0.txt'), 'main\n')
     commit('-am', 'main')
-    try { git(root, 'merge', '--quiet', 'side') } catch { /* it stops on the conflict, which is what is read */ }
+    try { git(root, ...as, 'merge', '--quiet', 'side') } catch { /* it stops on the conflict, which is what is read */ }
     const sides = await reading(() => repo.conflictSides('d0/f0.txt'))
     console.log(`${size.toLocaleString('en')} files: open ${open}, whole status ${whole}, one noted path ${noted}, checkpoint ${checkpoint}, conflict sides ${sides} (generated in ${generated} ms)`)
   } finally {
