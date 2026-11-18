@@ -88,3 +88,11 @@ outside it. That is the nearest existing pattern: every other write of the engin
   The second is `GitRunner.isPartialClone`, asked once per repository before the first file is read from a commit,
   and in the script the sides are that first read. The three `cat-file blob` gits are gone. Put to the user, who
   accepted it as it is; the goal's Phase 7 condition and the plan's section 7 now say so.
+
+## 2026-11-18, final validation on this machine (`4fbf892`)
+
+macOS, git 2.38.1 first on `PATH` for the suite, load 18 to 26.
+
+- `npm run typecheck`, `npm run reference:check` (215 exports and members) and `npm run build`: clean.
+- `npm test`: 59 files, 560 passed and 6 skipped, the skips being the cases that run only on another platform.
+- Not shown here, and left to CI: Linux, Windows, and gits 2.35.0, Debian 12's and Apple's.

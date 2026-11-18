@@ -48,10 +48,11 @@ watcher.setChangeCallback(paths => { repo.noteChanged(paths); void repo.refreshS
 - **Merges and rewrites**: what a merge or a pull would do before it is done (`previewMerge`); merging, rebasing
   and cherry-picking, and carrying on with, skipping or giving up what git is in the middle of; rewriting the
   commits after one by keeping, rewording, folding or dropping each (`rewrite`).
-- **Undo**: every commit, amend, reset, deleted branch, dropped stash, merge, rebase, cherry-pick or rewrite made
-  here in the last 14 days is listed with whether it can be taken back now (`undoables`), and `undo` takes back the
-  one a host names by its id, refused with a code when it has moved since or is published. A merge, rebase, cherry-pick or rewrite takes a checkpoint of the
-  working tree before it, in a store outside the repository, which `restoreCheckpoint` puts back.
+- **Undo**: every commit, amend, reset, deleted branch, dropped stash, merge, rebase, cherry-pick, rewrite and
+  discard made here in the last 14 days is listed with whether it can be taken back now (`undoables`), and `undo`
+  takes back the one a host names by its id: refused with a code when it has moved since, is published or is no
+  longer kept, and never another entry than the one named. A merge, rebase, cherry-pick or rewrite takes a
+  checkpoint of the working tree before it, in a store outside the repository, which `restoreCheckpoint` puts back.
 - **Repositories**: cloning and initialising one, with progress; every repository under a folder
   (`GitRepository.repositoriesUnder`); where a checkout's git state lives, a linked worktree's included.
 
@@ -73,7 +74,9 @@ before 2.38.
 - **Plain data out.** A snapshot crosses a host's bus to its windows, so it is data and never an object with
   methods.
 - **Codes, not prose.** A failure carries a code (`GitErrorCode`) read from what git printed, in one place. A
-  host writes the sentence.
+  host writes the sentence. Where git names what a failure is about, the error carries that too, as an optional
+  fact: the files a checkout, a merge or a pull would overwrite (`LocalChangesError.files`), and which of a hosting
+  service's rules refused a push (`HostRefusedError.rule`).
 - **Hints in, news out.** A file event is a hint, and git says whether anything changed. The engine never
   assumes a watcher saw everything: a host can always say "look again", and a watch that has stopped delivering
   is said in the snapshot.
@@ -91,7 +94,8 @@ before 2.38.
   can name programs, and a plain status runs one of them. Until a host says the repository is trusted
   (`isTrusted`), the engine reads what it would run without running it (`readTrust`), and when that names
   anything it runs no git there but that reading: a command is refused with an `UntrustedError` carrying the
-  list. The rule is a list of settings known to run nothing, and every other setting asks.
+  list. The rule is a list of settings known to run nothing, and every other setting asks. A git kept open while
+  the repository was trusted is ended when a read is refused.
 - **What a write destroys can be had back.** Before a changed file is checked out again, or an untracked file or
   folder deleted, what is about to go is kept as a checkpoint: a commit in a store outside the repository
   (`RepositoryTies.checkpointDirectory`), and the discard is an entry `undo` puts back. The repository's index, refs,
