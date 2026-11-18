@@ -66,10 +66,13 @@ for (const size of sizes) {
     const open = await reading(() => repo.readSnapshot())
     fs.writeFileSync(path.join(root, 'd0', 'f0.txt'), 'changed\n')
     const whole = await reading(() => repo.refreshSnapshot('everything'))
-    // A watched repository reads only what its watcher named, which is the read a file event makes
+    // The read a file event makes: a watched repository with a snapshot held reads only what its watcher named,
+    // a path relative to the working directory with `/` between its parts. Being watched marks everything unread,
+    // so a snapshot is read first, outside the reading
     repo.setWatched(true)
+    await repo.readSnapshot()
     fs.writeFileSync(path.join(root, 'd0', 'f1.txt'), 'changed\n')
-    repo.noteChanged([path.join(root, 'd0', 'f1.txt')])
+    repo.noteChanged(['d0/f1.txt'])
     const noted = await reading(() => repo.refreshSnapshot('noted'))
     const checkpoint = await reading(() => repo.checkpoint())
     // A merge that stops on `d0/f0.txt`, changed one way on a branch and another on `main`. Each is told who it is

@@ -131,8 +131,11 @@ Each is about twice the slowest reading on an unloaded machine below, so a machi
 busy one does not, as the macOS readings taken under load show, and a whole status over its budget is what the
 snapshot's `slowStatus` reports, against the budget a host sets (`RepositoryTies.statusBudgetMs`, 1 s when none is set).
 
-A status of one path costs about what a whole one does at 100,000 files and more: git matches the path against every
-file in the index. What the engine saves there is the process for each path, not git's walk.
+A status of one noted path, with a snapshot held, is one git asked about that path alone, where a whole status is
+three. On a developer's Mac it took 49 ms at 1,000 files and 33 ms at 100,000, against 136 ms and 259 ms for a whole
+status: git still matches the path against the index, but walks none of the working tree. The noted-path column
+below was read before the script held a snapshot for that reading, and is a whole status; CI's next run prints it
+right.
 
 ### Readings
 
