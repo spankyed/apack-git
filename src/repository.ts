@@ -24,7 +24,7 @@ import { DiffData } from './diff-data.ts'
 import type { GitErrorCode } from './errors.ts'
 import type { TrustReading } from './trust.ts'
 import type {
-  BranchCheckout, ChangedFile, FoundRepository, GitRemote, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, JournalEntry, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, Trailer, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep,
+  BranchCheckout, ChangedFile, FoundRepository, GitRemote, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, DiffHunk, DiscardKept, DiscardRestored, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, Trailer, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep, Undoable, Undone,
 } from './types.ts'
 
 export class GitRepository {
@@ -575,21 +575,23 @@ export class GitRepository {
   }
 
   /**
-   * The last write made here that `undo` would take back: a commit, a reset to a commit, a deleted branch, a
-   * dropped or cleared stash. Nothing when there is none in the last 14 days
+   * Every write made here that `undo` can take back, newest first, in the last 14 days: a commit, an amend, a reset
+   * to a commit, a merge, a rebase, a cherry-pick, a rewrite, a deleted branch, a dropped or cleared stash. Each with
+   * whether `undo` would take it back now, and why not: what it says of an entry is what `undo` of it then does
    */
-  lastUndoable(): Promise<JournalEntry | undefined> {
-    return this.journal.last()
+  undoables(): Promise<Undoable[]> {
+    return this.journal.all()
   }
 
   /**
-   * Takes back the last write `lastUndoable` names, and answers it. A commit is taken off its branch with what it
-   * held left staged; a reset puts the branch and the index back; a branch is made again; a stash is put back on
-   * top. Refused with a `GitError` when a ref it moved has moved since, and with `published` for a commit a remote
-   * branch already holds, unless `evenIfPublished`.
+   * Takes back the write `undoables` lists under this id, and answers it: the one a host showed, whatever was
+   * written since. A commit is taken off its branch with what it held left staged; a reset puts the branch and the
+   * index back; a branch is made again; a stash is put back on top. Refused with `moved-since` when a ref it moved
+   * has moved since, with `published` for a commit a remote branch already holds unless `evenIfPublished`, and with
+   * `nothing-to-undo` for an id the journal does not hold
    */
-  undo(options?: { evenIfPublished?: boolean }): Promise<JournalEntry> {
-    return this.journal.undo(options)
+  undo(id: string, options?: { evenIfPublished?: boolean }): Promise<Undone> {
+    return this.journal.undo(id, options)
   }
 
   /**

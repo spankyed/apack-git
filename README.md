@@ -48,8 +48,9 @@ watcher.setChangeCallback(paths => { repo.noteChanged(paths); void repo.refreshS
 - **Merges and rewrites**: what a merge or a pull would do before it is done (`previewMerge`); merging, rebasing
   and cherry-picking, and carrying on with, skipping or giving up what git is in the middle of; rewriting the
   commits after one by keeping, rewording, folding or dropping each (`rewrite`).
-- **Undo**: the last commit, amend, reset, deleted branch, dropped stash, merge, rebase or rewrite is taken back
-  by `undo`, and `lastUndoable` names it first. A merge, rebase, cherry-pick or rewrite takes a checkpoint of the
+- **Undo**: every commit, amend, reset, deleted branch, dropped stash, merge, rebase, cherry-pick or rewrite made
+  here in the last 14 days is listed with whether it can be taken back now (`undoables`), and `undo` takes back the
+  one a host names by its id, refused with a code when it has moved since or is published. A merge, rebase, cherry-pick or rewrite takes a checkpoint of the
   working tree before it, in a store outside the repository, which `restoreCheckpoint` puts back.
 - **Repositories**: cloning and initialising one, with progress; every repository under a folder
   (`GitRepository.repositoriesUnder`); where a checkout's git state lives, a linked worktree's included.

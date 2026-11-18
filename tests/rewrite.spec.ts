@@ -12,6 +12,9 @@ import { GitError, GitRepository } from '../src/index.ts';
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });
 
+/** The id of the newest write `undo` can take back, as a host reads it from the list */
+const newest = async (repo: GitRepository) => (await repo.undoables())[0]!.entry.id;
+
 /** A base commit, then four, each adding a file named for it */
 async function repository() {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-rewrite-')));
@@ -40,7 +43,7 @@ it('amends the last commit\'s message and content, and undoing it leaves what it
   expect(await git('log', '-1', '--format=%s')).toBe('four, amended');
   expect(await git('ls-tree', '--name-only', 'HEAD')).toContain('late.txt');
 
-  await repo.undo();
+  await repo.undo(await newest(repo));
   expect(await git('rev-parse', 'HEAD')).toBe(before);
   expect(await git('diff', '--cached', '--name-only')).toBe('late.txt');
 });
@@ -61,7 +64,7 @@ it('reorders, rewords and squashes a range, leaving the tree as it was, and is u
   expect((await git('log', '--format=%s', 'HEAD~3..HEAD')).split('\n').reverse()).toEqual(['two', 'one, reworded', 'three and four']);
   expect(await git('rev-parse', 'HEAD^{tree}'), 'the tree is as it was').toBe(tree);
 
-  await repo.undo();
+  await repo.undo(await newest(repo));
   expect(await git('rev-parse', 'HEAD')).toBe(before);
   expect(await subjects(git)).toEqual(['one', 'two', 'three', 'four']);
 });
@@ -78,7 +81,7 @@ it('drops a commit, removing what it brought, and is undone', async () => {
   ]);
   expect(fs.existsSync(path.join(root, 'two.txt'))).toBe(false);
 
-  await repo.undo();
+  await repo.undo(await newest(repo));
   expect(fs.existsSync(path.join(root, 'two.txt'))).toBe(true);
 });
 

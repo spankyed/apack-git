@@ -11,6 +11,9 @@ import { GitError, GitRepository } from '../src/index.ts';
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });
 
+/** The id of the newest write `undo` can take back, as a host reads it from the list */
+const newest = async (repo: GitRepository) => (await repo.undoables())[0]!.entry.id;
+
 /** `main` and `topic` from one commit: `topic` adds `t.txt`, and `clash` changes `a.txt` as `main` does too */
 async function repository() {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-ops-')));
@@ -44,7 +47,7 @@ it('merges a branch, and undoing it puts the branch and its files back', async (
   expect(await git('rev-list', '--parents', '-n', '1', 'HEAD')).toMatch(/^\w+ \w+ \w+$/);
   expect(exists('t.txt')).toBe(true);
 
-  expect(await repo.undo()).toMatchObject({ operation: 'merge', summary: 'merge topic' });
+  expect((await repo.undo(await newest(repo))).entry).toMatchObject({ operation: 'merge', summary: 'merge topic' });
   expect(await git('rev-parse', 'HEAD')).toBe(before);
   expect(exists('t.txt'), 'and what it brought is gone').toBe(false);
   expect(await git('status', '--porcelain')).toBe('');
@@ -71,7 +74,7 @@ it('rebases onto a branch, and undoing it puts the branch back', async () => {
   expect(await git('merge-base', '--is-ancestor', 'main', 'HEAD').then(() => true, () => false)).toBe(true);
   expect(exists('t.txt')).toBe(true);
 
-  await repo.undo();
+  await repo.undo(await newest(repo));
   expect(await git('rev-parse', 'HEAD')).toBe(before);
 });
 
@@ -80,7 +83,7 @@ it('cherry-picks a commit, stops on one that conflicts, and carries on once it i
 
   await repo.cherryPick([await git('rev-parse', 'topic')]);
   expect(exists('t.txt')).toBe(true);
-  expect(await repo.lastUndoable()).toMatchObject({ operation: 'cherry-pick' });
+  expect((await repo.undoables())[0]?.entry).toMatchObject({ operation: 'cherry-pick' });
 
   expect(((await refusal(repo.cherryPick([await git('rev-parse', 'clash')]))) as GitError).code).toBe('conflict');
   expect((await repo.readSnapshot()).operation).toMatchObject({ kind: 'cherry-pick' });

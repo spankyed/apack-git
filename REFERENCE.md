@@ -298,7 +298,7 @@ interface GitDirectories {
 
 A git command that failed, with why where git said
 
-- `code: "locked" | "authentication" | "permission" | "remote-unreachable" | "non-fast-forward" | "diverged" | "conflict" | "local-changes" | "unknown-ref" | "not-a-repository" | "unsafe-ownership" | "signing-failed" | "unrelated-histories" | "nothing-to-commit" | "branch-exists" | "detached-head" | "no-remote" | "host-refused" | "aborted" | "git-not-found" | "developer-tools-missing" | "git-too-old" | "untrusted" | "content-missing" | "hook-refused" | "name-not-text" | "published" | undefined`
+- `code: "locked" | "authentication" | "permission" | "remote-unreachable" | "non-fast-forward" | "diverged" | "conflict" | "local-changes" | "unknown-ref" | "not-a-repository" | "unsafe-ownership" | "signing-failed" | "unrelated-histories" | "nothing-to-commit" | "branch-exists" | "detached-head" | "no-remote" | "host-refused" | "aborted" | "git-not-found" | "developer-tools-missing" | "git-too-old" | "untrusted" | "content-missing" | "hook-refused" | "name-not-text" | "published" | "moved-since" | "nothing-to-undo" | "no-longer-kept" | undefined`
 
 ### `GitErrorCode`
 
@@ -375,7 +375,6 @@ interface GitRemote {
 - `invalidateCache(paths?: string[]): void`
 - `isGitRepository(): Promise<boolean>` — Whether the working directory is in a repository. Rejects when there is no git to ask, and with an `UnsafeOwnershipError` naming the repository when git will not read it for who owns it.
 - `isWriteInProgress: boolean`
-- `lastUndoable(): Promise<JournalEntry | undefined>` — The last write made here that `undo` would take back: a commit, a reset to a commit, a deleted branch, a dropped or cleared stash. Nothing when there is none in the last 14 days
 - `lineCounts(): Promise<(LineCount & { staged: boolean; })[]>` — How many lines each changed file adds and removes, as git counts them: what is staged against the last commit, and the working tree against what is staged. A file git does not track yet has no count.
 - `listIgnoredDirectories(): Promise<string[]>` — The directories git ignores under the working directory, relative to it: what a watcher of the working tree need not report from.
 - `listUntracked(directory: string): Promise<{ files: string[]; truncated: boolean; }>` — The files in an untracked folder that git would list, were it asked to list every one: those it does not ignore. `directory` is a folder row's path, from the top of the checkout.
@@ -438,7 +437,8 @@ interface GitRemote {
 - `stashPush(message?: string, stagedOnly?: boolean, paths?: string[]): Promise<string>` — Stashes the changes, untracked files included: only what is staged with `stagedOnly`, and only these paths (from the top of the checkout) when `paths` names any
 - `trailersIn(message: string): Promise<Trailer[]>` — The trailers git reads at the end of a message, in order: `Co-authored-by: …`, `Signed-off-by: …`. None when its last paragraph is not trailers, and a message of one paragraph has none, that being its subject
 - `trustOwnership(directory: string): Promise<void>` — Adds a repository git refused for who owns it to the user's `safe.directory` entries, which is what git's refusal says to do. It writes the user's global git configuration, so it is run only when the user asks. `directory` is an `UnsafeOwnershipError`'s, the path as git printed it.
-- `undo(options?: { evenIfPublished?: boolean; }): Promise<JournalEntry>` — Takes back the last write `lastUndoable` names, and answers it. A commit is taken off its branch with what it held left staged; a reset puts the branch and the index back; a branch is made again; a stash is put back on top. Refused with a `GitError` when a ref it moved has moved since, and with `published` for a commit a remote branch already holds, unless `evenIfPublished`.
+- `undo(id: string, options?: { evenIfPublished?: boolean; }): Promise<Undone>` — Takes back the write `undoables` lists under this id, and answers it: the one a host showed, whatever was written since. A commit is taken off its branch with what it held left staged; a reset puts the branch and the index back; a branch is made again; a stash is put back on top. Refused with `moved-since` when a ref it moved has moved since, with `published` for a commit a remote branch already holds unless `evenIfPublished`, and with `nothing-to-undo` for an id the journal does not hold
+- `undoables(): Promise<Undoable[]>` — Every write made here that `undo` can take back, newest first, in the last 14 days: a commit, an amend, a reset to a commit, a merge, a rebase, a cherry-pick, a rewrite, a deleted branch, a dropped or cleared stash. Each with whether `undo` would take it back now, and why not: what it says of an entry is what `undo` of it then does
 - `unstageFiles(filePaths: string[]): Promise<void>`
 - `updateSubmodules(paths?: string[], options?: { onProgress?: (progress: GitProgress) => void; signal?: AbortSignal; }): Promise<void>` — Brings submodules to the commits this repository records: those at `paths` (from the top of the checkout) when any are named, every one otherwise, each set up first where it is not yet, and the submodules in them in turn. What a submodule lacks is fetched, with git's progress handed to `onProgress`, and `signal` stops it, rejecting with a `GitError` coded `aborted`. One whose own changes the checkout would overwrite is refused, and left as it is
 - `withoutTrailers(message: string, remove: (trailer: Trailer) => boolean): Promise<string>` — A message without the trailers `remove` picks, each with the lines that continue it, and every other line as it was written: what to commit when some of what a message ends with is not to be kept
@@ -960,6 +960,33 @@ interface TrustReading {
   asks: TrustAsk[]
   /** What names the repository to a host that remembers trust: where its git state lives, by its real path */
   repository?: string
+}
+```
+
+### `Undoable`
+
+A write in the journal, and whether `undo` would take it back now (`GitRepository.undoables`)
+
+```ts
+interface Undoable {
+  entry: JournalEntry
+  /** `ready`, or why `undo` would refuse it: the code its refusal carries */
+  standing: 'ready' | 'moved-since' | 'published' | 'no-longer-kept'
+  /** For `moved-since`: the refs that are no longer where the write left them */
+  moved?: string[]
+  /** For `published`: the remote branches that hold the commit, as git names them short (`origin/main`) */
+  publishedOn?: string[]
+}
+```
+
+### `Undone`
+
+What taking an entry back did (`GitRepository.undo`)
+
+```ts
+interface Undone {
+  /** The entry taken back, which is no longer in the journal */
+  entry: JournalEntry
 }
 ```
 

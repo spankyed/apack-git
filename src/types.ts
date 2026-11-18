@@ -334,6 +334,23 @@ export interface JournalEntry {
   checkpoint?: string
 }
 
+/** A write in the journal, and whether `undo` would take it back now (`GitRepository.undoables`) */
+export interface Undoable {
+  entry: JournalEntry
+  /** `ready`, or why `undo` would refuse it: the code its refusal carries */
+  standing: 'ready' | 'moved-since' | 'published' | 'no-longer-kept'
+  /** For `moved-since`: the refs that are no longer where the write left them */
+  moved?: string[]
+  /** For `published`: the remote branches that hold the commit, as git names them short (`origin/main`) */
+  publishedOn?: string[]
+}
+
+/** What taking an entry back did (`GitRepository.undo`) */
+export interface Undone {
+  /** The entry taken back, which is no longer in the journal */
+  entry: JournalEntry
+}
+
 /**
  * One commit of a range being rewritten, in the order it is to stand: kept as it is, kept with a new message,
  * folded into the one before it (with `message` for the two, or the one before's), or dropped

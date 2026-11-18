@@ -83,6 +83,18 @@ export const GIT_ERROR_CODES = [
    * asked says so. Not read from what git printed: the engine asks before it runs anything
    */
   'published',
+  /**
+   * An undo of a write whose ref has moved since: undoing it would undo what moved it too. Not read from what git
+   * printed: the engine asks before it runs anything
+   */
+  'moved-since',
+  /** An undo of an entry the journal does not hold: taken back already, or past its age. Not read from what git printed */
+  'nothing-to-undo',
+  /**
+   * A copy of the working tree the store has dropped: past its age, or the oldest of too many. Not read from what
+   * git printed
+   */
+  'no-longer-kept',
 ] as const
 
 export type GitErrorCode = (typeof GIT_ERROR_CODES)[number]

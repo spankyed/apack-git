@@ -194,7 +194,7 @@ export class CheckpointStore {
   private async recorded(id: string): Promise<Recorded> {
     if (!/^[0-9a-f]{40,64}$/.test(id)) throw new Error(`Invalid checkpoint: ${JSON.stringify(id)}`)
     const read = await this.inStore(['cat-file', 'commit', `${REFS}${id}`])
-    if (!read.success) throw new GitError('That copy of the working tree is no longer kept: copies are kept for 14 days, and the oldest are dropped first when there are too many.')
+    if (!read.success) throw new GitError('That copy of the working tree is no longer kept: copies are kept for 14 days, and the oldest are dropped first when there are too many.', 'no-longer-kept')
     const message = (read.output ?? '').split('\n\n').slice(1).join('\n\n').trim()
     try {
       const parsed = JSON.parse(message) as Partial<Recorded>
