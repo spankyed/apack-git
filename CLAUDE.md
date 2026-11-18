@@ -19,6 +19,8 @@ it is for and the rules that hold it together; this is what to know before chang
   added there, with a case in `tests/trust.spec.ts`.
 - `src/discards.ts` keeps what a discard removes, as a tree nothing refers to, and puts it back.
 - `src/watcher.ts` turns file events into hints, over `directory-watch.ts`, the platform's watch on a tree.
+- `docs/` holds the goals and plans around the code: `docs/README.md` says what is where, `docs/goals/README.md`
+  how a goal is written, and `docs/AGENTS.md` how they are kept.
 - `src/types.ts` holds the shapes the engine answers in, and `ties.ts` what a host hands in.
 
 ## Rules
