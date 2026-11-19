@@ -1,6 +1,9 @@
 # Goal: a refresh asks git only what may have changed
 
-Status: active, 2026-11-18. Phases 1 to 5 have landed; final validation on CI is open. The design is [the plan](../plans/fewer-gits-per-refresh.md).
+> **Done, 2026-11-19.** Every phase landed; see [Outcome](#outcome-2026-11-19). Archived with
+> [its plan](../plans/fewer-gits-per-refresh.md).
+
+Status: done, 2026-11-19. The design is [the plan](../plans/fewer-gits-per-refresh.md).
 
 ```text
 # Goal: a refresh asks git only what may have changed
@@ -42,25 +45,15 @@ Out:
 
 - The plan's own "Out of scope, on purpose" list: working out from git's files whether a ref moved, more gits kept
   open, a newer git floor, and choosing a host's `git.exe`.
-- Everything in [declined-engine-ideas](../plans/wont-do/declined-engine-ideas.md) and the
-  [deferred plans](../plans/deferred/).
+- Everything in [declined-engine-ideas](../../plans/wont-do/declined-engine-ideas.md) and the
+  [deferred plans](../../plans/deferred/).
 - The consumer. The apack monorepo is not edited from here. Phase 4 widens a type it is handed; the plan's section
   4 says why it need not change, and is kept correct for what is built.
 
 ## Current handoff
 
-- **Source:** `feat/fewer-gits-per-refresh`, from `master` at `ad3f0f1`: Phase 1 `187e5da`, Phase 2 `25bce15`,
-  Phase 3 `4b411e9`, Phase 4 `da432e0`, a fix of Phase 3's `7e6eade`, Phase 5 `4413822`. Not pushed.
-- **Next:** final validation: CI's `suite`, `git` and `budgets` jobs, which need the branch pushed; then record the
-  Windows `budgets` line, write the Outcome and archive.
-- **Proven:** every phase passes its specs on macOS with git 2.38.1, and `npm test` passed on `4413822` (580
-  passed, 4 skipped). Both blind-hold checks are in [the evidence](../evidence/fewer-gits-per-refresh.md). Not yet
-  on CI: Phase 4's watcher cases on Linux and Windows, and Phase 5's reading.
-- **Unresolved:** nothing failing.
-- **Choices made where the plan did not say:** the trust gate held where the repository is from Phase 2; opening
-  asked the trust gate before the partial-clone question in Phase 2, and no longer needs to; the commit cases of
-  Phase 4 read the branch's commit from `refsModel`; the real-watch case waits for quiet before each step. Each is
-  in the evidence, with the findings.
+Closed. Every phase landed on `feat/fewer-gits-per-refresh`
+([spankyed/apack-git#44](https://github.com/spankyed/apack-git/pull/44)); see the Outcome.
 
 ## Decisions
 
@@ -105,3 +98,34 @@ A phase that adds, changes or removes an export or a public method also regenera
   delivered no file events to the case. That is the machine, not this work; a failure there is still a failure.
 - **Evidence.** Checkpoint logs, the budgets lines before and after, and anything observed that the plan did not
   expect, go in `docs/evidence/fewer-gits-per-refresh.md`, dated, with the commit and the command.
+
+## Outcome (2026-11-19)
+
+A refresh asks git only what something said may have changed. The settings are read once and held until a file
+they came from looks different; opening asks where the repository is once; and a change to git's index alone, from
+the watcher or from a write that moves only the index, reads the status and keeps the refs. The count of gits each
+common operation starts is asserted in `tests/gits-started.spec.ts`.
+
+| Operation | Before | After |
+|---|---|---|
+| Opening | 8, or 7 on a newer git | 5 on every git |
+| A whole status after a write, or when anything may have changed | 3 | 2 |
+| A whole status when told to look again | 3 | 3 |
+| The read after staging, unstaging, a hunk, a patch or a resolved conflict, watched | 3 | 1 |
+| The read after the watcher reports the index, watched | 3 | 1 |
+| A noted path | 1 | 1 |
+
+| Phase | Disposition | Source and evidence |
+|---|---|---|
+| 1. Counts asserted; the noted-path reading is one git | Done | `187e5da` |
+| 2. `HeldSettings` | Done | `25bce15`; the blind-hold check in the evidence |
+| 3. Where the repository is, asked once | Done, with a regression found and fixed | `4b411e9`, and `7e6eade` for the first checkpoint, discard and blame after opening |
+| 4. The `'index'` hint | Done | `da432e0`; the blind-hold check and the real-watch findings in the evidence |
+| 5. What starting a git costs on Windows | Done | `4413822`; CI's Windows `budgets` job printed `starting a git: 25 ms by the PATH, 24 ms directly`: the second process costs about a millisecond |
+
+`README.md` says what a hint asks git, `CLAUDE.md` names `src/settings.ts` and the count spec, and `REFERENCE.md` is
+regenerated. On macOS the four commands passed on `4413822` (580 passed, 4 skipped). CI's [run 44535391686](https://github.com/spankyed/apack-git/actions/runs/44535391686) on `e2418a9` passed all ten jobs: the suite on Linux, macOS and Windows, the `git` jobs on Debian 12's git, Apple's and 2.35.0, and the budgets on all three. The checkpoint log
+is [the evidence](../../evidence/fewer-gits-per-refresh.md).
+
+What a host does with the Windows reading is the host's to decide. The consumer need not change: its watcher actor
+hands each report straight to `noteChanged`.

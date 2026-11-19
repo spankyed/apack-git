@@ -1,8 +1,11 @@
 # Fewer gits for each refresh
 
-Status: planned, 2026-11-18. The design for [its goal](../goals/goal-fewer-gits-per-refresh.md), which owns the
-order, the dependencies and when each section is done. This document owns the design: the decisions, the shapes
-and the cases.
+> **Done, 2026-11-19.** Every section was built as [its goal](../goals/goal-fewer-gits-per-refresh.md)'s Outcome
+> records; the findings are in the evidence. This is the design as it was; what the engine does now is in
+> `README.md`, `REFERENCE.md` and `CLAUDE.md`.
+
+Status: done, 2026-11-19. This held the design for [its goal](../goals/goal-fewer-gits-per-refresh.md), which
+owned the order, the dependencies and when each section was done: the decisions, the shapes and the cases.
 
 ## Background
 
@@ -32,7 +35,7 @@ partial.
 - **Opening asks the same things more than once.** Where the git directory is, twice. And the one `config --list`
   the trust gate takes already holds what both `config --get-regexp` calls ask for.
 - **Keeping more gits open is not the lever.** Git has no long-lived mode for a status, the settings or the refs.
-  `cat-file --batch-command`, which the [deferred floor plan](deferred/raise-git-floor.md) lists under 2.36, would
+  `cat-file --batch-command`, which the [deferred floor plan](../../plans/deferred/raise-git-floor.md) lists under 2.36, would
   remove none of the processes above.
 - **The budgets script's "one noted path" reading is a whole status.** `scripts/budgets.mjs` calls
   `setWatched(true)`, which marks everything unread, and then notes a path without a read between, so the engine

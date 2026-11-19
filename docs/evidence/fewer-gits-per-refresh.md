@@ -1,6 +1,6 @@
 # Evidence: a refresh asks git only what may have changed
 
-Checkpoint logs and findings for [the goal](../goals/goal-fewer-gits-per-refresh.md), dated, newest last. Each names
+Checkpoint logs and findings for [the goal](../archive/goals/goal-fewer-gits-per-refresh.md), dated, newest last. Each names
 the commit and the command. This is history: the goal and the plan say what is current.
 
 ## 2026-11-18, Phase 1
@@ -103,3 +103,20 @@ the budgets' own git 2.39.5 (Apple).
   ```
 
   (Taken before the fix above, hence the checkpoint's 8.) The Windows line is CI's to print.
+
+## 2026-11-19, CI (`e2418a9`)
+
+[Run 44535391686](https://github.com/spankyed/apack-git/actions/runs/44535391686): all ten jobs passed, `suite` on
+ubuntu-24.04, macos-15 and windows-2025 (Phase 4's real-watch case among them), `git` on Debian 12, Apple git and
+the 2.35.0 floor, `budgets` on all three, and `ci-pass`.
+
+The Windows `budgets` job, git 2.56.0.windows.4 on a 4-core runner:
+
+```text
+starting a git: 25 ms by the PATH, 24 ms directly (C:\Program Files\Git\ucrt64\bin\git.exe)
+1,000 files: open 199 ms (5 gits), whole status 132 ms (3 gits), one noted path 34 ms (1 gits), checkpoint 489 ms (7 gits), conflict sides 77 ms (1 gits) (generated in 767 ms)
+100,000 files: open 342 ms (5 gits), whole status 579 ms (3 gits), one noted path 62 ms (1 gits), checkpoint 2919 ms (7 gits), conflict sides 86 ms (1 gits) (generated in 51418 ms)
+```
+
+Running the inner git directly saves about a millisecond a git there, and Git for Windows now keeps it under
+`ucrt64\bin`, which `git --exec-path` found without the script naming it.
