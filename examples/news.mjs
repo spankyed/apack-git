@@ -31,7 +31,7 @@ console.log(`${at()} ${folder}: ${describe(await repo.readSnapshot())}`)
 watcher.setChangeCallback((paths) => {
   repo.noteChanged(paths)
   void repo.refreshSnapshot('noted').then(async (change) => {
-    const hinted = paths === null ? 'anything' : paths.join(', ')
+    const hinted = paths === null ? 'anything' : paths === 'index' ? 'the index' : paths.join(', ')
     if (!changedAnything(change)) return console.log(`${at()} a hint (${hinted}): git says nothing changed`)
     const parts = REPOSITORY_PARTS.filter(part => change[part]).join(', ')
     console.log(`${at()} news (${hinted}): ${parts}${change.files ? ` — ${change.files.join(', ')}` : ''}`)

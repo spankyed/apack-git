@@ -138,9 +138,10 @@ export class GitRepository {
 
   /**
    * Notes what a watcher saw change, which is what the next snapshot asked for reads: these paths in the working
-   * tree, relative to the working directory with `/` between their parts, or everything when it could not name them
+   * tree, relative to the working directory with `/` between their parts; `'index'` when git's index changed and no
+   * ref did, which reads the whole status and keeps the refs; or everything when it could not say
    */
-  noteChanged(paths: string[] | null): void {
+  noteChanged(paths: string[] | 'index' | null): void {
     this.reads.forget()
     return this.model.noteChanged(paths)
   }

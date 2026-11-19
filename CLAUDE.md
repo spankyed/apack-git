@@ -17,6 +17,9 @@ it is for and the rules that hold it together; this is what to know before chang
 - `src/trust.ts` reads what a repository would have git run and gates every command on it. **A setting is
   safe only when it is on its list of settings known to run nothing**: a new one git gains asks until it is
   added there, with a case in `tests/trust.spec.ts`.
+- `src/settings.ts` holds a repository's settings: one `git config --list`, taken again when a file it came from
+  looks different, which the status, the trust gate and the partial-clone question read. **A count of the gits a
+  common operation starts is asserted in `tests/gits-started.spec.ts`**: a process added to one changes a case.
 - `src/discards.ts` keeps what a discard removes, as a checkpoint, and puts it back.
 - `src/checkpoints.ts` keeps copies of the working tree in a store outside the repository: a bare git
   directory that borrows the repository's objects.

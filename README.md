@@ -79,7 +79,9 @@ before 2.38.
   service's rules refused a push (`HostRefusedError.rule`).
 - **Hints in, news out.** A file event is a hint, and git says whether anything changed. The engine never
   assumes a watcher saw everything: a host can always say "look again", and a watch that has stopped delivering
-  is said in the snapshot.
+  is said in the snapshot. A hint asks git only what it says may have changed: named paths read a status of those
+  paths, a change to git's index (`'index'`) reads the whole status and keeps the refs, and anything reads both. The
+  settings are held until a file they came from looks different, and a look again takes them afresh.
 - **A prediction is never in a snapshot.** Where a file will be listed once it is staged is worked out ahead of
   git, for a window to show at once (`apack-git/staging`). That lives in the entries that import nothing of
   Node's. A snapshot the engine answers with is what git said, and nothing else.
@@ -131,8 +133,11 @@ Each is about twice the slowest reading on an unloaded machine below, so a machi
 busy one does not, as the macOS readings taken under load show, and a whole status over its budget is what the
 snapshot's `slowStatus` reports, against the budget a host sets (`RepositoryTies.statusBudgetMs`, 1 s when none is set).
 
-A status of one path costs about what a whole one does at 100,000 files and more: git matches the path against every
-file in the index. What the engine saves there is the process for each path, not git's walk.
+A status of one noted path, with a snapshot held, is one git asked about that path alone, where a whole status is
+three. On a developer's Mac it took 49 ms at 1,000 files and 33 ms at 100,000, against 136 ms and 259 ms for a whole
+status: git still matches the path against the index, but walks none of the working tree. The noted-path column
+below was read before the script held a snapshot for that reading, and is a whole status; CI's next run prints it
+right.
 
 ### Readings
 

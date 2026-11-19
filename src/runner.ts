@@ -12,6 +12,7 @@ import { GitUnusableError, checkGit, type GitUnusable } from './git-check.ts'
 import { progressReader, withoutProgress } from './progress.ts'
 import { runUnbounded, type RepositoryLog, type RepositoryTies, type RunProcess } from './ties.ts'
 import { TrustGate } from './trust.ts'
+import { HeldSettings } from './settings.ts'
 import type { GitProgress } from './types.ts'
 
 /**
@@ -290,8 +291,11 @@ export class GitRunner {
   readonly git: string
   /** Whether that git can be used, and which it is, asked once, before the first command */
   private usable: Promise<GitUnusable | { version: string }> | undefined
-  /** Whether this repository is a partial clone, which may lack content a read needs; asked once */
-  private partial: Promise<boolean> | undefined
+  /**
+   * The repository's settings, read once and held until a file they came from looks different: what a status, the
+   * trust gate and the question of a partial clone each read
+   */
+  readonly settings: HeldSettings
   private readonly base: () => NodeJS.ProcessEnv
   readonly log: RepositoryLog
   /** What keeps git from running what an untrusted repository names: every command passes it but its own reads */
@@ -305,7 +309,8 @@ export class GitRunner {
     this.base = ties.environment ?? (() => process.env)
     this.log = ties.log ?? {}
     // Its reads run beside every other, in no lane, and are not themselves gated
-    this.trust = new TrustGate(workingDirectory, args => this.runGitOnce(args), ties.isTrusted)
+    this.settings = new HeldSettings(workingDirectory, args => this.runGitOnce(args), this.environment)
+    this.trust = new TrustGate(workingDirectory, this.settings, ties.isTrusted)
   }
 
   /** What every git child of this repository runs with: the engine's own over what the host handed in */
@@ -334,13 +339,11 @@ export class GitRunner {
 
   /**
    * Whether this repository is a partial clone, one whose remote was asked for less than everything and promised
-   * the rest: read once, from its config, which a read can do without fetching anything
+   * the rest: from its settings as they are held, which a read can do without fetching anything
    */
-  isPartialClone(): Promise<boolean> {
-    this.partial ??= this.runGitOnce(['config', '--get-regexp', '^(extensions\\.partialclone|remote\\..*\\.promisor)$']).then(
-      result => result.success && /^(extensions\.partialclone \S|remote\..+\.promisor true$)/mi.test(result.output ?? ''),
-    )
-    return this.partial
+  async isPartialClone(): Promise<boolean> {
+    const { settings } = await this.settings.read()
+    return settings.some(({ key, value }) => (key === 'extensions.partialclone' && value.trim() !== '') || (/^remote\..+\.promisor$/.test(key) && /^true$/i.test(value)))
   }
 
   /**

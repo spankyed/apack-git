@@ -11,7 +11,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import {
   GitRepository, GitWatcherService,
-  type RepositorySnapshot, type SubscribeToDirectory, type WatchedChange,
+  type ChangedPaths, type RepositorySnapshot, type SubscribeToDirectory, type WatchedChange,
 } from '../../src/index.ts'
 import { run } from './process.ts'
 import { removeDirectory } from './remove.ts'
@@ -172,7 +172,7 @@ export async function runSequence(
 
     // Never slow: whether a status was is how long git took, which load moves, and a sequence compares what git says
     const repo = new GitRepository(root, { statusBudgetMs: Number.POSITIVE_INFINITY })
-    const reports: (string[] | null)[] = []
+    const reports: ChangedPaths[] = []
     let reported: (() => void) | undefined
     watcher.setGitRepository(repo)
     watcher.setChangeCallback((paths) => {

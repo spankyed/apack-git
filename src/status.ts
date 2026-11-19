@@ -94,6 +94,11 @@ export interface LoadedSnapshot {
   slowStatus?: RepositorySnapshot['slowStatus']
   /** What git is in the middle of, which it says in its own directory and so changes only when that does */
   operation?: RepositoryOperation
+  /**
+   * The refs as `for-each-ref` printed them for this snapshot, `<object> <ref>` a line: kept for a later read of the
+   * status alone, after a change that can have moved none
+   */
+  refs: string[]
 }
 
 /**

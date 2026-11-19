@@ -125,7 +125,9 @@ it('names the files that changed in the working tree, and none once anything els
 
   expect(await reported(() => { tree.events(path.join('src', 'file.ts')); tree.events('notes.md', path.join('src', 'file.ts')); }))
     .toEqual([['src/file.ts', 'notes.md']]);
-  expect(await reported(() => { tree.events('notes.md'); platform.of(path.join(repo, '.git'))!.events('index'); })).toEqual([null]);
+  // The index changing covers the files noted before it, and moves no ref; a ref moving may have moved anything
+  expect(await reported(() => { tree.events('notes.md'); platform.of(path.join(repo, '.git'))!.events('index'); })).toEqual(['index']);
+  expect(await reported(() => { platform.of(path.join(repo, '.git'))!.events('index', path.join('refs', 'heads', 'main')); })).toEqual([null]);
   expect(await reported(() => tree.events('notes.md', null))).toEqual([null]);
   expect(await reported(() => tree.events(...Array.from({ length: 40 }, (_, index) => `file-${index}.ts`))), 'too many to name').toEqual([null]);
   expect(await reported(() => tree.events('notes.md')), 'what one report could not name is not carried into the next').toEqual([['notes.md']]);
@@ -280,6 +282,44 @@ it('reports the index written by another git from the file itself, when the tree
   fs.writeFileSync(path.join(repo, 'a.txt'), 'two\n');
   await git(repo, 'add', '.');
 
+  // The index moved and no ref did
+  await settles(() => expect(changed).toHaveBeenCalledWith('index'));
+});
+
+// On the platform's own watch, as a host has it: what git itself writes for each command is what is reported. The
+// platform may deliver what the setup wrote a while after the watch opens, so each step starts once reports stop
+it('reports a real git add as a change to the index alone, and a real git commit as anything', async () => {
+  const repo = directory('apack-watch-real-');
+  await git(repo, 'init', '--quiet');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'one\n');
+  await git(repo, 'add', '.');
+  await git(repo, 'commit', '--quiet', '-m', 'first');
+  // No catch-up a while after opening, which reports anything and would widen the reports these wait for
+  const watcher = new GitWatcherService(repo, { catchUpAfterMs: NEVER_MS });
+  cleanups.push(() => watcher.stopWatching());
+  const changed = vi.fn();
+  watcher.setGitRepository(new GitRepository(repo));
+  watcher.setChangeCallback(changed);
+  await start(watcher);
+  /** Waits until no report has arrived for two seconds */
+  const quiet = async () => {
+    for (let reports = -1; reports !== changed.mock.calls.length;) {
+      reports = changed.mock.calls.length;
+      await new Promise<void>((resolve) => { setTimeout(resolve, 2000); });
+    }
+  };
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'two\n');
+  await quiet();
+  changed.mockClear();
+
+  await git(repo, 'add', '.');
+  await settles(() => expect(changed).toHaveBeenCalledWith('index'));
+  await quiet();
+  expect(changed.mock.calls.map(([paths]) => paths), 'and nothing wider, once reports have stopped').not.toContain(null);
+  changed.mockClear();
+
+  await git(repo, 'commit', '--quiet', '-m', 'second');
+  // The index written again may be reported first, by its follower; the ref moving is reported as anything
   await settles(() => expect(changed).toHaveBeenCalledWith(null));
 });
 

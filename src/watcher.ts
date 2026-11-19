@@ -42,9 +42,10 @@ const STARTUP_CATCH_UP_MS = 2000
 
 /**
  * What a report says changed: paths in the working tree, relative to the working directory with `/` between
- * their parts, when nothing else changed and they are few enough to name; `null` when anything may have.
+ * their parts, when nothing else changed and they are few enough to name; `'index'` when git's index changed and no
+ * ref did, so any file's standing may have and no ref has; `null` when anything may have.
  */
-export type ChangedPaths = string[] | null
+export type ChangedPaths = string[] | 'index' | null
 
 type WatchKey = 'tree' | 'git' | 'common'
 
@@ -83,8 +84,11 @@ export class GitWatcherService {
   /** Moves on every start and stop, which is what tells work begun before one that it is no longer wanted */
   private generation = 0
   private onChangeCallback?: (paths: ChangedPaths) => void
-  /** The working-tree paths that changed since the last report, or `null` once something else may have too */
-  private changedPaths: Set<string> | null = new Set()
+  /**
+   * What changed since the last report: working-tree paths, `'index'` once git's index did, or `null` once anything
+   * else may have. It widens and never narrows: paths noted before the index changed are covered by it
+   */
+  private changedPaths: Set<string> | 'index' | null = new Set()
   private quietTimeout?: NodeJS.Timeout
   /** When the first change not yet reported arrived */
   private pendingSince?: number
@@ -186,7 +190,7 @@ export class GitWatcherService {
     }
     if (cancelled()) return
 
-    // The files of git's own that are followed one by one, beside the watch on its directory
+    // The files of git's own that are followed one by one, beside the watch on its directory: the index first
     const files = directories
       ? [path.join(directories.gitDir, 'index'), path.join(directories.gitDir, 'HEAD'), path.join(directories.commonDir, 'packed-refs')]
       : []
@@ -200,7 +204,8 @@ export class GitWatcherService {
       // followed from here
       const held = this.followed.get(file)
       if (held) held.look()
-      else this.followed.set(file, this.follow(file, () => { if (!cancelled()) this.scheduleChange(null) }))
+      // The index changing moves no ref; `HEAD` and the packed refs each may have moved one
+      else this.followed.set(file, this.follow(file, () => { if (!cancelled()) this.scheduleChange(file === files[0] ? 'index' : null) }))
     }
 
     const signatureOf = (watch: WantedWatch) => JSON.stringify([watch.directory, watch.ignore])
@@ -264,10 +269,11 @@ export class GitWatcherService {
     }
     const relevant = changes.filter(change => change === null || watch.relevant(change))
     if (relevant.length === 0) return
-    // A file in the working tree changes its own standing. The index, HEAD and a ref each change every file's,
-    // and a change the platform could not place may be any of them
+    // A file in the working tree changes its own standing. The index changes every file's and moves no ref. HEAD
+    // and a ref each may have moved one, and a change the platform could not place may be any of them
     const named = key === 'tree' && relevant.every(change => change !== null)
-    this.scheduleChange(named ? relevant.map(change => change!.split(path.sep).join('/')) : null)
+    const index = key === 'git' && relevant.every(change => change === 'index')
+    this.scheduleChange(named ? relevant.map(change => change!.split(path.sep).join('/')) : index ? 'index' : null)
   }
 
   /**
@@ -308,6 +314,7 @@ export class GitWatcherService {
   private scheduleChange(paths: ChangedPaths) {
     if (!this.onChangeCallback) return
     if (paths === null || this.changedPaths === null) this.changedPaths = null
+    else if (paths === 'index' || this.changedPaths === 'index') this.changedPaths = 'index'
     else {
       for (const changed of paths) this.changedPaths.add(changed)
       if (this.changedPaths.size > MAX_NAMED_PATHS) this.changedPaths = null
@@ -340,7 +347,7 @@ export class GitWatcherService {
       const paths = this.changedPaths
       this.changedPaths = new Set()
       if (paths === null) this.burst.saidAnythingAt = Date.now()
-      this.onChangeCallback?.(paths && [...paths])
+      this.onChangeCallback?.(paths === null || paths === 'index' ? paths : [...paths])
     }, Math.max(0, Math.min(quietMs, MAX_WAIT_MS - waited)))
   }
 

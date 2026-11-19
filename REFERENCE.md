@@ -79,10 +79,11 @@ interface ChangedFile extends LineCount {
 ### `ChangedPaths`
 
 What a report says changed: paths in the working tree, relative to the working directory with `/` between
-their parts, when nothing else changed and they are few enough to name; `null` when anything may have.
+their parts, when nothing else changed and they are few enough to name; `'index'` when git's index changed and no
+ref did, so any file's standing may have and no ref has; `null` when anything may have.
 
 ```ts
-type ChangedPaths = string[] | null
+type ChangedPaths = string[] | 'index' | null
 ```
 
 ### `Checkpoint`
@@ -382,7 +383,7 @@ interface GitRemote {
 - `merge(target: string): Promise<void>` — Merges a branch or a commit into what is checked out, after a checkpoint of the working tree. One that stops on conflicts is the operation in progress the snapshot describes, and is refused with `conflict`; one that goes through can be undone, which puts the branch and its files back and keeps what the user changed since
 - `mergeBase(first: string, second: string): Promise<string | undefined>` — The commit two commits' histories last share, or nothing when they share none or one is not a commit here
 - `moveOperation(move: OperationMove): Promise<void>` — Carries on with what git is in the middle of, leaves out the commit a rebase stopped at, or gives it up. Carrying on takes the message git proposes, there being no editor for it to open (`gitEnvironment`).
-- `noteChanged(paths: string[] | null): void` — Notes what a watcher saw change, which is what the next snapshot asked for reads: these paths in the working tree, relative to the working directory with `/` between their parts, or everything when it could not name them
+- `noteChanged(paths: string[] | "index" | null): void` — Notes what a watcher saw change, which is what the next snapshot asked for reads: these paths in the working tree, relative to the working directory with `/` between their parts; `'index'` when git's index changed and no ref did, which reads the whole status and keeps the refs; or everything when it could not say
 - `onWriteComplete(callback: () => void): void` — Register a one-shot callback that fires when all pending writes finish.
 - `previewMerge(target: string): Promise<MergePreview>` — What merging `target` into what is checked out would do, before it is done: nothing, a fast-forward, a clean merge, or one that stops on conflicts in the files it names. For a pull, `target` is the upstream after a fetch. Nothing moves: no ref, no index and no file. `unknown` on a git older than 2.38.
 - `pullBranch(onProgress?: (progress: GitProgress) => void): Promise<void>`
