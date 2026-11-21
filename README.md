@@ -167,8 +167,10 @@ diagnostic for a watch as well: an edit that prints nothing is one the watch did
 
 ## Using it
 
-It is not published to a registry. A consumer depends on a checkout of this repository at a pinned commit and
-resolves the package through it; `npm run build` writes the `dist/` the package's entries name.
+It is made to be published to npm as `@apackdev/git`, publicly, by `npm publish`, which builds `dist/` afresh before it
+packs (`prepack`). It is ESM, with types for each entry and source maps that carry their source, and has no
+dependencies and no effects on import (`sideEffects: false`). apack depends on a checkout of this repository at a pinned commit and resolves the package
+through it; `npm run build` writes the `dist/` the package's entries name.
 
 ```bash
 npm ci
