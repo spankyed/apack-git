@@ -58,4 +58,6 @@ npm test            # every spec
 npm test -- tests/snapshot.spec.ts
 npm run reference:update  # REFERENCE.md from the source; reference:check fails on a difference, or an export
                           # or a public member no spec uses
+npm run package:check     # the package packed, installed nested by a consumer of its own, and each entry
+                          # compiled under node16 and bundler resolution and loaded by Node
 ```

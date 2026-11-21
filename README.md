@@ -170,7 +170,9 @@ diagnostic for a watch as well: an edit that prints nothing is one the watch did
 It is made to be published to npm as `@apackdev/git`, publicly, by `npm publish`, which builds `dist/` afresh before it
 packs (`prepack`). It is ESM, with types for each entry and source maps that carry their source, and has no
 dependencies and no effects on import (`sideEffects: false`). apack depends on a checkout of this repository at a pinned commit and resolves the package
-through it; `npm run build` writes the `dist/` the package's entries name.
+through it; `npm run build` writes the `dist/` the package's entries name. `npm run package:check`, which CI runs on
+each system, packs it as a publish would, installs it into a consumer of its own and compiles and loads each entry
+there.
 
 ```bash
 npm ci

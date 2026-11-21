@@ -50,6 +50,7 @@
     "budgets": "node scripts/budgets.mjs",
     "reference:check": "node scripts/reference.mjs",
     "reference:update": "node scripts/reference.mjs --write",
+    "package:check": "node scripts/package-check.mjs",
     "example": "npm run build && node examples/news.mjs"
   },
   "devDependencies": {
