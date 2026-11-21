@@ -86,7 +86,7 @@ The proposal was to reshape `GitStatusFile` that way, so that `src/staging.ts` p
 - **A `git update-index --stdin` kept open.** It holds `index.lock` for as long as it is open, which refuses the
   user's own git.
 - **Predicted snapshots for a commit, a checkout or a stash.** Hooks and filters change what those leave behind, so
-  only git can say. Staging and unstaging are predictable, which is why `apack-git/staging` exists and stops there.
+  only git can say. Staging and unstaging are predictable, which is why `@apackdev/git/staging` exists and stops there.
 - **`git check-ignore --stdin` and `git diff-tree --stdin` kept open.** Nothing in the engine asks either question
   once per path, so there is no process to save.
 - **Naming the remote on a failed push or fetch.** The caller either named the remote or reads it with

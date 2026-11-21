@@ -11,9 +11,10 @@ import ts from 'typescript'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const OUT = path.join(ROOT, 'REFERENCE.md')
+const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
 /** The package's entries, as `package.json` names them, each by the source it is built from */
-const ENTRIES = Object.keys(JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).exports).map((entry) => ({
-  entry: entry === '.' ? 'apack-git' : `apack-git/${entry.slice(2)}`,
+const ENTRIES = Object.keys(MANIFEST.exports).map((entry) => ({
+  entry: entry === '.' ? MANIFEST.name : `${MANIFEST.name}/${entry.slice(2)}`,
   source: path.join(ROOT, 'src', entry === '.' ? 'index.ts' : `${entry.slice(2)}.ts`),
 }))
 

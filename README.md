@@ -1,4 +1,4 @@
-# apack-git
+# @apackdev/git
 
 A live picture of one git working tree, and every git process that keeps it.
 
@@ -11,7 +11,7 @@ It is the git engine of [apack](https://github.com/spankyed/apack), in a reposit
 checked on Linux, macOS and Windows on every push.
 
 ```ts
-import { GitRepository, GitWatcherService } from 'apack-git'
+import { GitRepository, GitWatcherService } from '@apackdev/git'
 
 const repo = new GitRepository(dir, { run, environment, log })   // every tie is optional (`RepositoryTies`)
 
@@ -83,7 +83,7 @@ before 2.38.
   paths, a change to git's index (`'index'`) reads the whole status and keeps the refs, and anything reads both. The
   settings are held until a file they came from looks different, and a look again takes them afresh.
 - **A prediction is never in a snapshot.** Where a file will be listed once it is staged is worked out ahead of
-  git, for a window to show at once (`apack-git/staging`). That lives in the entries that import nothing of
+  git, for a window to show at once (`@apackdev/git/staging`). That lives in the entries that import nothing of
   Node's. A snapshot the engine answers with is what git said, and nothing else.
 - **What it runs with is handed in** (`RepositoryTies`): which git, how a process is run, the environment git
   starts from, what watches a git kept open, where to log, how long a status may take, whether a repository is
@@ -109,10 +109,10 @@ before 2.38.
 
 ## Three entries
 
-- `apack-git` is the engine, for Node.
-- `apack-git/staging` is where a file will be listed once it is staged or unstaged, worked out before git
+- `@apackdev/git` is the engine, for Node.
+- `@apackdev/git/staging` is where a file will be listed once it is staged or unstaged, worked out before git
   answers. It imports nothing of Node's, so a window can use it.
-- `apack-git/availability` says whether a commit, a push, a pull and a sync can be done from a snapshot, and why
+- `@apackdev/git/availability` says whether a commit, a push, a pull and a sync can be done from a snapshot, and why
   not when one cannot. It imports nothing of Node's either.
 
 ## Budgets

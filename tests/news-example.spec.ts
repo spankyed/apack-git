@@ -1,6 +1,6 @@
 // The example program a host can start from (`examples/news.mjs`), run as a person runs it over a real repository:
 // it says what the repository is, and an edit made while it watches is news of that file. It runs the built
-// package, as a host does, so `npm run build` comes first; CI builds before it tests.
+// package by its name, as a host does, so `npm run build` comes first; CI builds before it tests.
 import { afterEach, expect, it, onTestFailed } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';

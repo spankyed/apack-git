@@ -1,4 +1,4 @@
-# apack-git
+# @apackdev/git
 
 The git engine of apack: one working tree's picture and every git process that keeps it. `README.md` says what
 it is for and the rules that hold it together; this is what to know before changing it.

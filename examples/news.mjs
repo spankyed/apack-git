@@ -7,8 +7,8 @@
 //
 //   npm run build && node examples/news.mjs [folder]   (the folder the process is in when none is given; Ctrl-C stops it)
 //
-// It runs the built package, as a host does, so it is plain JavaScript over `dist/`.
-import { GitRepository, GitWatcherService, REPOSITORY_PARTS, changedAnything } from '../dist/index.js'
+// It runs the built package by its name, as a host does, so it is plain JavaScript over `dist/`.
+import { GitRepository, GitWatcherService, REPOSITORY_PARTS, changedAnything } from '@apackdev/git'
 
 const folder = process.argv[2] ?? process.cwd()
 const repo = new GitRepository(folder)
@@ -16,7 +16,7 @@ const watcher = new GitWatcherService(folder)
 watcher.setGitRepository(repo)
 
 const at = () => new Date().toISOString().slice(11, 23)
-/** @param {import('../dist/index.js').RepositorySnapshot} snapshot */
+/** @param {import('@apackdev/git').RepositorySnapshot} snapshot */
 const describe = (snapshot) => [
   `on ${snapshot.branch || '(no branch)'}`,
   ...(snapshot.hasUpstream ? [`${snapshot.ahead} ahead, ${snapshot.behind} behind`] : ['no upstream']),
