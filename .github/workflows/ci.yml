@@ -113,9 +113,20 @@ jobs:
         env:
           BUDGET_SIZES: ${{ inputs.budget_sizes || '1000 100000' }}
 
-  ci-pass:
-    if: always()
-    needs: [suite, git]
+  # No workflow publishes the package to npm or holds a token for it: it goes out on each commit's prerelease
+  # (packages.yml)
+  workflows:
     runs-on: ubuntu-24.04
     steps:
-      - run: test "${{ needs.suite.result }}" = "success" && test "${{ needs.git.result }}" = "success"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm run workflows:check
+
+  ci-pass:
+    if: always()
+    needs: [suite, git, workflows]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: test "${{ needs.suite.result }}" = "success" && test "${{ needs.git.result }}" = "success" && test "${{ needs.workflows.result }}" = "success"
