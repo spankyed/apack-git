@@ -47,6 +47,9 @@ it is for and the rules that hold it together; this is what to know before chang
   git's words, and the fact is empty. Each has a case that fails a real git that way.
 - **A comment says how the code is, for whoever opens the file cold.** What changed and why goes in the
   commit message.
+- **The package goes out on GitHub, never on npm.** `.github/workflows/packages.yml` packs each `master` commit
+  whose `ci-pass` passed onto a prerelease, `pkg-<commit>`, which apack installs by URL; a prerelease once written is
+  never replaced. No workflow writes to npm or holds a token for it, which `npm run workflows:check` holds.
 - **Nothing is kept for compatibility.** The engine has one consumer, pinned by commit, and both move together.
 
 ## Commands
@@ -56,6 +59,7 @@ npm run typecheck   # src, tests and the vitest config
 npm run build       # dist/, which the package's entries name
 npm test            # every spec
 npm test -- tests/snapshot.spec.ts
+npm run workflows:check   # no workflow publishes to npm or reads a secret but the GITHUB_TOKEN
 npm run reference:update  # REFERENCE.md from the source; reference:check fails on a difference, or an export
                           # or a public member no spec uses
 npm run package:check     # the package packed, installed nested by a consumer of its own, and each entry

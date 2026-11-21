@@ -169,10 +169,22 @@ diagnostic for a watch as well: an edit that prints nothing is one the watch did
 
 It is made to be published to npm as `@apackdev/git`, publicly, by `npm publish`, which builds `dist/` afresh before it
 packs (`prepack`). It is ESM, with types for each entry and source maps that carry their source, and has no
-dependencies and no effects on import (`sideEffects: false`). apack depends on a checkout of this repository at a pinned commit and resolves the package
-through it; `npm run build` writes the `dist/` the package's entries name. `npm run package:check`, which CI runs on
-each system, packs it as a publish would, installs it into a consumer of its own and compiles and loads each entry
-there.
+dependencies and no effects on import (`sideEffects: false`). `npm run package:check`, which CI runs on each system,
+packs it as a publish would, installs it into a consumer of its own and compiles and loads each entry there.
+
+It is not on npm yet, and nothing in CI puts it there. Instead each `master` commit whose CI passes gets a GitHub
+prerelease, `pkg-<commit>`, holding the package as `npm pack` packs it and a `SHA256SUMS` of it
+([`packages.yml`](.github/workflows/packages.yml)). apack depends on a commit's package by its URL, with no checkout
+of this repository and no build:
+
+```bash
+npm install https://github.com/spankyed/apack-git/releases/download/pkg-<commit>/apackdev-git-0.1.0.tgz
+```
+
+The lockfile records the bytes' integrity, so a prerelease, once written, keeps its package; one CI missed, such as a
+commit whose run a later push cancelled, is made by dispatching `packages.yml` with the commit's full hash.
+`npm run workflows:check`, which CI runs, fails when a workflow runs a command that writes to npm, reads a secret
+other than the `GITHUB_TOKEN`, or the manifest gains a publish script.
 
 ```bash
 npm ci

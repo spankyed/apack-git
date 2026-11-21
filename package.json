@@ -51,6 +51,7 @@
     "reference:check": "node scripts/reference.mjs",
     "reference:update": "node scripts/reference.mjs --write",
     "package:check": "node scripts/package-check.mjs",
+    "workflows:check": "node scripts/workflows-check.mjs",
     "example": "npm run build && node examples/news.mjs"
   },
   "devDependencies": {
