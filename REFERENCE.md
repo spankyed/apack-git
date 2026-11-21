@@ -2,7 +2,7 @@
 
 Generated from the source by `npm run reference:update`; `npm run reference:check` holds it to the source.
 
-## `apack-git`
+## `@apackdev/git`
 
 ### `BlameLine`
 
@@ -1112,7 +1112,7 @@ interface WorktreeEntry {
 }
 ```
 
-## `apack-git/staging`
+## `@apackdev/git/staging`
 
 ### `withStaged`
 
@@ -1130,7 +1130,7 @@ The list once these paths are unstaged
 withUnstaged(files: GitStatusFile[], paths: string[]): GitStatusFile[]
 ```
 
-## `apack-git/availability`
+## `@apackdev/git/availability`
 
 ### `Availability`
 

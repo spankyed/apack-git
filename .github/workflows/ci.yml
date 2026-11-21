@@ -42,6 +42,8 @@ jobs:
       # The reference is the source's, and every export in it has a spec that uses it
       - run: npm run reference:check
       - run: npm run build
+      # The package as npm would publish it, installed by a consumer of its own, whose entries compile and load
+      - run: npm run package:check
       - run: npm test
 
   # The suite against old gits, which the runners above do not have: they install a current one. The oldest git a
