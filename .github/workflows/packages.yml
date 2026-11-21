@@ -1,0 +1,112 @@
+name: packages
+
+# **The package as apack consumes it: packed once per commit and published on a GitHub prerelease, never on npm.**
+# Each `master` commit whose CI passed gets a prerelease, `pkg-<commit>`, holding `apackdev-git-<version>.tgz` as
+# `npm pack` writes it (`prepack` builds dist/ afresh) and a `SHA256SUMS` of it. apack installs the package by the
+# asset's URL, and its lockfile keeps the bytes' integrity, so it needs no checkout of this repository and no build.
+#
+# It runs when CI ends on a push to `master`, and packs that commit if CI's `ci-pass` passed there. A dispatch packs
+# a commit on `master` that has none, such as one whose CI a later push cancelled; it too needs a passed `ci-pass`.
+# Only the publish job may write the repository's contents, and only through the run's own GITHUB_TOKEN.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The full hash of the commit on master to pack and publish
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packages-${{ inputs.commit || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+env:
+  COMMIT: ${{ inputs.commit || github.event.workflow_run.head_sha }}
+
+jobs:
+  publish:
+    # A push to this repository's `master`, not a pull request from a branch someone else named `master`; a run a
+    # later push cancelled leaves its commit to a dispatch
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion != 'cancelled' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      checks: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # Through the environment, so what was typed into the dispatch is read as a hash and never run as a command
+      - name: The commit is a full hash
+        run: '[[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "Not a full commit hash: $COMMIT"; exit 1; }'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.COMMIT }}
+          fetch-depth: 0
+      - name: The commit is on master
+        run: git merge-base --is-ancestor "$COMMIT" origin/master
+      # Any of the commit's runs will do: a run that a later push cancelled has no `ci-pass` that passed, and a
+      # re-run of it, or a dispatched CI, may have one
+      - name: CI passed at the commit
+        run: |
+          passed=$(gh api "repos/$GH_REPO/commits/$COMMIT/check-runs?check_name=ci-pass&per_page=100" \
+            --jq '[.check_runs[] | select(.app.slug == "github-actions" and .conclusion == "success")] | length')
+          if [ "$passed" -eq 0 ]; then
+            echo "::error::ci-pass has not passed at $COMMIT, so it is not packed"
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm run workflows:check
+      - run: npm ci
+      - name: Pack
+        run: |
+          mkdir out
+          npm pack --json --pack-destination out > packed.json
+          name=$(node -p "require('./packed.json')[0].name")
+          file=$(node -p "require('./packed.json')[0].filename")
+          test "$name" = "@apackdev/git" || { echo "::error::The package is $name, not @apackdev/git"; exit 1; }
+          echo "FILE=$file" >> "$GITHUB_ENV"
+          cd out && sha256sum -- "$file" | tee SHA256SUMS
+      # **Created once, then only completed.** A prerelease that is already there keeps the package it holds: every
+      # lockfile that installed it records those bytes' integrity, and other bytes would fail each of those installs.
+      # One a run left without an asset gets the missing one, its sums written from the package it holds
+      - name: Publish pkg-${{ env.COMMIT }}
+        working-directory: out
+        run: |
+          tag="pkg-$COMMIT"
+          notes="@apackdev/git as \`npm pack\` packs $COMMIT, with its SHA256SUMS: what apack installs by URL. Never on npm, and never replaced."
+          if ! gh release view "$tag" > /dev/null 2>&1; then
+            gh release create "$tag" "$FILE" SHA256SUMS --target "$COMMIT" --prerelease --latest=false \
+              --title "@apackdev/git at ${COMMIT:0:7}" --notes "$notes"
+            exit 0
+          fi
+          assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
+          has() { grep -qxF -- "$1" <<< "$assets"; }
+          if has "$FILE" && ! has SHA256SUMS; then
+            mkdir held && gh release download "$tag" --pattern "$FILE" --dir held
+            (cd held && sha256sum -- "$FILE") > SHA256SUMS
+            gh release upload "$tag" SHA256SUMS
+          elif ! has "$FILE"; then
+            if has SHA256SUMS; then
+              gh release download "$tag" --pattern SHA256SUMS --output held-sums
+              sha256sum --check held-sums || { echo "::error::$tag's SHA256SUMS is of other bytes than this pack"; exit 1; }
+              gh release upload "$tag" "$FILE"
+            else
+              gh release upload "$tag" "$FILE" SHA256SUMS
+            fi
+          else
+            echo "$tag already holds $FILE and SHA256SUMS; leaving them as they are"
+          fi
+          gh release edit "$tag" --prerelease --latest=false
