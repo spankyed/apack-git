@@ -47,3 +47,17 @@ it('finds the folder\'s repository, one nested in it, a submodule and a linked w
   const rows = (await parent.readSnapshot()).files.filter(file => file.path.startsWith('libs/'));
   expect(rows).toEqual([{ path: 'libs/library', status: 'modified', staged: false, originalPath: undefined, submodule: { commit: false, modified: false, untracked: true } }]);
 });
+
+it('sorts all nested repositories when the scanned folder is not inside an enclosing repository', async () => {
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-under-sort-')));
+  directories.push(base);
+  for (const name of ['Zeta', 'alpha', 'middle']) {
+    const dir = path.join(base, name);
+    fs.mkdirSync(dir);
+    await run('git', ['-C', dir, 'init', '--quiet']);
+  }
+
+  const { repositories } = await GitRepository.repositoriesUnder(base);
+  const relatives = repositories.map(repo => repo.relative);
+  expect(relatives).toEqual([...relatives].sort((a, b) => a.localeCompare(b)));
+});

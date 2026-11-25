@@ -209,6 +209,9 @@ export const perDirectorySubscriber = (watch: WatchDirectory = fs.watch): Subscr
    * watch is on, is reported, since what was made in it meanwhile was reported by nothing.
    */
   const reconcile = async (): Promise<void> => {
+    // Snapshot what was watched before the walk so directories added concurrently by `changed()` during the walk
+    // are not dropped at the end
+    const beforeWalk = new Set(watches.keys())
     const found = new Set<string>([''])
     const walk = async (relative: string): Promise<void> => {
       const entries = await fs.promises.readdir(path.join(directory, relative), { withFileTypes: true }).catch((): fs.Dirent[] => [])
@@ -226,7 +229,7 @@ export const perDirectorySubscriber = (watch: WatchDirectory = fs.watch): Subscr
       }))
     }
     await walk('')
-    for (const watched of [...watches.keys()]) if (!found.has(watched)) drop(watched)
+    for (const watched of beforeWalk) if (!found.has(watched)) drop(watched)
   }
 
   try {

@@ -30,17 +30,24 @@ export class IncrementalBlame {
 
   take(chunk: string): void {
     this.pending += chunk
+    let start = 0
     let end: number
-    while ((end = this.pending.indexOf('\n')) >= 0) {
-      this.line(this.pending.slice(0, end))
-      this.pending = this.pending.slice(end + 1)
+    while ((end = this.pending.indexOf('\n', start)) >= 0) {
+      this.line(this.pending.slice(start, end))
+      start = end + 1
     }
+    if (start > 0) this.pending = this.pending.slice(start)
   }
 
   private line(line: string): void {
     if (!this.header) {
       const [commit, original, final, count] = line.split(' ')
-      if (commit && count) this.header = { commit, original: Number(original), final: Number(final), count: Number(count) }
+      const origNum = Number(original)
+      const finalNum = Number(final)
+      const countNum = Number(count)
+      if (commit && count && Number.isInteger(origNum) && Number.isInteger(finalNum) && Number.isInteger(countNum) && countNum > 0) {
+        this.header = { commit, original: origNum, final: finalNum, count: countNum }
+      }
       return
     }
     const space = line.indexOf(' ')
@@ -48,7 +55,11 @@ export class IncrementalBlame {
     const value = space < 0 ? '' : line.slice(space + 1)
     if (key === 'author') this.fields.author = value
     else if (key === 'author-mail') this.fields.authorEmail = value.replace(/^<|>$/g, '')
-    else if (key === 'author-time') this.fields.date = new Date(Number(value) * 1000).toISOString()
+    else if (key === 'author-time') {
+      const ms = Number(value) * 1000
+      const date = Number.isFinite(ms) ? new Date(ms) : undefined
+      this.fields.date = date && !Number.isNaN(date.getTime()) ? date.toISOString() : ''
+    }
     else if (key === 'summary') this.fields.summary = value
     else if (key === 'filename') this.close(value)
   }
@@ -78,12 +89,13 @@ export class Blame {
    */
   async blame(filePath: string, { revision, onLines, signal }: { revision?: string; onLines?: (lines: BlameLine[]) => void; signal?: AbortSignal } = {}): Promise<BlameLine[]> {
     const top = await this.model.checkoutTop()
-    // The repository's own file, when its settings name none: git reads the setting itself
-    const configured = await this.runner.read(['config', '--get', 'blame.ignoreRevsFile'])
-    const ignoring = !configured.success && await fs.access(path.join(top, IGNORE_FILE)).then(() => true, () => false)
+    // Reuse held settings to avoid an extra `git config` spawn on every blame
+    const settings = await this.runner.settings.read()
+    const configured = settings.value('blame.ignorerevsfile')?.trim()
+    const ignoring = !configured && await fs.access(path.join(top, IGNORE_FILE)).then(() => true, () => false)
     const reader = new IncrementalBlame(onLines)
     const result = await this.runner.read([
-      '-C', top, 'blame', '--incremental', ...(ignoring ? ['--ignore-revs-file', IGNORE_FILE] : []),
+      '-c', 'core.quotepath=false', '-C', top, 'blame', '--incremental', ...(ignoring ? ['--ignore-revs-file', IGNORE_FILE] : []),
       ...(revision ? [refArgument(revision, 'revision')] : []), '--', filePath,
     ], { onOutput: chunk => reader.take(chunk), signal })
     if (!result.success) throw failure(result, `Failed to read who changed ${filePath}`)

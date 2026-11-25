@@ -102,6 +102,7 @@ export class GitWatcherService {
   private burstTimeout?: NodeJS.Timeout
   /** The one report after the watches open, for an edit made before the platform delivered its events */
   private catchUpTimeout?: NodeJS.Timeout
+  private stopOnAbort?: () => void
   private isWatching = false
   private gitRepository?: GitRepository
 
@@ -138,15 +139,33 @@ export class GitWatcherService {
     const cancelled = () => signal.aborted || generation !== this.generation
     this.establishing = this.establishing.catch(() => {}).then(async () => {
       await this.establish(cancelled)
-      if (cancelled()) return
+      if (cancelled()) {
+        await this.teardownWatches()
+        return
+      }
       this.isWatching = true
+      const onAbort = () => { void this.stopWatching() }
+      signal.addEventListener('abort', onAbort, { once: true })
+      this.stopOnAbort = () => signal.removeEventListener('abort', onAbort)
       this.catchUpTimeout = setTimeout(() => {
         this.catchUpTimeout = undefined
-        if (!cancelled()) this.scheduleChange(null)
+        if (generation === this.generation) this.scheduleChange(null)
       }, this.catchUpAfterMs)
       this.catchUpTimeout.unref()
     })
     await this.establishing
+  }
+
+  /** Closes all active followers and subscriptions; used both on `stopWatching()` and when startup aborts mid-way */
+  private async teardownWatches(): Promise<void> {
+    for (const follower of this.followed.values()) follower.close()
+    this.followed.clear()
+    const held = [...this.subscriptions.values()]
+    this.subscriptions.clear()
+    this.gitRepository?.setWatched(false)
+    await Promise.all(held.map(({ subscription }) => subscription.unsubscribe().catch((error) => {
+      this.log.error?.('Could not close a git watch', { error })
+    })))
   }
 
   /**
@@ -349,12 +368,14 @@ export class GitWatcherService {
       if (paths === null) this.burst.saidAnythingAt = Date.now()
       this.onChangeCallback?.(paths === null || paths === 'index' ? paths : [...paths])
     }, Math.max(0, Math.min(quietMs, MAX_WAIT_MS - waited)))
+    this.quietTimeout.unref()
   }
 
   async stopWatching(): Promise<void> {
     this.generation++
     this.isWatching = false
-    this.onChangeCallback = undefined
+    this.stopOnAbort?.()
+    this.stopOnAbort = undefined
     clearTimeout(this.quietTimeout)
     this.quietTimeout = undefined
     clearTimeout(this.burstTimeout)
@@ -368,14 +389,7 @@ export class GitWatcherService {
 
     for (const follower of this.followed.values()) follower.close()
     this.followed.clear()
-    this.establishing = this.establishing.catch(() => {}).then(async () => {
-      const held = [...this.subscriptions.values()]
-      this.subscriptions.clear()
-      this.gitRepository?.setWatched(false)
-      await Promise.all(held.map(({ subscription }) => subscription.unsubscribe().catch((error) => {
-        this.log.error?.('Could not close a git watch', { error })
-      })))
-    })
+    this.establishing = this.establishing.catch(() => {}).then(() => this.teardownWatches())
     await this.establishing
   }
 

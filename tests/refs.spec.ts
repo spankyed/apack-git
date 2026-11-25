@@ -51,3 +51,15 @@ it('reads every branch with how far it is from what it follows, the remotes and 
     { name: 'v1', commit: await git(root, 'rev-parse', 'HEAD') },
   ]);
 });
+
+it('applies url.insteadOf rewrites to remote URLs when configured', async () => {
+  const root = temporary('insteadof');
+  const globalConfig = path.join(temporary('global'), 'gitconfig');
+  fs.writeFileSync(globalConfig, '[url "https://mirror.example/"]\n\tinsteadOf = https://origin.example/\n');
+  await run('git', ['-C', root, 'init', '--quiet', '--initial-branch=main']);
+  await run('git', ['-C', root, 'remote', 'add', 'origin', 'https://origin.example/org/repo.git']);
+
+  const repo = new GitRepository(root, { environment: () => ({ ...process.env, GIT_CONFIG_GLOBAL: globalConfig }) });
+  const model = await repo.refsModel();
+  expect(model.remotes).toEqual([{ name: 'origin', fetchUrl: 'https://mirror.example/org/repo.git', pushUrl: 'https://mirror.example/org/repo.git' }]);
+});

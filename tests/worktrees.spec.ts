@@ -64,6 +64,7 @@ it('says where a checkout\'s own git state lives and where the state it shares d
 
   expect(await repo.resolveGitDirectories()).toEqual({ gitDir: common, commonDir: common, prefix: '' });
   expect(await new GitRepository(path.join(root, 'sub')).resolveGitDirectories()).toEqual({ gitDir: common, commonDir: common, prefix: 'sub/' });
+  expect((await new GitRepository(path.join(root, 'sub')).worktreeList()).find(wt => path.resolve(wt.path) === root)?.isCurrent).toBe(true);
   expect(await new GitRepository(linked).resolveGitDirectories())
     .toEqual({ gitDir: path.join(common, 'worktrees', path.basename(linked)), commonDir: common, prefix: '' });
   expect(await new GitRepository(outside).resolveGitDirectories()).toBeNull();

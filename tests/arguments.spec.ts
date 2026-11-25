@@ -64,6 +64,8 @@ it('refuses an option given as a branch', async () => {
   await expect(repo.readBranchDiff('--output=/dev/null')).rejects.toThrow('Invalid base branch');
   await expect(repo.readFileContentFromBranch('a.txt', '--textconv')).rejects.toThrow('Invalid branch');
   await expect(repo.readCommitsBetween('--all')).rejects.toThrow('Invalid base branch');
+  await expect(repo.readCommitDistance('--all')).rejects.toThrow('Invalid branch');
+  await expect(repo.readStashChanges(-1)).rejects.toThrow('Invalid stash index');
   await expect(repo.checkoutBranch('--detach')).rejects.toThrow('Invalid branch name');
   expect(fs.existsSync(marker)).toBe(false);
   expect(await git(root, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main');

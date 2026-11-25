@@ -1,7 +1,7 @@
 // Diffs as data: how many lines each changed file adds and removes, in the working tree and in a commit or a stash,
 // and which files a commit or a stash changed. Each is git's own count (`--numstat`), read in one command for every
 // file at once.
-import { commitArgument } from './arguments.ts'
+import { commitArgument, stashArgument } from './arguments.ts'
 import { failure, type GitRunner } from './runner.ts'
 import type { ChangedFile, LineCount } from './types.ts'
 
@@ -19,15 +19,22 @@ export function parseNumstat(output: string): (LineCount & { originalPath?: stri
     const record = fields[at]
     if (!record) continue
     const [added, removed, ...rest] = record.split('\t')
+    if (added === undefined || removed === undefined) continue
     const named = rest.join('\t')
     const binary = added === '-' && removed === '-'
-    const count = { added: binary ? 0 : Number(added), removed: binary ? 0 : Number(removed), binary }
+    const addedNum = binary ? 0 : Number(added)
+    const removedNum = binary ? 0 : Number(removed)
+    if (!Number.isFinite(addedNum) || !Number.isFinite(removedNum)) continue
+    const count = { added: addedNum, removed: removedNum, binary }
     if (named) {
       counts.push({ path: named, ...count })
     } else {
       // A rename or a copy: where it came from, then where it went, as the next two fields
+      if (at + 2 >= fields.length) break
       const originalPath = fields[++at]!
-      counts.push({ path: fields[++at]!, originalPath, ...count })
+      const targetPath = fields[++at]!
+      if (!targetPath) continue
+      counts.push({ path: targetPath, originalPath, ...count })
     }
   }
   return counts
@@ -42,10 +49,16 @@ function parseNameStatus(output: string): Pick<ChangedFile, 'path' | 'status' | 
     if (!letter) continue
     const status = STATUS_OF[letter[0]!] ?? 'modified'
     if (letter[0] === 'R' || letter[0] === 'C') {
+      if (at + 2 >= fields.length) break
       const originalPath = fields[++at]!
-      files.push({ path: fields[++at]!, status, originalPath })
+      const targetPath = fields[++at]!
+      if (!targetPath) continue
+      files.push({ path: targetPath, status, originalPath })
     } else {
-      files.push({ path: fields[++at]!, status })
+      if (at + 1 >= fields.length) break
+      const targetPath = fields[++at]!
+      if (!targetPath) continue
+      files.push({ path: targetPath, status })
     }
   }
   return files
@@ -108,7 +121,7 @@ export class DiffData {
    * kept of the files git did not track, which are added. Read without applying it.
    */
   async readStashChanges(index: number): Promise<ChangedFile[]> {
-    const stash = `stash@{${index}}`
+    const stash = stashArgument(index)
     const parents = await this.parentsOf(stash)
     const changed = await this.between(parents[0], stash)
     // A stash made with its untracked files holds them as a third parent, a commit of only them

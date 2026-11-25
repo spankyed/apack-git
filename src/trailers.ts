@@ -10,11 +10,22 @@ import { failure, type GitRunner } from './runner.ts'
 import type { Trailer } from './types.ts'
 
 /** What `git interpret-trailers --parse` printed, one trailer a line, each `key: value` with its lines unfolded */
-function parsed(printed: string): Trailer[] {
-  return printed.split('\n').filter(Boolean).map((line) => {
+export function parseTrailers(printed: string): Trailer[] {
+  const trailers: Trailer[] = []
+  for (const line of printed.split('\n')) {
+    if (!line) continue
     const at = line.indexOf(':')
-    return { key: line.slice(0, at), value: line.slice(at + 1).trim() }
-  })
+    if (at > 0) {
+      trailers.push({ key: line.slice(0, at), value: line.slice(at + 1).trim() })
+      continue
+    }
+    // Non-colon separators (`trailer.separators`, e.g. `=` or `#`)
+    const sep = /([=#])/.exec(line)
+    if (sep && sep.index > 0) {
+      trailers.push({ key: line.slice(0, sep.index).trim(), value: line.slice(sep.index + 1).trim() })
+    }
+  }
+  return trailers
 }
 
 /** A trailer as git prints it, which is what the lines of one are unfolded and spaced to before they are compared */
@@ -56,7 +67,7 @@ export class Trailers {
     // `--no-divider`: a commit message is not a patch, so a line of `---` in it does not end it
     const result = await this.runner.read(['interpret-trailers', '--parse', '--no-divider'], { input: message })
     if (!result.success) throw failure(result, 'Failed to read the trailers of a message')
-    return parsed(result.output ?? '')
+    return parseTrailers(result.output ?? '')
   }
 
   /**

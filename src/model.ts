@@ -185,11 +185,16 @@ export class RepositoryModel {
     }
     // A check with nothing to go by that found the files changed, of which the watcher said nothing since the last:
     // evidence the watch is not delivering. One that heard from the watcher is evidence it is. Becoming silent, or
-    // hearing again, then reads as news of the status, since the window says its view may be behind
+    // hearing again, then reads as news of the status, since the window says its view may be behind.
+    // Synthetic folder-read ticks (entries ending in `/`) are excluded from missed-check detection so an idle repo
+    // holding an untracked folder never false-positives `watchSilent`.
     if (reading === 'everything' && this.watched && before) {
       const statusOf = (identity: SnapshotIdentity) => identity.status.slice(identity.status.indexOf('\n') + 1)
+      const fileDiffsOf = (identity: SnapshotIdentity) => identity.files
+        ? [...identity.files].filter(([file]) => !file.endsWith('/')).map(([, sig]) => sig).join('\0')
+        : identity.diffs
       if (this.notedSinceCheck > 0) this.missedChecks = 0
-      else if (read.diffs !== before.diffs || statusOf(seen(read)) !== statusOf(before)) this.missedChecks++
+      else if (fileDiffsOf(read) !== fileDiffsOf(before) || statusOf(seen(read)) !== statusOf(before)) this.missedChecks++
       this.notedSinceCheck = 0
     }
     const now = seen(read)
@@ -299,7 +304,11 @@ export class RepositoryModel {
     const isBranch = (header: string) => header.startsWith('# branch.')
     const isStashCount = (header: string) => header.startsWith('# stash ')
     // Refs move without the status moving: a fetch, a branch made or deleted, a stash
-    refs ??= ((await this.runner.read(['for-each-ref', '--format=%(objectname) %(refname)'])).output ?? '').split('\n')
+    if (refs === undefined) {
+      const listedRefs = await this.runner.read(['for-each-ref', '--format=%(objectname) %(refname)'])
+      if (!listedRefs.success) throw failure(listedRefs, 'Failed to read git refs')
+      refs = (listedRefs.output ?? '').split('\n')
+    }
     const isStash = (ref: string) => ref.endsWith(' refs/stash')
     const isLocalBranch = (ref: string) => ref.includes(' refs/heads/')
     const directories = await this.directories()
@@ -370,7 +379,7 @@ export class RepositoryModel {
     if (held.untracked === 'normal' && found.some(mayBeInAFolder)) {
       const parents = [...new Set(found.filter(mayBeInAFolder).map(folderOf))]
       // A folder above the working directory cannot be asked about from under it
-      if (parents.some(parent => `${parent}/`.length < directories.prefix.length)) return undefined
+      if (parents.some(parent => !`${parent}/`.startsWith(directories.prefix))) return undefined
       asked = outermost([...asked, ...parents.map(parent => parent.slice(directories.prefix.length))])
       found = await statusFor(asked)
       if (!found || found.some(entry => entry.path.endsWith('/') && parents.includes(entry.path.slice(0, -1)))) return undefined

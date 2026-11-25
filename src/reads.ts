@@ -6,7 +6,7 @@ import { recordsOf, refArgument, rowSpec } from './arguments.ts'
 import { hunksOf, type CutHunk } from './hunks.ts'
 import type { RepositoryModel } from './model.ts'
 import { GitObjectReader } from './objects.ts'
-import { normalizeReadPath, resolveInsideTop, stageZeroSpec } from './paths.ts'
+import { normalizeReadPath, relativeWithin, resolveInsideTop, stageZeroSpec } from './paths.ts'
 import { failure, mayFetch, type GitRunner } from './runner.ts'
 import { GitUnusableError } from './git-check.ts'
 import { GitError, ownershipRefusal } from './errors.ts'
@@ -54,12 +54,13 @@ export function parseStashList(output: string): StashEntry[] {
   }))
 }
 
-/** `git worktree list --porcelain`: a block a worktree, the main one first; `current` is the one at this path */
+/** `git worktree list --porcelain`: a block a worktree, the main one first; `current` is the one at or under this path */
 export function parseWorktreeList(output: string, current: string): WorktreeEntry[] {
   const entries: WorktreeEntry[] = []
-  const blocks = output.trim().split('\n\n')
+  const blocks = output.trim().split(/\r?\n\r?\n/)
+  const resolvedCurrent = path.resolve(current)
   for (let i = 0; i < blocks.length; i++) {
-    const lines = blocks[i]!.trim().split('\n')
+    const lines = blocks[i]!.trim().split(/\r?\n/)
     let wtPath = ''
     let head = ''
     let branch = ''
@@ -70,7 +71,7 @@ export function parseWorktreeList(output: string, current: string): WorktreeEntr
       if (line.startsWith('worktree ')) wtPath = line.slice('worktree '.length)
       else if (line.startsWith('HEAD ')) head = line.slice('HEAD '.length).substring(0, 7)
       // branch refs/heads/main → main
-      else if (line.startsWith('branch ')) branch = line.slice('branch '.length).replace('refs/heads/', '')
+      else if (line.startsWith('branch ')) branch = line.slice('branch '.length).replace(/^refs\/heads\//, '')
       else if (line === 'bare') isBare = true
       else if (line === 'detached') branch = ''
       else if (line.startsWith('locked')) {
@@ -80,7 +81,11 @@ export function parseWorktreeList(output: string, current: string): WorktreeEntr
       }
     }
     if (wtPath) {
-      entries.push({ path: wtPath, head, branch, isBare, isCurrent: path.resolve(wtPath) === path.resolve(current), isMain: i === 0, isLocked, lockedReason })
+      entries.push({
+        path: wtPath, head, branch, isBare,
+        isCurrent: relativeWithin(wtPath, resolvedCurrent) !== undefined,
+        isMain: i === 0, isLocked, lockedReason,
+      })
     }
   }
   return entries
@@ -106,6 +111,7 @@ export class GitReads {
   private cache = new Map<string, CachedResult<any>>()
 
   private readonly CACHE_TTL = 5000
+  private readonly CACHE_LIMIT = 500
 
   /** Reads files as commits have them, through one git kept open while they are being read */
   private readonly objects: GitObjectReader
@@ -179,6 +185,10 @@ export class GitReads {
 
   
   setCached<T>(key: string, data: T): void {
+    if (this.cache.size >= this.CACHE_LIMIT && !this.cache.has(key)) {
+      const oldest = this.cache.keys().next().value
+      if (oldest !== undefined) this.cache.delete(oldest)
+    }
     this.cache.set(key, {
       data,
       timestamp: Date.now()
@@ -257,94 +267,61 @@ export class GitReads {
     return result.output.split('\0').filter(entry => entry.endsWith('/')).map(entry => entry.slice(0, -1))
   }
 
-  async isBinaryFile(filePath: string): Promise<boolean> {
+  async isBinaryFile(filePath: string, { external = false }: { external?: boolean } = {}): Promise<boolean> {
     // Check cache first
     const cacheKey = `binary:${filePath}`
     const cached = this.getCached<boolean>(cacheKey)
     if (cached !== null) return cached
-    
-    // First, try git's built-in binary detection
-    const gitResult = await this.runner.read(['check-attr', 'diff', '--', filePath])
-    if (gitResult.success && gitResult.output) {
-      // Git attributes format: "path: diff: value"
-      const isBinary = gitResult.output.includes(': diff: binary') || 
-                      gitResult.output.includes(': diff: -diff')
-      if (isBinary) {
-        this.setCached(cacheKey, true)
-        return true
+
+    // Only consult git attributes for in-repo files when an attributes file may exist
+    if (!external) {
+      const hasAttrs = await fs.access(path.join(this.workingDirectory, '.gitattributes')).then(() => true, () => false)
+      if (hasAttrs) {
+        const gitResult = await this.runner.read(['check-attr', 'diff', '--', filePath])
+        if (gitResult.success && gitResult.output) {
+          if (gitResult.output.includes(': diff: binary') || gitResult.output.includes(': diff: -diff')) {
+            this.setCached(cacheKey, true)
+            return true
+          }
+          if (gitResult.output.includes(': diff: set')) {
+            this.setCached(cacheKey, false)
+            return false
+          }
+        }
       }
     }
-    
-    // If git doesn't say it's binary, check if it's text according to git
-    const diffStatResult = await this.runner.read(['diff', '--numstat', '/dev/null', filePath])
-    if (diffStatResult.success && diffStatResult.output) {
-      // Binary files show as "-\t-\tfilename" in numstat
-      if (diffStatResult.output.startsWith('-\t-\t')) {
-        this.setCached(cacheKey, true)
-        return true
-      }
-    }
-    
-    // Fallback to quick heuristic for untracked files
+
+    // Match git's own `buffer_is_binary` rule: inspect up to the first 8000 bytes for any NUL byte (zero git spawns)
     try {
       const stats = await fs.stat(filePath)
-      // Large files are likely binary
       if (stats.size > 1024 * 1024) {
         this.setCached(cacheKey, true)
-        return true // > 1MB
+        return true
       }
-      
-      // Only read first 512 bytes for performance
-      const buffer = Buffer.alloc(512)
+
+      const buffer = Buffer.alloc(Math.min(8000, Math.max(1, stats.size)))
       const fd = await fs.open(filePath, 'r')
       try {
-        const { bytesRead } = await fd.read(buffer, 0, 512, 0)
+        const { bytesRead } = await fd.read(buffer, 0, buffer.length, 0)
         if (bytesRead === 0) {
           this.setCached(cacheKey, false)
           return false
         }
-        
-        // Check for BOM (Byte Order Mark) for UTF-16/UTF-32
-        if (bytesRead >= 2) {
-          const bom16LE = buffer[0] === 0xFF && buffer[1] === 0xFE
-          const bom16BE = buffer[0] === 0xFE && buffer[1] === 0xFF
-          if (bom16LE || bom16BE) {
-            this.setCached(cacheKey, false)
-            return false // UTF-16 text file
-          }
+
+        // UTF-16/UTF-32 BOMs hold NUL bytes legitimately as text
+        if (bytesRead >= 2 && ((buffer[0] === 0xFF && buffer[1] === 0xFE) || (buffer[0] === 0xFE && buffer[1] === 0xFF))) {
+          this.setCached(cacheKey, false)
+          return false
         }
-        
-        if (bytesRead >= 4) {
-          const bom32LE = buffer[0] === 0xFF && buffer[1] === 0xFE && buffer[2] === 0x00 && buffer[3] === 0x00
-          const bom32BE = buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0xFE && buffer[3] === 0xFF
-          if (bom32LE || bom32BE) {
-            this.setCached(cacheKey, false)
-            return false // UTF-32 text file
-          }
+        if (bytesRead >= 4 && (
+          (buffer[0] === 0xFF && buffer[1] === 0xFE && buffer[2] === 0x00 && buffer[3] === 0x00) ||
+          (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0xFE && buffer[3] === 0xFF)
+        )) {
+          this.setCached(cacheKey, false)
+          return false
         }
-        
-        // Check for null bytes (but skip if it might be UTF-16/32)
-        let nullCount = 0
-        for (let i = 0; i < bytesRead; i++) {
-          if (buffer[i] === 0) nullCount++
-        }
-        
-        // If many nulls but not in UTF-16/32 pattern, it's binary
-        if (nullCount > bytesRead * 0.3) {
-          this.setCached(cacheKey, true)
-          return true
-        }
-        
-        // Check for high ratio of non-printable characters
-        let nonPrintable = 0
-        for (let i = 0; i < bytesRead; i++) {
-          const byte = buffer[i]!
-          if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) {
-            nonPrintable++
-          }
-        }
-        
-        const isBinary = nonPrintable / bytesRead > 0.3
+
+        const isBinary = buffer.subarray(0, bytesRead).includes(0)
         this.setCached(cacheKey, isBinary)
         return isBinary
       } finally {
@@ -372,7 +349,7 @@ export class GitReads {
       args.push('--cached')
     }
     if (filePath) {
-      args.push('--', filePath)
+      args.push('--', rowSpec(filePath))
     }
 
     const result = await this.runner.read(args, { signal })
@@ -484,7 +461,7 @@ export class GitReads {
       return ''
     }
 
-    if (await this.isBinaryFile(absPath)) {
+    if (await this.isBinaryFile(absPath, { external: true })) {
       return (
         `diff --git a/${absPath} b/${absPath}\n` +
         `new file mode 100644\n` +
@@ -678,12 +655,13 @@ export class GitReads {
   }
 
   async readCommitDistance(branch: string): Promise<number> {
-    const result = await this.runner.read(['rev-list', '--count', `${branch}..HEAD`])
+    const result = await this.runner.read(['rev-list', '--count', `${refArgument(branch, 'branch')}..HEAD`])
     if (!result.success || !result.output) return Infinity
     return parseInt(result.output.trim(), 10)
   }
 
   async findNearbyMergedBranches(depth: number): Promise<string[]> {
+    if (!Number.isInteger(depth) || depth < 0) throw new Error(`Invalid depth: ${JSON.stringify(depth)}`)
     const result = await this.runner.read([
       'branch', '--merged', 'HEAD', '--contains', `HEAD~${depth}`, '--format=%(refname:short)',
     ])
@@ -716,23 +694,25 @@ export class GitReads {
       
       // Status is just a letter (M, A, D, R, C, T, U)
       const status = statusOf(statusPart.charAt(0))
-      const path = parts[i++]
+      const filePath = parts[i++]
       
-      if (!path) continue
+      if (!filePath) continue
       
-      // For renames and copies, there's a second path
+      // For renames and copies, there's a second path and optional similarity score (e.g. R100, C095)
       if ((statusPart.startsWith('R') || statusPart.startsWith('C')) && i < parts.length && parts[i]) {
-        const originalPath = path
+        const originalPath = filePath
         const newPath = parts[i++]!
+        const parsedScore = /^[RC](\d+)$/.exec(statusPart)?.[1]
         files.push({
           path: newPath,
           status,
           staged: false,
-          originalPath
+          originalPath,
+          ...(parsedScore !== undefined && { score: Number(parsedScore) }),
         })
       } else {
         files.push({
-          path,
+          path: filePath,
           status,
           staged: false
         })
@@ -780,11 +760,12 @@ export class GitReads {
       .filter(ref => ref.startsWith('refs/remotes/') && !ref.endsWith('/HEAD'))
       .map(ref => ref.startsWith('refs/remotes/origin/') ? ref.slice('refs/remotes/origin/'.length) : ref.slice('refs/'.length))
 
-    // Case-insensitive dedup — prefer remote names (correct case from server) over local names: a remote
-    // duplicate overwrites a wrong-case local entry, in the local entry's place
+    // On case-insensitive platforms (macOS/Windows), deduplicate case-insensitively preferring remote names (server casing);
+    // on case-sensitive platforms (Linux), preserve distinct-case branch names such as `Main` vs `main`
+    const foldCase = process.platform === 'darwin' || process.platform === 'win32'
     const seen = new Map<string, string>()
     for (const branch of [...local, ...remote]) {
-      seen.set(branch.toLowerCase(), branch)
+      seen.set(foldCase ? branch.toLowerCase() : branch, branch)
     }
     return [...seen.values()]
   }
@@ -816,8 +797,8 @@ export class GitReads {
   async worktreeList(): Promise<WorktreeEntry[]> {
     const result = await this.runner.read(['worktree', 'list', '--porcelain'])
     if (!result.success || !result.output?.trim()) return []
-
-    return parseWorktreeList(result.output, this.workingDirectory)
+    const realCurrent = await fs.realpath(this.workingDirectory).catch(() => this.workingDirectory)
+    return parseWorktreeList(result.output, realCurrent)
   }
 
   async readCommitsBetween(baseBranch: string, targetBranch = 'HEAD'): Promise<{ subject: string; body: string }[]> {
@@ -836,6 +817,7 @@ export class GitReads {
   // --- Commit log operations ---
 
   async gitLog(count = 50): Promise<CommitLogEntry[]> {
+    if (!Number.isInteger(count) || count < 1) throw new Error(`Invalid commit count: ${JSON.stringify(count)}`)
     const result = await this.runner.read([
       'log', '-z', `-n${count}`,
       '--format=%H%x00%h%x00%s%x00%b%x00%an%x00%ae%x00%aI%x00%D',
@@ -907,8 +889,9 @@ export class GitReads {
     const remotes = (await this.runner.read(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
     if (remotes.length === 0) return undefined
     const branch = await this.runner.read(['symbolic-ref', '--quiet', '--short', 'HEAD'])
+    const settings = await this.runner.settings.read()
     const followed = branch.success && branch.output?.trim()
-      ? (await this.runner.read(['config', '--get', `branch.${branch.output.trim()}.remote`])).output?.trim()
+      ? settings.value(`branch.${branch.output.trim()}.remote`)?.trim()
       : undefined
     const name = followed && remotes.includes(followed) ? followed : remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0]! : undefined
     if (!name) return undefined

@@ -47,7 +47,7 @@ it('reads every kind of change, with paths that hold spaces and a folder git tra
     { path: 'fresh/', status: 'untracked', staged: false, isDirectory: true },
     { path: 'gone.txt', status: 'deleted', staged: false, originalPath: undefined },
     { path: 'kept.txt', status: 'modified', staged: false, originalPath: undefined },
-    { path: 'new name.txt', status: 'renamed', staged: true, originalPath: 'old name.txt' },
+    { path: 'new name.txt', status: 'renamed', staged: true, originalPath: 'old name.txt', score: 100 },
     { path: 'staged.txt', status: 'added', staged: true, originalPath: undefined },
   ]);
   expect(branch).toBe('main');
