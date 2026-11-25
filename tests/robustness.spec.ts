@@ -4,9 +4,9 @@ import { afterEach, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { run } from './_support/process.ts';
-import { GitRepository, STATUS_LIMIT } from '../src/index.ts';
-import { removeDirectory } from './_support/remove.ts';
+import { run } from './_support/process.js';
+import { GitRepository, STATUS_LIMIT } from '../src/index.js';
+import { removeDirectory } from './_support/remove.js';
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });

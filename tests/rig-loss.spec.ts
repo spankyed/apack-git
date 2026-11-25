@@ -3,7 +3,7 @@
 // held to: nothing is promised while events are lost; once a host says "look again", what is held is what git
 // says, and from then on a file made in any directory is seen without being asked for.
 import { afterEach, expect, it } from 'vitest';
-import { catchesUp, churn, cleanUp, platformWatch, probeEveryDirectory, seeded, watchedRepository } from './_support/rig.ts';
+import { catchesUp, churn, cleanUp, platformWatch, probeEveryDirectory, seeded, watchedRepository } from './_support/rig.js';
 
 afterEach(cleanUp);
 

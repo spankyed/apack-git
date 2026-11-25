@@ -4,10 +4,10 @@ import { afterEach, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { run } from './_support/process.ts';
-import { settles } from './_support/settles.ts';
-import { GitObjectReader, GitRepository, type WatchProcess } from '../src/index.ts';
-import { removeDirectory } from './_support/remove.ts';
+import { run } from './_support/process.js';
+import { settles } from './_support/settles.js';
+import { GitObjectReader, GitRepository, type WatchProcess } from '../src/index.js';
+import { removeDirectory } from './_support/remove.js';
 
 /**
  * What a host hands in to watch a git kept open. A host watches the work the process does; this one, for a

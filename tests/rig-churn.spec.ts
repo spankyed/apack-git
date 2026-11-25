@@ -4,7 +4,7 @@
 // the platform has delivered it.
 import * as path from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { PER_DIRECTORY, catchesUp, churn, cleanUp, directoriesOf, independentWatch, platformWatch, probeEveryDirectory, seeded, watchedRepository } from './_support/rig.ts';
+import { PER_DIRECTORY, catchesUp, churn, cleanUp, directoriesOf, independentWatch, platformWatch, probeEveryDirectory, seeded, watchedRepository } from './_support/rig.js';
 
 afterEach(cleanUp);
 

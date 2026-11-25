@@ -2,8 +2,8 @@
 // the checkout, refusing `..` escapes, NUL bytes, sibling-prefix collisions and symlinked directory escapes.
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { GitError } from './errors.ts'
-import type { GitDirectories } from './types.ts'
+import { GitError } from './errors.js'
+import type { GitDirectories } from './types.js'
 
 /** Internal directory record carrying git's own `--show-toplevel` beside the public `GitDirectories` fields */
 export interface LocatedDirectories extends GitDirectories {

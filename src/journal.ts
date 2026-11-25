@@ -9,12 +9,12 @@
 import { randomUUID } from 'node:crypto'
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { CHECKPOINT_MAX_AGE_MS, NO_LONGER_KEPT, type CheckpointStore } from './checkpoints.ts'
-import type { DiscardStore } from './discards.ts'
-import { GitError } from './errors.ts'
-import type { RepositoryModel } from './model.ts'
-import { failure, type GitRunner } from './runner.ts'
-import type { JournalEntry, Undoable, Undone } from './types.ts'
+import { CHECKPOINT_MAX_AGE_MS, NO_LONGER_KEPT, type CheckpointStore } from './checkpoints.js'
+import type { DiscardStore } from './discards.js'
+import { GitError } from './errors.js'
+import type { RepositoryModel } from './model.js'
+import { failure, type GitRunner } from './runner.js'
+import type { JournalEntry, Undoable, Undone } from './types.js'
 
 /** The most entries kept: past it the oldest go, which are the likeliest to have moved since */
 const KEPT_ENTRIES = 100

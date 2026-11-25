@@ -1,6 +1,6 @@
 // A status as git prints it, read into a snapshot, and what tells one reading of a repository from the next
-import { REPOSITORY_PARTS } from './types.ts'
-import type { ConflictKind, GitStatusFile, RepositoryChange, RepositoryOperation, RepositoryPart, RepositorySnapshot } from './types.ts'
+import { REPOSITORY_PARTS } from './types.js'
+import type { ConflictKind, GitStatusFile, RepositoryChange, RepositoryOperation, RepositoryPart, RepositorySnapshot } from './types.js'
 
 /** The most changed files a snapshot lists; past it the list is cut and says so */
 export const STATUS_LIMIT = 10_000

@@ -5,9 +5,9 @@ import { afterEach, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { run } from './_support/process.ts';
-import { removeDirectory } from './_support/remove.ts';
-import { GIT_FLOOR, GitRepository, GitUnusableError, gitVersionOf, olderThan, runUnbounded, type RunProcess } from '../src/index.ts';
+import { run } from './_support/process.js';
+import { removeDirectory } from './_support/remove.js';
+import { GIT_FLOOR, GitRepository, GitUnusableError, gitVersionOf, olderThan, runUnbounded, type RunProcess } from '../src/index.js';
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });

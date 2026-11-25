@@ -3,7 +3,7 @@
 // every step, what the repository holds must be what a repository that has read nothing gets from a whole status.
 // A difference prints the seed and the fewest steps that still show it.
 import { expect, it } from 'vitest'
-import { runSequence, shortestFailing, stepsOf } from './_support/sequences.ts'
+import { runSequence, shortestFailing, stepsOf } from './_support/sequences.js'
 
 /** Fixed, so a run here is a run anywhere; `npm run soak:sequences` takes as many more as it is given */
 const SEEDS = [1, 7, 42, 20261112]

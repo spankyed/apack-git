@@ -6,10 +6,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
-import { run } from './_support/process.ts';
-import { removeDirectory } from './_support/remove.ts';
-import { settles } from './_support/settles.ts';
-import { GitRepository, runUnbounded } from '../src/index.ts';
+import { run } from './_support/process.js';
+import { removeDirectory } from './_support/remove.js';
+import { settles } from './_support/settles.js';
+import { GitRepository, runUnbounded } from '../src/index.js';
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });

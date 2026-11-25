@@ -1,9 +1,9 @@
 // Diffs as data: how many lines each changed file adds and removes, in the working tree and in a commit or a stash,
 // and which files a commit or a stash changed. Each is git's own count (`--numstat`), read in one command for every
 // file at once.
-import { commitArgument, stashArgument } from './arguments.ts'
-import { failure, type GitRunner } from './runner.ts'
-import type { ChangedFile, LineCount } from './types.ts'
+import { commitArgument, stashArgument } from './arguments.js'
+import { failure, type GitRunner } from './runner.js'
+import type { ChangedFile, LineCount } from './types.js'
 
 /** The letter git names a change by, as a status names it */
 const STATUS_OF: Record<string, ChangedFile['status']> = { A: 'added', D: 'deleted', M: 'modified', R: 'renamed', C: 'copied', T: 'typechange' }

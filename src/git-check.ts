@@ -3,8 +3,8 @@
 // are installed, and that it is new enough for what the engine asks of it.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { GitError } from './errors.ts'
-import type { RunProcess } from './ties.ts'
+import { GitError } from './errors.js'
+import type { RunProcess } from './ties.js'
 
 /**
  * The oldest git the engine works with: the oldest the suite passes on in CI (`.github/workflows/ci.yml`, the `git`

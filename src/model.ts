@@ -2,13 +2,13 @@
 // of the repository differ from the last time it was checked.
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { fallbackTop, type LocatedDirectories } from './paths.ts'
-import { failure, type GitRunner } from './runner.ts'
+import { fallbackTop, type LocatedDirectories } from './paths.js'
+import { failure, type GitRunner } from './runner.js'
 import {
   NOTED_PATHS_LIMIT, STATUS_LIMIT, WHOLE_TREE_FILES, differingFiles, inStatusOrder, nameOfCommit, partsAll, pathFolding, snapshotOf, splitStatus,
   type LoadedSnapshot, type SnapshotIdentity, type StatusEntry,
-} from './status.ts'
-import type { GitDirectories, GitStatusFile, RepositoryChange, RepositoryOperation, RepositorySnapshot } from './types.ts'
+} from './status.js'
+import type { GitDirectories, GitStatusFile, RepositoryChange, RepositoryOperation, RepositorySnapshot } from './types.js'
 
 /**
  * How many checks of everything in a row must find changes the watcher never reported before the snapshot says live
@@ -93,10 +93,6 @@ export class RepositoryModel {
     if (this.unread !== 'anything') this.unread = 'status'
   }
 
-  /**
-   * Notes what a watcher saw change, which is what the next snapshot asked for reads: these paths in the working
-   * tree, relative to the working directory with `/` between their parts, or everything when it could not name them
-   */
   /** What the watcher has reported since the last check of everything, which a check's findings are held to */
   private notedSinceCheck = 0
   /** Checks of everything in a row that found changes the watcher had said nothing of */
@@ -107,6 +103,10 @@ export class RepositoryModel {
     return this.watched && !this.watchFailed && this.missedChecks >= MISSED_CHECKS_SILENT
   }
 
+  /**
+   * Notes what a watcher saw change, which is what the next snapshot asked for reads: these paths in the working
+   * tree, relative to the working directory with `/` between their parts, or everything when it could not name them
+   */
   noteChanged(paths: string[] | 'index' | null): void {
     this.notedSinceCheck++
     // A change too wide to name, or to git's own state: a checkout, a formatter over the tree, a commit elsewhere

@@ -15,14 +15,18 @@ on:
         type: string
         default: '1000 100000'
 
+permissions:
+  contents: read
+
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   suite:
     name: suite (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +56,7 @@ jobs:
   git:
     name: git (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     container: ${{ matrix.image }}
     strategy:
       fail-fast: false
@@ -94,6 +99,7 @@ jobs:
   budgets:
     name: budgets (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -117,6 +123,7 @@ jobs:
   # (packages.yml)
   workflows:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -128,5 +135,6 @@ jobs:
     if: always()
     needs: [suite, git, workflows]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - run: test "${{ needs.suite.result }}" = "success" && test "${{ needs.git.result }}" = "success" && test "${{ needs.workflows.result }}" = "success"

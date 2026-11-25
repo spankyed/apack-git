@@ -4,7 +4,7 @@
 import * as os from 'node:os'
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import type { LocatedDirectories } from './paths.ts'
+import type { LocatedDirectories } from './paths.js'
 
 /** Runs one git that reads and runs nothing: `rev-parse` for where the repository is, `config --list` for what it says */
 export type ReadGit = (args: string[]) => Promise<{ success: boolean; output?: string; error?: string }>

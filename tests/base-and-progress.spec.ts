@@ -4,9 +4,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { run } from './_support/process.ts';
-import { GitRepository, progressReader, withoutProgress } from '../src/index.ts';
-import { removeDirectory } from './_support/remove.ts';
+import { run } from './_support/process.js';
+import { GitRepository, progressReader, withoutProgress } from '../src/index.js';
+import { removeDirectory } from './_support/remove.js';
 
 const directories: string[] = [];
 afterEach(async () => {

@@ -1,4 +1,4 @@
-import type { GitStatusFile } from './types.ts'
+import type { GitStatusFile } from './types.js'
 
 /**
  * The changed files as git will list them once some are staged or unstaged, for a window to show at once: the

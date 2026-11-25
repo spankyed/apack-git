@@ -1,8 +1,8 @@
 // A repository's branches, remotes and tags, as one model: every branch with what it follows and how far from it it
 // is, read in one command, the remotes with their addresses, and the tags.
-import { refArgument } from './arguments.ts'
-import { failure, type GitRunner } from './runner.ts'
-import type { BranchStanding, RefsModel } from './types.ts'
+import { refArgument } from './arguments.js'
+import { failure, type GitRunner } from './runner.js'
+import type { BranchStanding, RefsModel } from './types.js'
 
 const FIELDS = ['%(refname)', '%(refname:short)', '%(objectname)', '%(HEAD)', '%(upstream:short)', '%(upstream:track,nobracket)', '%(*objectname)']
 

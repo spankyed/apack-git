@@ -6,9 +6,9 @@ import * as path from 'node:path'
 import {
   GitRepository, GitWatcherService, nodeSubscriber, perDirectorySubscriber,
   type RepositorySnapshot, type SubscribeToDirectory, type WatchDirectory, type WatchTree,
-} from '../../src/index.ts'
-import { run } from './process.ts'
-import { removeDirectory } from './remove.ts'
+} from '../../src/index.js'
+import { run } from './process.js'
+import { removeDirectory } from './remove.js'
 
 /** Whether this platform has no watch over a tree, and holds one on each directory instead */
 export const PER_DIRECTORY = process.platform !== 'darwin' && process.platform !== 'win32'

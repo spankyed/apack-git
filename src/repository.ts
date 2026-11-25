@@ -1,38 +1,38 @@
 // One working tree's repository: the door's class. It holds the engine's four parts and is what a host calls;
 // each method here is one of theirs.
 import * as path from 'path'
-import { GitReads } from './reads.ts'
-import { Trailers } from './trailers.ts'
-import { RepositoryModel } from './model.ts'
-import { GitRunner, failure, fetchingMissing } from './runner.ts'
-import type { RepositoryTies } from './ties.ts'
-import { GitWrites } from './writes.ts'
-import { olderThan } from './git-check.ts'
+import { GitReads } from './reads.js'
+import { Trailers } from './trailers.js'
+import { RepositoryModel } from './model.js'
+import { GitRunner, failure, fetchingMissing } from './runner.js'
+import type { RepositoryTies } from './ties.js'
+import { GitWrites } from './writes.js'
+import { olderThan } from './git-check.js'
+import { repositoriesUnder } from './repositories-under.js'
+import { addressArgument, cloneInto, initIn } from './clone.js'
+import { refArgument } from './arguments.js'
+import { History } from './history.js'
+import { Blame } from './blame.js'
+import { Refs } from './refs.js'
+import { MergePreviews } from './merge-preview.js'
+import { CheckpointStore } from './checkpoints.js'
+import { Journal } from './journal.js'
+import { DiscardStore } from './discards.js'
+import { DiffData } from './diff-data.js'
+import type { GitErrorCode } from './errors.js'
+import type { TrustReading } from './trust.js'
+import type {
+  BranchCheckout, ChangedFile, FoundRepository, GitRemote, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, DiffHunk, DiscardKept, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, Trailer, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep, Undoable, Undone,
+} from './types.js'
 
 /** The first git with a file monitor of its own, on macOS and Windows */
 export const FILE_MONITOR_FROM = '2.37.0'
-import { repositoriesUnder } from './repositories-under.ts'
-import { addressArgument, cloneInto, initIn } from './clone.ts'
-import { refArgument } from './arguments.ts'
-import { History } from './history.ts'
-import { Blame } from './blame.ts'
-import { Refs } from './refs.ts'
-import { MergePreviews } from './merge-preview.ts'
-import { CheckpointStore } from './checkpoints.ts'
-import { Journal } from './journal.ts'
-import { DiscardStore } from './discards.ts'
-import { DiffData } from './diff-data.ts'
-import type { GitErrorCode } from './errors.ts'
-import type { TrustReading } from './trust.ts'
-import type {
-  BranchCheckout, ChangedFile, FoundRepository, GitRemote, Checkpoint, CheckpointChange, CommitLogEntry, ConflictAnswer, ConflictSides, DiffHunk, DiscardKept, GitDirectories, GitProgress, GitStatusFile, LineCount, OperationMove, RepositoryChange, RepositorySnapshot, StashEntry, Trailer, WorktreeEntry, HistoryPage, BlameLine, RefsModel, MergePreview, RewriteStep, Undoable, Undone,
-} from './types.ts'
 
 export class GitRepository {
   /**
    * Every repository under a folder: its own, or the one it is in, first, then the repositories nested in it,
    * submodules and linked worktrees, by path. Each opens as a `GitRepository` of its own, with its own trust and its
-   * own watcher. `truncated` when the walk stopped at its bound (`FIND_DEPTH`, `FIND_FOLDERS`).
+   * own watcher. `truncated` when the walk stopped at its bound (6 levels deep or 20,000 folders).
    */
   static repositoriesUnder(folder: string): Promise<{ repositories: FoundRepository[]; truncated: boolean }> {
     return repositoriesUnder(folder)
@@ -634,10 +634,6 @@ export class GitRepository {
   }
 
   /**
-   * Every local branch, then every remote one, each most recently committed first. A branch of `origin` is
-   * named as the local branch it would be checked out as; one of another remote keeps `remotes/<remote>/`.
-   */
-  /**
    * Every branch, local and each remote's, with what it follows and how far ahead and behind it is, read in one
    * command; the remotes with their addresses; and the tags. The snapshot's `refs` part says when any of it moved.
    */
@@ -645,6 +641,10 @@ export class GitRepository {
     return this.refs.model()
   }
 
+  /**
+   * Every local branch, then every remote one, each most recently committed first. A branch of `origin` is
+   * named as the local branch it would be checked out as; one of another remote keeps `remotes/<remote>/`.
+   */
   readBranches(): Promise<string[]> {
     return this.reads.readBranches()
   }

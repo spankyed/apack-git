@@ -1,10 +1,10 @@
 // What a merge or a pull would do, before it is done: nothing, a fast-forward, a clean merge, or a merge that stops
 // on conflicts in these files. Asked of `git merge-tree --write-tree`, which merges in the object store alone and
 // moves no ref, no index and no file. A git without it (before 2.38) answers that it is not known.
-import { refArgument } from './arguments.ts'
-import { olderThan } from './git-check.ts'
-import { failure, type GitRunner } from './runner.ts'
-import type { MergePreview } from './types.ts'
+import { refArgument } from './arguments.js'
+import { olderThan } from './git-check.js'
+import { failure, type GitRunner } from './runner.js'
+import type { MergePreview } from './types.js'
 
 /** The first git with `merge-tree --write-tree` */
 export const MERGE_TREE_FROM = '2.38.0'

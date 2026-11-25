@@ -4,10 +4,10 @@
 // out, and their lines go to the commit before.
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { refArgument } from './arguments.ts'
-import type { RepositoryModel } from './model.ts'
-import { failure, type GitRunner } from './runner.ts'
-import type { BlameLine } from './types.ts'
+import { refArgument } from './arguments.js'
+import type { RepositoryModel } from './model.js'
+import { failure, type GitRunner } from './runner.js'
+import type { BlameLine } from './types.js'
 
 /** The file a repository lists commits in for blame to leave out, by the name GitHub and others read it at */
 const IGNORE_FILE = '.git-blame-ignore-revs'

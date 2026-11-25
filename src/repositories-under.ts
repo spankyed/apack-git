@@ -4,7 +4,7 @@
 // repository's `worktrees/` for a linked worktree. Found by walking the folder, without running git.
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import type { FoundRepository } from './types.ts'
+import type { FoundRepository } from './types.js'
 
 /** Folders not walked into: what a package manager installs holds repositories nobody opened */
 const NOT_WALKED = new Set(['node_modules', '.git'])

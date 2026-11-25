@@ -31,6 +31,9 @@ const npm = (cwd, args) => execFileSync(process.execPath, [NPM, ...args], { cwd,
 
 const scratch = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-git-package-')))
 try {
+  if (Object.keys(MANIFEST.dependencies ?? {}).length > 0) {
+    throw new Error(`The package must have zero runtime dependencies, found: ${Object.keys(MANIFEST.dependencies).join(', ')}`)
+  }
   const [packed] = JSON.parse(npm(ROOT, ['pack', '--json', '--pack-destination', scratch]))
   const shipped = packed.files.map((file) => file.path)
   const stray = shipped.filter((file) => !/^(dist\/[^/]+\.(js|js\.map|d\.ts)|package\.json|README\.md|REFERENCE\.md|LICENSE)$/.test(file))
@@ -45,11 +48,28 @@ try {
   fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module' }))
   npm(consumer, ['install', '--install-strategy=nested', '--no-audit', '--no-fund', '--no-package-lock', path.join(scratch, packed.filename)])
 
+  // Shipped declaration files must never point at `.ts` specifiers (`src/` is not shipped; strict consumers fail)
+  const installedRoot = path.join(consumer, 'node_modules', ...MANIFEST.name.split('/'))
+  const tsSpecifier = /(?:from\s+|import\s*\(\s*)(['"])\.\.?\/[^'"]+\.ts\1/
+  const badDeclarations = shipped
+    .filter((file) => file.endsWith('.d.ts'))
+    .filter((file) => tsSpecifier.test(fs.readFileSync(path.join(installedRoot, file), 'utf8')))
+  if (badDeclarations.length > 0) {
+    throw new Error(`Shipped declarations reference unshipped .ts specifiers: ${badDeclarations.join(', ')}`)
+  }
+
   // Each entry's namespace is used, and a member it doesn't have is an error: an entry typed `any` would let it through
   fs.writeFileSync(path.join(consumer, 'entries.ts'), [
     ...typed.map((specifier, i) => `import * as entry${i} from '${specifier}'`),
     ...typed.map((_, i) => `// @ts-expect-error no entry exports this\nentry${i}.notExported`),
     `export const entries = [${typed.map((_, i) => `entry${i}`).join(', ')}]`,
+  ].join('\n') + '\n')
+  // Browser-safe subpaths must compile with zero Node types (`types: []`)
+  const browserEntries = typed.filter((specifier) => specifier !== MANIFEST.name)
+  fs.writeFileSync(path.join(consumer, 'browser-entries.ts'), [
+    ...browserEntries.map((specifier, i) => `import * as browser${i} from '${specifier}'`),
+    ...browserEntries.map((_, i) => `// @ts-expect-error no entry exports this\nbrowser${i}.notExported`),
+    `export const browserEntries = [${browserEntries.map((_, i) => `browser${i}`).join(', ')}]`,
   ].join('\n') + '\n')
   for (const [resolution, module] of [['node16', 'node16'], ['bundler', 'esnext']]) {
     const config = path.join(consumer, `tsconfig.${resolution}.json`)
@@ -64,6 +84,19 @@ try {
       execFileSync(process.execPath, [TSC, '-p', config], { cwd: consumer, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
     } catch (error) {
       throw new Error(`The entries don't compile for a consumer under ${resolution} resolution:\n${error.stdout}${error.stderr}`)
+    }
+    const browserConfig = path.join(consumer, `tsconfig.browser.${resolution}.json`)
+    fs.writeFileSync(browserConfig, JSON.stringify({
+      compilerOptions: {
+        module, moduleResolution: resolution, target: 'es2022', lib: ['es2022'], strict: true, noEmit: true, skipLibCheck: false,
+        types: [],
+      },
+      files: ['browser-entries.ts'],
+    }))
+    try {
+      execFileSync(process.execPath, [TSC, '-p', browserConfig], { cwd: consumer, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (error) {
+      throw new Error(`Browser-safe entries (${browserEntries.join(', ')}) require Node types under ${resolution} resolution:\n${error.stdout}${error.stderr}`)
     }
   }
 

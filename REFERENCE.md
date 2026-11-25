@@ -390,7 +390,7 @@ interface GitRemote {
 - `pushBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void>` — Pushes the branch, publishing it when it is not: to the remote the branch is set to push to, else `origin`, else the only remote (`no-remote` when that leaves none). With no branch checked out it is refused as `detached-head`. `signal` stops it, and the push then rejects with a `GitError` coded `aborted`
 - `pushTag(name: string, options?: { remote?: string; onProgress?: (progress: GitProgress) => void; signal?: AbortSignal; }): Promise<void>` — Pushes a tag to a remote, `origin` unless another is named, with progress, stopped through `signal`
 - `readBranchDiff(baseBranch: string, targetBranch?: string): Promise<GitStatusFile[]>`
-- `readBranches(): Promise<string[]>`
+- `readBranches(): Promise<string[]>` — Every local branch, then every remote one, each most recently committed first. A branch of `origin` is named as the local branch it would be checked out as; one of another remote keeps `remotes/<remote>/`.
 - `readCommitDistance(branch: string): Promise<number>` — How many commits the checked-out commit has that this branch does not: `Infinity` when git cannot say
 - `readCommitsBetween(baseBranch: string, targetBranch?: string): Promise<{ subject: string; body: string; }[]>`
 - `readCurrentBranch(): Promise<string>`
@@ -837,7 +837,7 @@ interface RepositoryTies {
   log?: RepositoryLog
   /** How long a command waits for another git to let go of a lock it needs */
   lockPatienceMs?: number
-  /** How long a whole status may take before the snapshot says it is slow (`STATUS_BUDGET_MS` when not given) */
+  /** How long a whole status may take before the snapshot says it is slow (1,000 ms when not given) */
   statusBudgetMs?: number
   /**
    * Whether the repository whose git state lives at this real path is one the host trusts to have git run what

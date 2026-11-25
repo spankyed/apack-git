@@ -4,11 +4,11 @@ import { afterEach, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { settles } from './_support/settles.ts';
+import { settles } from './_support/settles.js';
 import {
   nodeSubscriber, perDirectorySubscriber, type WatchDirectory, type WatchedChange, type WatchTree,
-} from '../src/index.ts';
-import { removeDirectory } from './_support/remove.ts';
+} from '../src/index.js';
+import { removeDirectory } from './_support/remove.js';
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await removeDirectory(root); });
