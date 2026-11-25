@@ -109,11 +109,14 @@ it('refuses a commit that is not here, and a checkout over changes it would lose
 });
 
 it('lists every remote with its address as git would use it', async () => {
-  const { checkout, remote, repo } = await cloned();
+  const { checkout, remote } = await cloned();
   await git(checkout, 'remote', 'add', 'upstream', 'gh:octo/repo');
   await git(checkout, 'config', 'url.https://github.com/.insteadOf', 'gh:');
+  // Local `url.*.insteadOf` asks to be trusted before git applies it
+  const trusted = new GitRepository(checkout, { isTrusted: () => true });
+  repositories.push(trusted);
 
-  expect(await repo.readRemotes()).toEqual([
+  expect(await trusted.readRemotes()).toEqual([
     { name: 'origin', url: remote },
     { name: 'upstream', url: 'https://github.com/octo/repo' },
   ]);

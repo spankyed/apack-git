@@ -310,7 +310,7 @@ export class GitRunner {
     this.log = ties.log ?? {}
     // Its reads run beside every other, in no lane, and are not themselves gated
     this.settings = new HeldSettings(workingDirectory, args => this.runGitOnce(args), this.environment)
-    this.trust = new TrustGate(workingDirectory, this.settings, ties.isTrusted)
+    this.trust = new TrustGate(workingDirectory, this.settings, ties.isTrusted, args => this.runGitOnce(args))
   }
 
   /** What every git child of this repository runs with: the engine's own over what the host handed in */

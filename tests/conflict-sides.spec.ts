@@ -102,3 +102,16 @@ it('resolves with one side as it is', async () => {
   expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('first\ntheirs\nlast\n');
   expect(await git('diff', '--name-only', '--diff-filter=U', '--', 'a.txt')).toBe('');
 });
+
+it('refuses to resolve a path outside the repository or one without a conflict', async () => {
+  const { root, repo } = await conflicted();
+  const outside = path.join(path.dirname(root), `conflict-out-${path.basename(root)}.txt`);
+  try {
+    await expect(repo.resolveConflict(`../${path.basename(outside)}`, { content: 'bad\n' })).rejects.toThrow('escapes repository');
+    expect(fs.existsSync(outside)).toBe(false);
+    await expect(repo.resolveConflict('not-conflicted.txt', { content: 'bad\n' })).rejects.toThrow('has no conflict');
+    expect(fs.existsSync(path.join(root, 'not-conflicted.txt'))).toBe(false);
+  } finally {
+    fs.rmSync(outside, { force: true });
+  }
+});

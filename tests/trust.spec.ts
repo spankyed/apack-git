@@ -185,7 +185,7 @@ it.each([
   ['core.repositoryformatversion', '0'], ['core.ignorecase', 'true'], ['user.email', 'a@b.c'], ['remote.origin.url', 'https://example.com/r.git'],
   ['remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*'], ['branch.feature/x.y.merge', 'refs/heads/main'], ['branch.main.apack-base', 'develop'],
   ['status.showuntrackedfiles', 'all'], ['pull.ff', 'only'], ['submodule.lib.url', '../lib'], ['submodule.lib.update', 'rebase'],
-  ['credential.helper', ''], ['core.fsmonitor', 'false'], ['core.fsmonitor', 'true'], ['color.diff.new', 'green'], ['alias.co', 'checkout'], ['url.git@host:.insteadof', 'https://host/'],
+  ['credential.helper', ''], ['core.fsmonitor', 'false'], ['core.fsmonitor', 'true'], ['color.diff.new', 'green'], ['alias.co', 'checkout'],
   ['include.path', 'other.config'], ['extensions.worktreeconfig', 'true'], ['lfs.repositoryformatversion', '0'],
 ])('knows %s runs nothing', (key, value) => {
   expect(settingRunsNothing(key, value)).toBe(true);
@@ -193,6 +193,8 @@ it.each([
 
 it.each([
   ['core.fsmonitor', '/tmp/watch.sh'], ['core.hookspath', '/tmp/hooks'], ['core.sshcommand', 'ssh -o x'], ['core.pager', 'less'],
+  ['core.worktree', '/tmp/other'], ['branch.main.mergeoptions', '-s evil'],
+  ['url.git@host:.insteadof', 'https://host/'], ['http.proxy', 'http://proxy:8080'], ['http.sslverify', 'false'], ['http.extraheader', 'X-Test: 1'],
   ['core.editor', 'vim'], ['core.askpass', '/tmp/ask'], ['core.gitproxy', '/tmp/proxy'], ['credential.helper', 'store'],
   ['credential.https://example.com.helper', '!f() { :; }; f'], ['diff.external', '/tmp/diff'], ['diff.pdf.textconv', 'pdftotext'], ['diff.pdf.command', 'x'],
   ['merge.ours.driver', 'true'], ['filter.lfs.clean', 'git-lfs clean -- %f'], ['filter.lfs.process', 'git-lfs filter-process'], ['gpg.program', '/tmp/gpg'],
@@ -201,6 +203,53 @@ it.each([
   ['trailer.sign.command', 'x'], ['interactive.difffilter', 'x'], ['pager.status', 'x'], ['mergetool.x.cmd', 'x'], ['a.setting.nobody.listed', '1'], ['nosection', '1'],
 ])('asks about %s = %s', (key, value) => {
   expect(settingRunsNothing(key, value)).toBe(false);
+});
+
+it('does not run a program configured inside an initialized submodule until the repository is trusted', async () => {
+  const { root, program, ran } = await repository();
+  const subSource = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-trust-sub-')));
+  directories.push(subSource);
+  await git(subSource, 'init', '--quiet', '--initial-branch=main');
+  fs.writeFileSync(path.join(subSource, 's.txt'), 'sub\n');
+  await git(subSource, 'add', '.');
+  await git(subSource, 'commit', '--quiet', '-m', 'sub');
+  await git(root, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', subSource, 'sub');
+  await git(root, 'commit', '--quiet', '-m', 'add sub');
+
+  // A clean initialized submodule asks nothing (its own `core.worktree` points inside the parent, and opening
+  // the submodule directly sees its `.git` gitfile pointing back to its module git directory)
+  const repo = new GitRepository(root);
+  expect((await repo.readTrust()).asks).toEqual([]);
+  expect((await repo.readSnapshot()).branch).toBe('main');
+  const subRepo = new GitRepository(path.join(root, 'sub'));
+  expect((await subRepo.readTrust()).asks).toEqual([]);
+  expect((await subRepo.readSnapshot()).branch).toBe('main');
+
+  // Configuring a program inside the submodule's git config blocks parent status until trusted
+  await git(path.join(root, 'sub'), 'config', 'core.fsmonitor', program);
+  const error = await refused(repo.readSnapshot());
+  expect(error).toBeInstanceOf(UntrustedError);
+  expect(error.asks).toEqual([{ kind: 'setting', key: 'core.fsmonitor', value: program, file: path.join(root, '.git', 'modules', 'sub', 'config') }]);
+  expect(ran(), 'the submodule program was not run').toBe(false);
+});
+
+it('asks when a repository sets core.worktree pointing outside itself', async () => {
+  const { root } = await repository();
+  await git(root, 'config', 'core.worktree', '..');
+  const repo = new GitRepository(root);
+  expect((await repo.readTrust()).asks.map(ask => ask.kind === 'setting' && ask.key)).toEqual(['core.worktree']);
+});
+
+it('allows global url.insteadOf while asking when set locally in the repository', async () => {
+  const { root } = await repository();
+  const globalConfig = path.join(fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-trust-global-'))), 'gitconfig');
+  directories.push(path.dirname(globalConfig));
+  fs.writeFileSync(globalConfig, '[url "https://mirror.example/"]\n\tinsteadOf = https://origin.example/\n');
+  const repo = new GitRepository(root, { environment: () => ({ ...process.env, GIT_CONFIG_GLOBAL: globalConfig }) });
+
+  expect((await repo.readTrust()).asks).toEqual([]);
+  await git(root, 'config', 'url.https://evil.example/.insteadOf', 'https://github.com/');
+  expect((await repo.readTrust()).asks.map(ask => ask.kind === 'setting' && ask.key)).toEqual(['url.https://evil.example/.insteadof']);
 });
 
 // A configuration git cannot parse says nothing of what it names, which is not the same as naming nothing. Git

@@ -67,4 +67,24 @@ it('starts a repository, and adds, re-addresses, renames and removes its remotes
   await repo.removeRemote('upstream');
   expect((await repo.refsModel()).remotes).toEqual([]);
   await expect(repo.addRemote('origin', '--upload-pack=x')).rejects.toThrow('Invalid address');
+  await expect(repo.addRemote('origin', 'ext::sh -c evil')).rejects.toThrow('Invalid address');
+});
+
+it('refuses to clone into an existing non-empty directory without deleting its contents', async () => {
+  const existing = temporary('non-empty');
+  fs.writeFileSync(path.join(existing, 'precious.txt'), 'keep me\n');
+
+  await expect(GitRepository.clone('https://example.invalid/repo.git', existing)).rejects.toThrow('not an empty directory');
+  expect(fs.readFileSync(path.join(existing, 'precious.txt'), 'utf8')).toBe('keep me\n');
+});
+
+it('refuses dangerous protocols and pre-aborted clones without touching disk', async () => {
+  const into = path.join(temporary('aborted'), 'nested', 'repo');
+  const stop = new AbortController();
+  stop.abort();
+
+  await expect(GitRepository.clone('https://example.invalid/repo.git', into, { signal: stop.signal })).rejects.toMatchObject({ code: 'aborted' });
+  expect(fs.existsSync(path.dirname(into))).toBe(false);
+  await expect(GitRepository.clone('ext::sh -c touch% /tmp/x', into)).rejects.toThrow('Invalid address');
+  await expect(GitRepository.init(into, { initialBranch: '--evil' })).rejects.toThrow('Invalid branch name');
 });

@@ -242,3 +242,44 @@ it('leaves no index of its own behind', async () => {
   expect(fs.readdirSync(path.join(root, '.git')).filter(name => name.startsWith('apack-kept-'))).toEqual([]);
   expect(fs.readdirSync(store).filter(name => name.startsWith('index-'))).toEqual([]);
 });
+
+it('refuses path traversal and symlink escapes when discarding files', async () => {
+  const { root, repo } = await repository();
+  const outside = path.join(path.dirname(root), `victim-${path.basename(root)}.txt`);
+  fs.writeFileSync(outside, 'do not delete\n');
+  try {
+    write(root, 'untracked-dir/inside.txt', 'inside\n');
+    await expect(repo.revertFile(`untracked-dir/../../${path.basename(outside)}`)).rejects.toThrow('escapes repository');
+    expect(fs.existsSync(outside)).toBe(true);
+
+    if (process.platform !== 'win32') {
+      const outsideDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-discards-out-')));
+      directories.push(outsideDir);
+      const target = path.join(outsideDir, 'keep.txt');
+      fs.writeFileSync(target, 'keep\n');
+      fs.symlinkSync(outsideDir, path.join(root, 'untracked-dir', 'escape'));
+      await expect(repo.revertFile('untracked-dir/escape/keep.txt')).rejects.toThrow('escapes repository');
+      expect(fs.existsSync(target)).toBe(true);
+    }
+  } finally {
+    fs.rmSync(outside, { force: true });
+  }
+});
+
+it('discards an unmerged deleted-by-us file from a working directory under the top', async () => {
+  const { root } = await repository();
+  write(root, 'du.txt', 'base\n');
+  await git(root, 'add', 'du.txt');
+  await git(root, 'commit', '--quiet', '-m', 'add du');
+  await git(root, 'checkout', '--quiet', '-b', 'side');
+  write(root, 'du.txt', 'modified on side\n');
+  await git(root, 'commit', '--quiet', '-am', 'mod du');
+  await git(root, 'checkout', '--quiet', 'main');
+  await git(root, 'rm', '--quiet', 'du.txt');
+  await git(root, 'commit', '--quiet', '-m', 'rm du');
+  await git(root, 'merge', '--quiet', 'side').catch(() => {});
+
+  const subRepo = new GitRepository(path.join(root, 'src'));
+  await subRepo.revertFile('du.txt');
+  expect(fs.existsSync(path.join(root, 'du.txt'))).toBe(false);
+});

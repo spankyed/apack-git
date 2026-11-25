@@ -17,6 +17,7 @@ import * as fs from 'fs/promises'
 import { rowSpec } from './arguments.ts'
 import { GitError } from './errors.ts'
 import type { RepositoryModel } from './model.ts'
+import { fallbackTop, resolveInsideTop } from './paths.ts'
 import { failure, type GitRunner } from './runner.ts'
 import type { Checkpoint, CheckpointChange } from './types.ts'
 
@@ -89,7 +90,7 @@ export class CheckpointStore {
       // Spelled with `/`, which git reads on every platform
       await fs.writeFile(path.join(store, 'objects', 'info', 'alternates'), `${objects.replaceAll('\\', '/')}\n`)
       return {
-        top: path.resolve(this.runner.workingDirectory, ...directories.prefix.split('/').filter(Boolean).map(() => '..')),
+        top: directories.top ?? fallbackTop(this.runner.workingDirectory, directories),
         gitDir: directories.gitDir,
         store,
         objects,
@@ -273,7 +274,7 @@ export class CheckpointStore {
           if (!out.success) throw failure(out, 'Failed to put back a copy of the working tree')
         }
         for (const { path: file } of changes.filter(({ change }) => change === 'added')) {
-          await fs.rm(path.join(where.top, file), { force: true })
+          await fs.rm(await resolveInsideTop(where.top, file), { force: true })
         }
       })
       this.model.markSnapshotStale()

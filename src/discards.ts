@@ -3,11 +3,11 @@
 // outside the repository (`checkpoints.ts`), named by its id. `restore` puts it back.
 //
 // The user's index, refs, objects and stash are not touched, in either direction.
-import * as path from 'path'
 import * as fs from 'fs/promises'
 import { rowSpec } from './arguments.ts'
 import { KEPT_FILE_LIMIT, type CheckpointStore } from './checkpoints.ts'
 import type { RepositoryModel } from './model.ts'
+import { resolveInsideTop } from './paths.ts'
 import { failure, type GitRunner } from './runner.ts'
 import { splitStatus } from './status.ts'
 import type { DiscardKept, DiscardRestored } from './types.ts'
@@ -21,8 +21,7 @@ export class DiscardStore {
    * it removes. A path with no file is a deletion being discarded, which removes nothing.
    */
   private async filesOf(rows: string[]): Promise<{ file: string; size: number }[]> {
-    const directories = await this.model.directories()
-    const top = path.resolve(this.runner.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
+    const top = await this.model.checkoutTop()
     const named = new Set<string>()
     for (const row of rows) {
       if (!row.endsWith('/')) {
@@ -34,7 +33,8 @@ export class DiscardStore {
       for (const file of (listed.output ?? '').split('\0')) if (file && !file.endsWith('/')) named.add(file)
     }
     const found = await Promise.all([...named].map(async (file) => {
-      const stats = await fs.lstat(path.join(top, file)).catch(() => undefined)
+      const resolved = await resolveInsideTop(top, file)
+      const stats = await fs.lstat(resolved).catch(() => undefined)
       // A folder here is a repository of its own inside an untracked one, which git neither lists into nor removes
       return stats && !stats.isDirectory() ? [{ file, size: stats.size }] : []
     }))

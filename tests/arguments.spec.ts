@@ -96,3 +96,40 @@ it('reads an image from a commit with every byte as it was committed', async () 
 
   expect(await repo.readFileBytes('pixel.png', 'HEAD')).toEqual(bytes);
 });
+
+it('reads a staged file whose name starts with a stage-like colon prefix and refuses path escapes', async () => {
+  const { root, repo } = await repository();
+  const sibling = `${root}-other`;
+  fs.mkdirSync(sibling);
+  directories.push(sibling);
+  fs.writeFileSync(path.join(sibling, 'secret.txt'), 'outside\n');
+
+  await expect(repo.readFileContent(`../${path.basename(sibling)}/secret.txt`, 'working')).rejects.toThrow('escapes repository');
+  await expect(repo.readFileContent(path.join(sibling, 'secret.txt'), 'working')).rejects.toThrow('escapes repository');
+  await expect(repo.readFileBytes(`../${path.basename(sibling)}/secret.txt`, 'working')).rejects.toThrow('escapes repository');
+
+  if (process.platform !== 'win32') {
+    fs.writeFileSync(path.join(root, '2:colon.txt'), 'colon-content\n');
+    await git(root, 'add', '2:colon.txt');
+    expect(await repo.readFileContent('2:colon.txt', 'index')).toBe('colon-content\n');
+    expect((await repo.readFileBytes('2:colon.txt', 'index'))?.toString('utf8')).toBe('colon-content\n');
+  }
+});
+
+it('resolves the checkout root through a symlinked subdirectory', async () => {
+  if (process.platform === 'win32') return;
+  const { root } = await repository();
+  fs.mkdirSync(path.join(root, 'sub'));
+  fs.writeFileSync(path.join(root, 'sub', 'b.txt'), 'hello\n');
+  await git(root, 'add', 'sub/b.txt');
+  await git(root, 'commit', '--quiet', '-m', 'sub');
+  const link = `${root}-link-sub`;
+  fs.symlinkSync(path.join(root, 'sub'), link);
+  directories.push(link);
+
+  const subRepo = new GitRepository(link);
+  repositories.push(subRepo);
+  const blamed = await subRepo.blame('sub/b.txt');
+  expect(blamed).toHaveLength(1);
+  expect(blamed[0]!.originalPath).toBe('sub/b.txt');
+});

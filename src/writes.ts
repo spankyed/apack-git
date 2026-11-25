@@ -10,6 +10,7 @@ import type { Journal } from './journal.ts'
 import { GitError, gitErrorOf, type GitErrorCode } from './errors.ts'
 import { NOT_TEXT } from './status.ts'
 import type { RepositoryModel } from './model.ts'
+import { resolveInsideTop } from './paths.ts'
 import { BASE_KEY, type GitReads } from './reads.ts'
 import { failure, type GitCommandResult, type GitRunner } from './runner.ts'
 import type { BranchCheckout, ConflictAnswer, DiscardKept, GitProgress, OperationMove, RewriteStep } from './types.ts'
@@ -86,10 +87,6 @@ export class GitWrites {
     return stashes
   }
 
-  private get workingDirectory(): string {
-    return this.runner.workingDirectory
-  }
-
   get isWriteInProgress(): boolean {
     return this._writeInProgress > 0
   }
@@ -147,8 +144,7 @@ export class GitWrites {
    */
   async applyPatch(patch: string | Buffer, { staged = false }: { staged?: boolean } = {}): Promise<void> {
     return this.withWriteFlag(async () => {
-      const directories = await this.model.directories()
-      const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
+      const top = await this.model.checkoutTop()
       const result = await this.runner.executeGitCommand(['-C', top, 'apply', ...(staged ? ['--cached'] : []), '--whitespace=nowarn', '-'], { input: patch })
       if (!result.success) throw failure(result, 'Failed to apply the patch')
     }, 'index')
@@ -184,6 +180,8 @@ export class GitWrites {
   async revertFile(filePath: string): Promise<DiscardKept> {
     refuseNamesNotText([filePath])
     return this.withWriteFlag(async () => {
+      const top = await this.model.checkoutTop()
+      await resolveInsideTop(top, filePath)
       const status = await this.model.readStatus()
       const fileStatus = status.find(f => f.path === filePath)
       const kept = await this.discards.keep([filePath])
@@ -203,8 +201,9 @@ export class GitWrites {
           }
         } else {
           // File was added by stash/merge — delete it and clean the index entry
-          const fullPath = path.join(this.workingDirectory, filePath)
-          await fs.unlink(fullPath)
+          const top = await this.model.checkoutTop()
+          const onDisk = await resolveInsideTop(top, filePath)
+          await fs.unlink(onDisk)
           await this.runner.executeGitCommand(['rm', '--cached', '--force', '--', rowSpec(filePath)])
         }
       } else {
@@ -224,8 +223,8 @@ export class GitWrites {
    */
   async discardUntracked(filePath: string, isDirectory: boolean): Promise<void> {
     // A row's path is from the top of the checkout, which the working directory may be under
-    const directories = await this.model.directories()
-    const onDisk = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'), filePath)
+    const top = await this.model.checkoutTop()
+    const onDisk = await resolveInsideTop(top, filePath)
     if (!isDirectory) return fs.unlink(onDisk)
     // Git leaves a repository of its own where it is, and says nothing: said here, where it would read as done
     if (await fs.access(path.join(onDisk, '.git')).then(() => true, () => false)) {
@@ -240,6 +239,8 @@ export class GitWrites {
     refuseNamesNotText(filePaths)
     if (filePaths.length === 0) return { notKept: [] }
     return this.withWriteFlag(async () => {
+      const top = await this.model.checkoutTop()
+      for (const p of filePaths) await resolveInsideTop(top, p)
       const status = await this.model.readStatus()
       const statusMap = new Map(status.map(f => [f.path, f.status]))
       const kept = await this.discards.keep(filePaths)
@@ -273,8 +274,9 @@ export class GitWrites {
           }
         }
         for (const p of newFiles) {
-          const fullPath = path.join(this.workingDirectory, p)
-          await fs.unlink(fullPath)
+          const top = await this.model.checkoutTop()
+          const onDisk = await resolveInsideTop(top, p)
+          await fs.unlink(onDisk)
           await this.runner.executeGitCommand(['rm', '--cached', '--force', '--', rowSpec(p)])
         }
       }
@@ -303,11 +305,14 @@ export class GitWrites {
    */
   async resolveConflict(filePath: string, answer: ConflictAnswer): Promise<void> {
     return this.withWriteFlag(async () => {
-      const directories = await this.model.directories()
-      const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
+      const top = await this.model.checkoutTop()
       const spec = rowSpec(filePath)
       if (typeof answer === 'object') {
-        await fs.writeFile(path.join(top, filePath), answer.content)
+        const target = await resolveInsideTop(top, filePath, { followTargetSymlink: true })
+        const unmerged = await this.runner.executeGitCommand(['-C', top, 'ls-files', '--unmerged', '-z', '--', spec])
+        if (!unmerged.success) throw failure(unmerged, `Failed to read the conflict in ${filePath}`)
+        if (!(unmerged.output ?? '').trim()) throw new GitError(`${filePath} has no conflict`)
+        await fs.writeFile(target, answer.content)
       } else {
         const sides = await this.reads.conflictSides(filePath)
         if ((answer === 'ours' ? sides.ours : sides.theirs) === null) {
@@ -660,8 +665,7 @@ export class GitWrites {
    */
   async updateSubmodules(paths: string[] = [], { onProgress, signal }: { onProgress?: (progress: GitProgress) => void; signal?: AbortSignal } = {}): Promise<void> {
     return this.withWriteFlag(async () => {
-      const directories = await this.model.directories()
-      const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
+      const top = await this.model.checkoutTop()
       const result = await this.runner.executeGitCommand(
         ['-C', top, 'submodule', 'update', '--init', '--recursive', '--progress', '--', ...paths.map(rowSpec)],
         { onProgress, signal },

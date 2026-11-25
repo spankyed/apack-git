@@ -3,14 +3,18 @@
 // settings are what git wrote, so it opens trusted by what it names: nothing.
 import * as path from 'path'
 import * as fs from 'fs/promises'
+import { branchNameArgument } from './arguments.ts'
 import { GitError } from './errors.ts'
 import { GitRunner, failure } from './runner.ts'
 import type { RepositoryTies } from './ties.ts'
 import type { GitProgress } from './types.ts'
 
-/** An address git reads as an address and not as an option */
+/** An address git reads as an address and not as an option, a control sequence or a shell-executing transport */
 function addressArgument(url: string): string {
-  if (!url || url.startsWith('-')) throw new Error(`Invalid address: ${JSON.stringify(url)}`)
+  // eslint-disable-next-line no-control-regex
+  if (!url || url.startsWith('-') || /[\x00-\x1f\x7f]/.test(url) || /^(ext|fd)::/i.test(url)) {
+    throw new Error(`Invalid address: ${JSON.stringify(url)}`)
+  }
   return url
 }
 
@@ -19,15 +23,24 @@ function addressArgument(url: string): string {
  * Stopped through `signal`, or failed, it leaves no directory behind that it made.
  */
 export async function cloneInto(url: string, directory: string, ties: RepositoryTies, { onProgress, signal }: { onProgress?: (progress: GitProgress) => void; signal?: AbortSignal } = {}): Promise<void> {
+  const address = addressArgument(url)
+  if (signal?.aborted) throw new GitError('The clone was stopped', 'aborted')
   const target = path.resolve(directory)
-  const existed = await fs.stat(target).then(() => true, () => false)
+  const existing = await fs.lstat(target).catch(() => undefined)
+  if (existing) {
+    if (!existing.isDirectory()) throw new GitError(`Destination path '${directory}' already exists and is not a directory.`)
+    if ((await fs.readdir(target)).length > 0) throw new GitError(`Destination path '${directory}' already exists and is not an empty directory.`)
+  }
+  const existed = existing !== undefined
   const parent = path.dirname(target)
   await fs.mkdir(parent, { recursive: true })
   const runner = new GitRunner(parent, ties)
   await runner.passUsableGit()
-  const result = await runner.runGitOnce(['clone', '--progress', '--', addressArgument(url), target], false, undefined, onProgress, 'utf8', undefined, signal)
+  if (signal?.aborted) throw new GitError('The clone was stopped', 'aborted')
+  const result = await runner.runGitOnce(['clone', '--progress', '--', address, target], false, undefined, onProgress, 'utf8', undefined, signal)
   if (result.success) return
-  // Whatever git left of a clone it did not finish is not a repository anyone asked for
+  // Whatever git left of a clone it did not finish is not a repository anyone asked for; `target` was verified
+  // empty beforehand when `existed` is true, so cleanup can never touch pre-existing files
   if (!existed) await fs.rm(target, { recursive: true, force: true })
   else for (const entry of await fs.readdir(target).catch(() => [])) await fs.rm(path.join(target, entry), { recursive: true, force: true })
   throw result.code === 'aborted' ? new GitError('The clone was stopped', 'aborted') : failure(result, `Failed to clone ${url}`)
@@ -35,11 +48,12 @@ export async function cloneInto(url: string, directory: string, ties: Repository
 
 /** Starts a repository in `directory`, which is made when it does not exist */
 export async function initIn(directory: string, ties: RepositoryTies, { initialBranch }: { initialBranch?: string } = {}): Promise<void> {
+  const branch = initialBranch === undefined ? undefined : branchNameArgument(initialBranch)
   const target = path.resolve(directory)
   await fs.mkdir(target, { recursive: true })
   const runner = new GitRunner(target, ties)
   await runner.passUsableGit()
-  const result = await runner.runGitOnce(['init', '--quiet', ...(initialBranch ? [`--initial-branch=${initialBranch}`] : []), target])
+  const result = await runner.runGitOnce(['init', '--quiet', ...(branch ? [`--initial-branch=${branch}`] : []), '--', target])
   if (!result.success) throw failure(result, `Failed to start a repository in ${directory}`)
 }
 
