@@ -117,7 +117,7 @@ export class GitReads {
   private readonly objects: GitObjectReader
 
   constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, ties: RepositoryTies = {}) {
-    this.objects = new GitObjectReader(runner.workingDirectory, runner.environment, ties.watchProcess, undefined, undefined, runner.git)
+    this.objects = new GitObjectReader(runner.workingDirectory, runner.environment, ties.watchProcess, undefined, undefined, runner.git, runner.clock)
   }
 
   private get workingDirectory(): string {
@@ -174,7 +174,7 @@ export class GitReads {
     const cached = this.cache.get(key)
     if (!cached) return null
     
-    const now = Date.now()
+    const now = this.runner.clock.monotonic()
     if (now - cached.timestamp > this.CACHE_TTL) {
       this.cache.delete(key)
       return null
@@ -191,7 +191,7 @@ export class GitReads {
     }
     this.cache.set(key, {
       data,
-      timestamp: Date.now()
+      timestamp: this.runner.clock.monotonic()
     })
   }
 

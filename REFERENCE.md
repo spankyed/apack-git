@@ -747,6 +747,23 @@ type RepositoryChange = Record<RepositoryPart, boolean> & {
 }
 ```
 
+### `RepositoryClock`
+
+A clock the engine takes its wall time, monotonic elapsed time, and timers from. Matches `@apackdev/clock`'s
+`controller.clock` and `@apackdev/orderings`'s `schedule.clock` structurally with no runtime dependency on
+either package.
+
+```ts
+interface RepositoryClock {
+  /** Wall time in milliseconds since 1970 (for persisted checkpoint and journal timestamps) */
+  now(): number
+  /** Monotonic time in milliseconds for elapsed durations, on the same timeline as `after` */
+  monotonic(): number
+  /** Runs `run` once after `ms` milliseconds on the monotonic timeline. Returns what cancels it before it runs */
+  after(ms: number, run: () => void): () => void
+}
+```
+
 ### `RepositoryLog`
 
 ```ts
@@ -850,6 +867,11 @@ interface RepositoryTies {
    * given, which the system may empty
    */
   checkpointDirectory?: (commonDir: string) => string
+  /**
+   * Clock for timers, monotonic elapsed windows (lock patience, cache TTL, linger, slow-status budget), and wall
+   * timestamps (checkpoint/journal expiry). Matches `@apackdev/clock`'s `controller.clock` structurally
+   */
+  clock?: RepositoryClock
 }
 ```
 

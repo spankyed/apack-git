@@ -3,7 +3,7 @@ import * as fs from 'fs/promises'
 import type { GitRepository } from './repository.js'
 import { subscribeToDirectory, type DirectorySubscription, type SubscribeToDirectory, type WatchedChange } from './directory-watch.js'
 import { followFile, type FileFollower, type FollowFile } from './file-watch.js'
-import type { RepositoryLog } from './ties.js'
+import { scheduleAfter, systemClock, type RepositoryClock, type RepositoryLog } from './ties.js'
 
 /** How long the repository must go quiet before its change is reported */
 const QUIET_MS = 200
@@ -79,6 +79,7 @@ export class GitWatcherService {
   private readonly follow: FollowFile
   private readonly log: RepositoryLog
   private readonly catchUpAfterMs: number
+  private readonly clock: RepositoryClock
   /** Every start, stop and check in order, so two never set subscriptions up at once */
   private establishing: Promise<void> = Promise.resolve()
   /** Moves on every start and stop, which is what tells work begun before one that it is no longer wanted */
@@ -89,19 +90,19 @@ export class GitWatcherService {
    * else may have. It widens and never narrows: paths noted before the index changed are covered by it
    */
   private changedPaths: Set<string> | 'index' | null = new Set()
-  private quietTimeout?: NodeJS.Timeout
-  /** When the first change not yet reported arrived */
+  private cancelQuiet?: () => void
+  /** When the first change not yet reported arrived (on `clock.monotonic()`) */
   private pendingSince?: number
   /** Whether a callback is already waiting on the repository's write in progress */
   private awaitingWrite = false
   /**
    * The burst of platform events under way: how many there have been, when the last arrived, and when the
-   * checkout was last reported as one in which anything may have changed
+   * checkout was last reported as one in which anything may have changed (each on `clock.monotonic()`)
    */
-  private burst = { events: 0, lastAt: 0, saidAnythingAt: 0 }
-  private burstTimeout?: NodeJS.Timeout
+  private burst = { events: 0, lastAt: -Infinity, saidAnythingAt: -Infinity }
+  private cancelBurst?: () => void
   /** The one report after the watches open, for an edit made before the platform delivered its events */
-  private catchUpTimeout?: NodeJS.Timeout
+  private cancelCatchUp?: () => void
   private stopOnAbort?: () => void
   private isWatching = false
   private gitRepository?: GitRepository
@@ -109,13 +110,15 @@ export class GitWatcherService {
   /**
    * `subscribe` and `followFile` are the platform's watches, which a host or a spec can replace; `log` is where
    * a watch that could not be opened or closed is said; `catchUpAfterMs` is how long after the watches open the
-   * checkout is reported once as one in which anything may have changed
+   * checkout is reported once as one in which anything may have changed; `clock` drives all debounce, burst and
+   * catch-up timers (matching `@apackdev/clock`'s `controller.clock` structurally)
    */
-  constructor(private workingDirectory: string, { subscribe = subscribeToDirectory, followFile: follow = followFile, log = {}, catchUpAfterMs = STARTUP_CATCH_UP_MS }: { subscribe?: SubscribeToDirectory; followFile?: FollowFile; log?: RepositoryLog; catchUpAfterMs?: number } = {}) {
+  constructor(private workingDirectory: string, { subscribe = subscribeToDirectory, followFile: follow = followFile, log = {}, catchUpAfterMs = STARTUP_CATCH_UP_MS, clock = systemClock }: { subscribe?: SubscribeToDirectory; followFile?: FollowFile; log?: RepositoryLog; catchUpAfterMs?: number; clock?: RepositoryClock } = {}) {
     this.subscribe = subscribe
     this.follow = follow
     this.log = log
     this.catchUpAfterMs = catchUpAfterMs
+    this.clock = clock
   }
 
   setGitRepository(repo: GitRepository): void {
@@ -147,11 +150,11 @@ export class GitWatcherService {
       const onAbort = () => { void this.stopWatching() }
       signal.addEventListener('abort', onAbort, { once: true })
       this.stopOnAbort = () => signal.removeEventListener('abort', onAbort)
-      this.catchUpTimeout = setTimeout(() => {
-        this.catchUpTimeout = undefined
+      this.cancelCatchUp?.()
+      this.cancelCatchUp = scheduleAfter(this.clock, this.catchUpAfterMs, () => {
+        this.cancelCatchUp = undefined
         if (generation === this.generation) this.scheduleChange(null)
-      }, this.catchUpAfterMs)
-      this.catchUpTimeout.unref()
+      })
     })
     await this.establishing
   }
@@ -309,24 +312,22 @@ export class GitWatcherService {
    */
   private countEvent() {
     this.burst.events++
-    this.burst.lastAt = Date.now()
-    if (this.burstTimeout) return
+    this.burst.lastAt = this.clock.monotonic()
+    if (this.cancelBurst) return
     const generation = this.generation
     const settle = () => {
-      this.burstTimeout = undefined
+      this.cancelBurst = undefined
       if (generation !== this.generation) return
-      const quietFor = Date.now() - this.burst.lastAt
+      const quietFor = this.clock.monotonic() - this.burst.lastAt
       if (quietFor < FLOOD_QUIET_MS) {
-        this.burstTimeout = setTimeout(settle, FLOOD_QUIET_MS - quietFor)
-        this.burstTimeout.unref()
+        this.cancelBurst = scheduleAfter(this.clock, FLOOD_QUIET_MS - quietFor, settle)
         return
       }
       const { events, lastAt, saidAnythingAt } = this.burst
       this.burst.events = 0
       if (events >= FLOOD_EVENTS && saidAnythingAt < lastAt) this.scheduleChange(null)
     }
-    this.burstTimeout = setTimeout(settle, FLOOD_QUIET_MS)
-    this.burstTimeout.unref()
+    this.cancelBurst = scheduleAfter(this.clock, FLOOD_QUIET_MS, settle)
   }
 
   /** One report for every change that arrives close together */
@@ -338,12 +339,12 @@ export class GitWatcherService {
       for (const changed of paths) this.changedPaths.add(changed)
       if (this.changedPaths.size > MAX_NAMED_PATHS) this.changedPaths = null
     }
-    this.pendingSince ??= Date.now()
+    this.pendingSince ??= this.clock.monotonic()
 
     // While one of this app's git writes runs, wait for it to finish instead of racing it on a timer
     if (this.gitRepository?.isWriteInProgress) {
-      clearTimeout(this.quietTimeout)
-      this.quietTimeout = undefined
+      this.cancelQuiet?.()
+      this.cancelQuiet = undefined
       if (this.awaitingWrite) return
       this.awaitingWrite = true
       const generation = this.generation
@@ -358,17 +359,25 @@ export class GitWatcherService {
   }
 
   private armChange(quietMs: number) {
-    clearTimeout(this.quietTimeout)
-    const waited = Date.now() - (this.pendingSince ?? Date.now())
-    this.quietTimeout = setTimeout(() => {
-      this.quietTimeout = undefined
+    this.cancelQuiet?.()
+    this.cancelQuiet = undefined
+    const now = this.clock.monotonic()
+    const waited = now - (this.pendingSince ?? now)
+    const delay = Math.max(0, Math.min(quietMs, MAX_WAIT_MS - waited))
+    const generation = this.generation
+    this.cancelQuiet = scheduleAfter(this.clock, delay, () => {
+      this.cancelQuiet = undefined
+      if (generation !== this.generation) return
       this.pendingSince = undefined
       const paths = this.changedPaths
       this.changedPaths = new Set()
-      if (paths === null) this.burst.saidAnythingAt = Date.now()
+      if (paths === null) this.burst.saidAnythingAt = this.clock.monotonic()
       this.onChangeCallback?.(paths === null || paths === 'index' ? paths : [...paths])
-    }, Math.max(0, Math.min(quietMs, MAX_WAIT_MS - waited)))
-    this.quietTimeout.unref()
+    })
+    if (!this.cancelQuiet) {
+      this.pendingSince = undefined
+      this.changedPaths = new Set()
+    }
   }
 
   async stopWatching(): Promise<void> {
@@ -376,13 +385,13 @@ export class GitWatcherService {
     this.isWatching = false
     this.stopOnAbort?.()
     this.stopOnAbort = undefined
-    clearTimeout(this.quietTimeout)
-    this.quietTimeout = undefined
-    clearTimeout(this.burstTimeout)
-    this.burstTimeout = undefined
-    clearTimeout(this.catchUpTimeout)
-    this.catchUpTimeout = undefined
-    this.burst = { events: 0, lastAt: 0, saidAnythingAt: 0 }
+    this.cancelQuiet?.()
+    this.cancelQuiet = undefined
+    this.cancelBurst?.()
+    this.cancelBurst = undefined
+    this.cancelCatchUp?.()
+    this.cancelCatchUp = undefined
+    this.burst = { events: 0, lastAt: -Infinity, saidAnythingAt: -Infinity }
     this.pendingSince = undefined
     this.awaitingWrite = false
     this.changedPaths = new Set()

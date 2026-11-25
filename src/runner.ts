@@ -10,7 +10,7 @@ import { CONTENT_MISSING, GitError, HookRefusedError, LOCKED, classifyGitError, 
 import { hooksIn, traceFile, type HookRun } from './trace.js'
 import { GitUnusableError, checkGit, type GitUnusable } from './git-check.js'
 import { progressReader, withoutProgress } from './progress.js'
-import { runUnbounded, type RepositoryLog, type RepositoryTies, type RunProcess } from './ties.js'
+import { runUnbounded, scheduleAfter, systemClock, type RepositoryClock, type RepositoryLog, type RepositoryTies, type RunProcess } from './ties.js'
 import { TrustGate } from './trust.js'
 import { HeldSettings } from './settings.js'
 import type { GitProgress } from './types.js'
@@ -88,16 +88,17 @@ const LOCK_PATIENCE_MS = 10_000
  * lock that was gone. Looking again after the loop has waited once finds that one, and the watch reports any
  * later.
  */
-function lockReleased(lock: string, patienceMs: number): Promise<boolean> {
+function lockReleased(lock: string, patienceMs: number, clock: RepositoryClock): Promise<boolean> {
   const takenAt = () => fs.stat(lock).then(stat => stat.mtimeMs, () => undefined)
   return new Promise<boolean>((resolve) => {
     let settled = false
-    let timer: NodeJS.Timeout | undefined
+    let cancelTimer: (() => void) | undefined
     let watcher: ReturnType<typeof watch> | undefined
     const settle = (released: boolean) => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      cancelTimer?.()
+      cancelTimer = undefined
       watcher?.close()
       resolve(released)
     }
@@ -123,11 +124,15 @@ function lockReleased(lock: string, patienceMs: number): Promise<boolean> {
     }
     follow()
     void takenAt().then((taken) => {
+      if (settled) return
       if (taken === undefined) return settle(true)
-      // No longer than the patience itself, whatever a clock that disagrees with this one stamped the lock with
+      // `stat.mtimeMs` is stamped by the OS wall clock, so compare it against `Date.now()` rather than an injected
+      // clock that may be at a synthetic epoch, while still running the patience timer on `clock`. No longer than
+      // the patience itself, whatever a clock that disagrees with this one stamped the lock with.
       const left = Math.min(patienceMs, patienceMs - (Date.now() - taken))
       if (left <= 0) return settle(false)
-      timer = setTimeout(() => settle(false), left)
+      cancelTimer = scheduleAfter(clock, left, () => settle(false))
+      if (!cancelTimer) settle(false)
     })
   })
 }
@@ -308,6 +313,8 @@ export class GitRunner {
   readonly settings: HeldSettings
   private readonly base: () => NodeJS.ProcessEnv
   readonly log: RepositoryLog
+  /** Clock for timers, monotonic elapsed windows, and wall timestamps */
+  readonly clock: RepositoryClock
   /** What keeps git from running what an untrusted repository names: every command passes it but its own reads */
   readonly trust: TrustGate
 
@@ -318,6 +325,7 @@ export class GitRunner {
     this.git = ties.git ?? 'git'
     this.base = ties.environment ?? (() => process.env)
     this.log = ties.log ?? {}
+    this.clock = ties.clock ?? systemClock
     // Its reads run beside every other, in no lane, and are not themselves gated
     this.settings = new HeldSettings(workingDirectory, args => this.runGitOnce(args, 'read'), this.environment)
     this.trust = new TrustGate(workingDirectory, this.settings, ties.isTrusted, args => this.runGitOnce(args, 'read'))
@@ -466,11 +474,11 @@ export class GitRunner {
         // A stash is several steps to git, and one refused part-way has done the steps before it: run again, it
         // would stash, or apply, a second time. It is said to be refused, and whoever asked decides
         if (args[0] === 'stash') return { ...result, error: heldLockMessage(lock) }
-        refusedAt ??= Date.now()
+        refusedAt ??= this.clock.monotonic()
         // Counted here as well as against the lock: a lock git names and nothing can see is "let go of" every
         // time it is looked for, and the command would be run again for ever
-        const left = this.lockPatienceMs - (Date.now() - refusedAt)
-        if (left <= 0 || !await lockReleased(lock, left)) return { ...result, error: heldLockMessage(lock) }
+        const left = this.lockPatienceMs - (this.clock.monotonic() - refusedAt)
+        if (left <= 0 || !await lockReleased(lock, left, this.clock)) return { ...result, error: heldLockMessage(lock) }
       }
     })
   }
