@@ -297,9 +297,26 @@ export class TrustGate {
   private async asksOf(reading: SettingsReading, where: Location, submoduleAsks: TrustAsk[]): Promise<TrustAsk[]> {
     const own = reading.settings.filter(setting => setting.scope === 'local' || setting.scope === 'worktree')
     const fileOf = (origin: string) => path.resolve(this.workingDirectory, origin.replace(/^file:/, ''))
-    const asks: TrustAsk[] = own
-      .filter(setting => !settingRunsNothing(setting.key, setting.value))
-      .map(setting => ({ kind: 'setting', key: setting.key, value: setting.value, file: fileOf(setting.origin) }))
+    const realWorkingDir = await fs.realpath(this.workingDirectory).catch(() => path.resolve(this.workingDirectory))
+    const asks: TrustAsk[] = []
+    for (const setting of own) {
+      if (settingRunsNothing(setting.key, setting.value)) continue
+      // Opening a submodule directly reads its own `.git/modules/<name>/config`, whose `core.worktree` points back
+      // to the submodule's working tree (whose `.git` gitfile points right back to this git directory); any other
+      // `core.worktree` (such as `..` or `/` pointing outside) still asks
+      if (setting.key === 'core.worktree') {
+        const target = await fs.realpath(path.resolve(where.common, setting.value)).catch(() => path.resolve(where.common, setting.value))
+        if (relativeWithin(target, realWorkingDir) !== undefined) {
+          const gitFile = await fs.readFile(path.join(target, '.git'), 'utf8').catch(() => undefined)
+          const gitDirTarget = gitFile?.match(/^gitdir:\s*(.+?)\r?$/m)?.[1]?.trim()
+          if (gitDirTarget) {
+            const linked = await fs.realpath(path.resolve(target, gitDirTarget)).catch(() => path.resolve(target, gitDirTarget))
+            if (linked === where.repository) continue
+          }
+        }
+      }
+      asks.push({ kind: 'setting', key: setting.key, value: setting.value, file: fileOf(setting.origin) })
+    }
     // What it says could not be read, so what it names is not known: it asks, rather than passing for a
     // repository that names nothing
     if (reading.unreadable !== undefined) asks.push({ kind: 'setting', key: UNREADABLE, value: reading.unreadable, file: path.join(where.common, 'config') })

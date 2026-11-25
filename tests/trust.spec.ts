@@ -216,10 +216,14 @@ it('does not run a program configured inside an initialized submodule until the 
   await git(root, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', subSource, 'sub');
   await git(root, 'commit', '--quiet', '-m', 'add sub');
 
-  // A clean initialized submodule asks nothing (its own `core.worktree` points inside the parent)
+  // A clean initialized submodule asks nothing (its own `core.worktree` points inside the parent, and opening
+  // the submodule directly sees its `.git` gitfile pointing back to its module git directory)
   const repo = new GitRepository(root);
   expect((await repo.readTrust()).asks).toEqual([]);
   expect((await repo.readSnapshot()).branch).toBe('main');
+  const subRepo = new GitRepository(path.join(root, 'sub'));
+  expect((await subRepo.readTrust()).asks).toEqual([]);
+  expect((await subRepo.readSnapshot()).branch).toBe('main');
 
   // Configuring a program inside the submodule's git config blocks parent status until trusted
   await git(path.join(root, 'sub'), 'config', 'core.fsmonitor', program);
@@ -227,6 +231,13 @@ it('does not run a program configured inside an initialized submodule until the 
   expect(error).toBeInstanceOf(UntrustedError);
   expect(error.asks).toEqual([{ kind: 'setting', key: 'core.fsmonitor', value: program, file: path.join(root, '.git', 'modules', 'sub', 'config') }]);
   expect(ran(), 'the submodule program was not run').toBe(false);
+});
+
+it('asks when a repository sets core.worktree pointing outside itself', async () => {
+  const { root } = await repository();
+  await git(root, 'config', 'core.worktree', '..');
+  const repo = new GitRepository(root);
+  expect((await repo.readTrust()).asks.map(ask => ask.kind === 'setting' && ask.key)).toEqual(['core.worktree']);
 });
 
 it('allows global url.insteadOf while asking when set locally in the repository', async () => {
