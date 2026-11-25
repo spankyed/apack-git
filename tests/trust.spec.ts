@@ -104,6 +104,8 @@ it('does not run a conversion program named in a file the repository\'s configur
   expect(error.asks).toEqual([{ kind: 'setting', key: 'diff.words.textconv', value: program, file: included }]);
   expect(ran()).toBe(false);
   expect(await refused(repo.readFileContent('a.txt', 'HEAD')), 'nor is the git kept open for reading files started').toBeInstanceOf(UntrustedError);
+  expect(await refused(repo.readFileBytes('a.txt', 'HEAD')), 'readFileBytes propagates UntrustedError').toBeInstanceOf(UntrustedError);
+  expect(await refused(repo.readFileBytes('a.txt', 'index')), 'readFileBytes index propagates UntrustedError').toBeInstanceOf(UntrustedError);
 });
 
 it('does not run a hook the repository holds, at a write or at a read that moves a ref', async () => {

@@ -106,7 +106,8 @@ export class GitRepository {
    * not known to run nothing, and its hooks. While it names anything and the host has not said the repository
    * is trusted (`RepositoryTies.isTrusted`), every other command here is refused with an `UntrustedError`.
    */
-  readTrust(): Promise<TrustReading> {
+  async readTrust(): Promise<TrustReading> {
+    await this.runner.passUsableGit()
     return this.runner.trust.read()
   }
 
@@ -332,7 +333,7 @@ export class GitRepository {
    * `directory` is an `UnsafeOwnershipError`'s, the path as git printed it.
    */
   async trustOwnership(directory: string): Promise<void> {
-    const result = await this.runner.executeGitCommand(['config', '--global', '--add', '--', 'safe.directory', directory])
+    const result = await this.runner.write(['config', '--global', '--add', '--', 'safe.directory', directory])
     if (!result.success) throw failure(result, `Could not add ${directory} to safe.directory`)
   }
 
@@ -552,7 +553,7 @@ export class GitRepository {
    * marked off with `--`, which `git remote rename` before 2.36 does not take
    */
   private async remoteCommand(args: string[], what: string): Promise<void> {
-    const result = await this.runner.executeGitCommand(['remote', ...args])
+    const result = await this.runner.write(['remote', ...args])
     if (!result.success) throw failure(result, `Failed to ${what}`)
     this.model.markSnapshotStale()
   }
@@ -566,7 +567,7 @@ export class GitRepository {
     const version = await this.runner.passUsableGit()
     const monitor = (process.platform === 'darwin' || process.platform === 'win32') && !olderThan(version, FILE_MONITOR_FROM)
     for (const [key, value] of [['core.untrackedCache', 'true'], ...(monitor ? [['core.fsmonitor', 'true']] : [])] as const) {
-      const set = await this.runner.executeGitCommand(['config', '--local', key, value])
+      const set = await this.runner.write(['config', '--local', key, value])
       if (!set.success) throw failure(set, `Failed to set ${key}`)
     }
     this.model.markSnapshotStale()
@@ -684,8 +685,8 @@ export class GitRepository {
     return this.writes.pushBranch(onProgress, signal)
   }
 
-  pullBranch(onProgress?: (progress: GitProgress) => void): Promise<void> {
-    return this.writes.pullBranch(onProgress)
+  pullBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void> {
+    return this.writes.pullBranch(onProgress, signal)
   }
 
   /**

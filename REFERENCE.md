@@ -299,7 +299,7 @@ interface GitDirectories {
 
 A git command that failed, with why where git said
 
-- `code: "locked" | "authentication" | "permission" | "remote-unreachable" | "non-fast-forward" | "diverged" | "conflict" | "local-changes" | "unknown-ref" | "not-a-repository" | "unsafe-ownership" | "signing-failed" | "unrelated-histories" | "nothing-to-commit" | "branch-exists" | "detached-head" | "no-remote" | "host-refused" | "aborted" | "git-not-found" | "developer-tools-missing" | "git-too-old" | "untrusted" | "content-missing" | "hook-refused" | "name-not-text" | "published" | "moved-since" | "nothing-to-undo" | "no-longer-kept" | undefined`
+- `code: "locked" | "authentication" | "permission" | "remote-unreachable" | "non-fast-forward" | "diverged" | "conflict" | "local-changes" | "unknown-ref" | "not-a-repository" | "unsafe-ownership" | "signing-failed" | "unrelated-histories" | "nothing-to-commit" | "branch-exists" | "detached-head" | "no-remote" | "host-refused" | "aborted" | "git-not-found" | "developer-tools-missing" | "git-too-old" | "untrusted" | "content-missing" | "hook-refused" | "name-not-text" | "published" | "moved-since" | "nothing-to-undo" | "no-longer-kept" | "no-upstream" | "stale-hunk" | "output-too-large" | undefined`
 
 ### `GitErrorCode`
 
@@ -386,7 +386,7 @@ interface GitRemote {
 - `noteChanged(paths: string[] | "index" | null): void` — Notes what a watcher saw change, which is what the next snapshot asked for reads: these paths in the working tree, relative to the working directory with `/` between their parts; `'index'` when git's index changed and no ref did, which reads the whole status and keeps the refs; or everything when it could not say
 - `onWriteComplete(callback: () => void): void` — Register a one-shot callback that fires when all pending writes finish.
 - `previewMerge(target: string): Promise<MergePreview>` — What merging `target` into what is checked out would do, before it is done: nothing, a fast-forward, a clean merge, or one that stops on conflicts in the files it names. For a pull, `target` is the upstream after a fetch. Nothing moves: no ref, no index and no file. `unknown` on a git older than 2.38.
-- `pullBranch(onProgress?: (progress: GitProgress) => void): Promise<void>`
+- `pullBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void>`
 - `pushBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void>` — Pushes the branch, publishing it when it is not: to the remote the branch is set to push to, else `origin`, else the only remote (`no-remote` when that leaves none). With no branch checked out it is refused as `detached-head`. `signal` stops it, and the push then rejects with a `GitError` coded `aborted`
 - `pushTag(name: string, options?: { remote?: string; onProgress?: (progress: GitProgress) => void; signal?: AbortSignal; }): Promise<void>` — Pushes a tag to a remote, `origin` unless another is named, with progress, stopped through `signal`
 - `readBranchDiff(baseBranch: string, targetBranch?: string): Promise<GitStatusFile[]>`

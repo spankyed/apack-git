@@ -140,6 +140,7 @@ export class GitReads {
   async fileInCommit(name: string): Promise<Buffer | undefined> {
     // The git kept open is a git like any other: none is started in a repository that is not trusted, and one
     // started while it was is ended once it is not
+    await this.runner.passUsableGit()
     try {
       await this.runner.trust.pass()
     } catch (error) {
@@ -154,9 +155,9 @@ export class GitReads {
       }
     }
     try {
-      return await this.runner.executeGitCommandBinary(['show', name])
+      return await this.runner.readBinary(['show', name])
     } catch (error) {
-      if (error instanceof GitError && error.code === 'content-missing') throw error
+      if (error instanceof GitError) throw error
       return undefined
     }
   }
@@ -225,7 +226,7 @@ export class GitReads {
   }
 
   async readCurrentBranch(): Promise<string> {
-    const result = await this.runner.executeGitCommand(['rev-parse', '--abbrev-ref', 'HEAD'])
+    const result = await this.runner.read(['rev-parse', '--abbrev-ref', 'HEAD'])
     if (result.success && result.output) {
       return result.output.trim()
     }
@@ -238,7 +239,7 @@ export class GitReads {
    * ignore. `directory` is a folder row's path, from the top of the checkout.
    */
   async listUntracked(directory: string): Promise<{ files: string[]; truncated: boolean }> {
-    const result = await this.runner.executeGitCommand(['ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', `:(top,literal)${directory.replace(/\/$/, '')}`])
+    const result = await this.runner.read(['ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', `:(top,literal)${directory.replace(/\/$/, '')}`])
     if (!result.success && !result.truncated) throw failure(result, 'Failed to list the folder')
     const output = result.truncated ? (result.output ?? '').slice(0, (result.output ?? '').lastIndexOf('\0') + 1) : result.output ?? ''
     // Git does not look inside a repository of its own, and answers with the folder: it has no files to list here
@@ -251,7 +252,7 @@ export class GitReads {
    * tree need not report from.
    */
   async listIgnoredDirectories(): Promise<string[]> {
-    const result = await this.runner.executeGitCommand(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'])
+    const result = await this.runner.read(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'])
     if (!result.success || !result.output) return []
     return result.output.split('\0').filter(entry => entry.endsWith('/')).map(entry => entry.slice(0, -1))
   }
@@ -263,7 +264,7 @@ export class GitReads {
     if (cached !== null) return cached
     
     // First, try git's built-in binary detection
-    const gitResult = await this.runner.executeGitCommand(['check-attr', 'diff', '--', filePath])
+    const gitResult = await this.runner.read(['check-attr', 'diff', '--', filePath])
     if (gitResult.success && gitResult.output) {
       // Git attributes format: "path: diff: value"
       const isBinary = gitResult.output.includes(': diff: binary') || 
@@ -275,7 +276,7 @@ export class GitReads {
     }
     
     // If git doesn't say it's binary, check if it's text according to git
-    const diffStatResult = await this.runner.executeGitCommand(['diff', '--numstat', '/dev/null', filePath])
+    const diffStatResult = await this.runner.read(['diff', '--numstat', '/dev/null', filePath])
     if (diffStatResult.success && diffStatResult.output) {
       // Binary files show as "-\t-\tfilename" in numstat
       if (diffStatResult.output.startsWith('-\t-\t')) {
@@ -374,7 +375,7 @@ export class GitReads {
       args.push('--', filePath)
     }
 
-    const result = await this.runner.executeGitCommand(args, { signal })
+    const result = await this.runner.read(args, { signal })
     if (!result.success) {
       throw failure(result, 'Failed to get diff')
     }
@@ -416,7 +417,7 @@ export class GitReads {
     // Single git command for all tracked files
     if (tracked.length > 0) {
       const args = ['diff', 'HEAD', '--binary', '-M', '--', ...tracked]
-      const result = await this.runner.executeGitCommand(args)
+      const result = await this.runner.read(args)
       if (!result.success) {
         throw failure(result, 'Failed to get diff')
       }
@@ -513,7 +514,7 @@ export class GitReads {
     } else {
       const { relativeToCwd } = normalizeReadPath(filePath, this.workingDirectory, this.workingDirectory)
       if (version === 'HEAD') return (await this.fileInCommit(`HEAD:${relativeToCwd}`))?.toString('utf8') ?? ''
-      const result = await this.runner.executeGitCommand(['show', stageZeroSpec(relativeToCwd)])
+      const result = await this.runner.read(['show', stageZeroSpec(relativeToCwd)])
       if (!result.success) {
         return ''
       }
@@ -536,7 +537,7 @@ export class GitReads {
    * and `diff.context=0` a piece it puts at the end of the file.
    */
   async cutHunks(filePath: string, staged: boolean): Promise<CutHunk[]> {
-    const result = await this.runner.executeGitCommand(
+    const result = await this.runner.read(
       ['diff', '--no-ext-diff', '--no-color', '--no-textconv', '--no-relative', '--src-prefix=a/', '--dst-prefix=b/', '-U3', ...(staged ? ['--cached'] : []), '--', rowSpec(filePath)],
       { encoding: 'latin1' },
     )
@@ -549,7 +550,7 @@ export class GitReads {
    */
   async conflictSides(filePath: string): Promise<ConflictSides> {
     const top = await this.model.checkoutTop()
-    const listed = await this.runner.executeGitCommand(['-C', top, 'ls-files', '--unmerged', '-z', '--', `:(top,literal)${filePath}`])
+    const listed = await this.runner.read(['-C', top, 'ls-files', '--unmerged', '-z', '--', `:(top,literal)${filePath}`])
     if (!listed.success) throw failure(listed, `Failed to read the conflict in ${filePath}`)
     // `<mode> <object> <stage>\t<path>`, one a stage that holds the file
     const stages = new Map<number, string>()
@@ -563,7 +564,7 @@ export class GitReads {
     const read = async (stage: number): Promise<Buffer | null> => {
       const object = stages.get(stage)
       if (!object) return null
-      return await this.fileInCommit(object) ?? this.runner.executeGitCommandBinary(['cat-file', 'blob', object])
+      return await this.fileInCommit(object) ?? this.runner.readBinary(['cat-file', 'blob', object])
     }
     const [base, ours, theirs, working] = await Promise.all([read(1), read(2), read(3), fs.readFile(path.join(top, filePath)).catch(() => null)])
     const binary = [base, ours, theirs, working].some(side => side?.includes(0))
@@ -572,7 +573,7 @@ export class GitReads {
   }
 
   async fileExistsInHead(filePath: string): Promise<boolean> {
-    const result = await this.runner.executeGitCommand(['cat-file', '-e', `HEAD:${filePath}`])
+    const result = await this.runner.read(['cat-file', '-e', `HEAD:${filePath}`])
     return result.success
   }
 
@@ -581,7 +582,7 @@ export class GitReads {
    * `UnsafeOwnershipError` when it is in one git will not read for who owns it.
    */
   async isGitRepository(): Promise<boolean> {
-    const result = await this.runner.executeGitCommand(['rev-parse', '--git-dir'])
+    const result = await this.runner.read(['rev-parse', '--git-dir'])
     if (result.missing) throw new GitUnusableError({ code: 'git-not-found', git: this.runner.git })
     const refused = result.success ? undefined : ownershipRefusal(result.error ?? '')
     if (refused) throw refused
@@ -594,7 +595,7 @@ export class GitReads {
   }
 
   async getUpstreamBranch(): Promise<string | null> {
-    const result = await this.runner.executeGitCommand(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+    const result = await this.runner.read(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
 
     if (!result.success) {
       return null
@@ -629,7 +630,7 @@ export class GitReads {
       }
     }
 
-    const originHeadResult = await this.runner.executeGitCommand(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+    const originHeadResult = await this.runner.read(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
     if (originHeadResult.success && originHeadResult.output) {
       const branch = originHeadResult.output.trim().replace(/^origin\//, '')
       if (branch) {
@@ -639,7 +640,7 @@ export class GitReads {
     }
 
     for (const branch of ['main', 'master', 'develop', 'development']) {
-      const result = await this.runner.executeGitCommand(['rev-parse', '--verify', branch])
+      const result = await this.runner.read(['rev-parse', '--verify', branch])
       if (result.success) {
         this.setCached(cacheKey, branch)
         return branch
@@ -656,12 +657,12 @@ export class GitReads {
    */
   async rememberedBaseOf(branch: string): Promise<string | undefined> {
     const escaped = branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const config = await this.runner.executeGitCommand(['config', '--get-regexp', `^branch\\.${escaped}\\.(${BASE_KEY}|vscode-merge-base)$`])
+    const config = await this.runner.read(['config', '--get-regexp', `^branch\\.${escaped}\\.(${BASE_KEY}|vscode-merge-base)$`])
     const told = new Map((config.success ? config.output ?? '' : '').split('\n').filter(Boolean).map((line): [string, string] => {
       const space = line.indexOf(' ')
       return [line.slice(line.lastIndexOf('.', space) + 1, space), line.slice(space + 1).trim()]
     }))
-    const reflog = await this.runner.executeGitCommand(['reflog', 'show', '--format=%gs', `refs/heads/${refArgument(branch, 'branch')}`, '--'])
+    const reflog = await this.runner.read(['reflog', 'show', '--format=%gs', `refs/heads/${refArgument(branch, 'branch')}`, '--'])
     const created = /^branch: Created from (.+)$/.exec((reflog.success ? reflog.output ?? '' : '').trim().split('\n').at(-1) ?? '')?.[1]
 
     for (const named of [told.get(BASE_KEY), told.get('vscode-merge-base'), created]) {
@@ -671,24 +672,24 @@ export class GitReads {
       // A branch here by exactly that name, which is what the name is then given to git as. Not one only the
       // remote has, which git does not know by its bare name, and not a commit reached from a branch (`main~2`),
       // which names where the branch began and no branch
-      if ((await this.runner.executeGitCommand(['show-ref', '--verify', '--quiet', `refs/heads/${base}`])).success) return base
+      if ((await this.runner.read(['show-ref', '--verify', '--quiet', `refs/heads/${base}`])).success) return base
     }
     return undefined
   }
 
   async readCommitDistance(branch: string): Promise<number> {
-    const result = await this.runner.executeGitCommand(['rev-list', '--count', `${branch}..HEAD`])
+    const result = await this.runner.read(['rev-list', '--count', `${branch}..HEAD`])
     if (!result.success || !result.output) return Infinity
     return parseInt(result.output.trim(), 10)
   }
 
   async findNearbyMergedBranches(depth: number): Promise<string[]> {
-    const result = await this.runner.executeGitCommand([
+    const result = await this.runner.read([
       'branch', '--merged', 'HEAD', '--contains', `HEAD~${depth}`, '--format=%(refname:short)',
     ])
     if (!result.success || !result.output) {
       // Falls back to all merged branches if HEAD~N is invalid (e.g., repo has < N commits)
-      const fallback = await this.runner.executeGitCommand([
+      const fallback = await this.runner.read([
         'branch', '--merged', 'HEAD', '--format=%(refname:short)',
       ])
       if (!fallback.success || !fallback.output) return []
@@ -701,7 +702,7 @@ export class GitReads {
     const target = targetBranch || 'HEAD'
     
     // Get the list of changed files between branches with NUL termination and rename detection
-    const result = await this.runner.executeGitCommand(['diff', '--name-status', '-z', '-M', '-C', `${refArgument(baseBranch, 'base branch')}...${refArgument(target, 'branch')}`])
+    const result = await this.runner.read(['diff', '--name-status', '-z', '-M', '-C', `${refArgument(baseBranch, 'base branch')}...${refArgument(target, 'branch')}`])
     if (!result.success) {
       throw failure(result, 'Failed to get branch diff')
     }
@@ -743,14 +744,14 @@ export class GitReads {
 
   /** A commit's whole message, its subject and its body, as it was written */
   async commitMessage(commit: string): Promise<string> {
-    const result = await this.runner.executeGitCommand(['log', '-1', '--format=%B', '--end-of-options', `${refArgument(commit, 'commit')}^{commit}`])
+    const result = await this.runner.read(['log', '-1', '--format=%B', '--end-of-options', `${refArgument(commit, 'commit')}^{commit}`])
     if (!result.success) throw failure(result, `Failed to read the message of ${commit}`)
     return (result.output ?? '').replace(/\n+$/, '')
   }
 
   /** Whether each of these names a commit in this repository */
   async commitsExist(...refs: string[]): Promise<boolean> {
-    const result = await this.runner.executeGitCommand(['rev-parse', '--quiet', ...refs.map(ref => `${refArgument(ref)}^{commit}`)])
+    const result = await this.runner.read(['rev-parse', '--quiet', ...refs.map(ref => `${refArgument(ref)}^{commit}`)])
     return result.success
   }
 
@@ -766,7 +767,7 @@ export class GitReads {
   async readBranches(): Promise<string[]> {
     // Read from the refs themselves, one per record: `git branch` decorates its lines for a person, marking the
     // current branch, one checked out in another worktree and a detached HEAD
-    const result = await this.runner.executeGitCommand([
+    const result = await this.runner.read([
       'for-each-ref', '--sort=-committerdate', '--format=%(refname)', 'refs/heads', 'refs/remotes',
     ])
     if (!result.success) {
@@ -799,7 +800,7 @@ export class GitReads {
   }
 
   async stashList(): Promise<StashEntry[]> {
-    const result = await this.runner.executeGitCommand(['stash', 'list', '-z', '--format=%gd%x00%s%x00%ai'])
+    const result = await this.runner.read(['stash', 'list', '-z', '--format=%gd%x00%s%x00%ai'])
     if (!result.success) {
       // Empty stash list is not an error
       if (result.code === 'unknown-ref') return []
@@ -813,14 +814,14 @@ export class GitReads {
   // ── Worktree operations ──────────────────────────────────────────
 
   async worktreeList(): Promise<WorktreeEntry[]> {
-    const result = await this.runner.executeGitCommand(['worktree', 'list', '--porcelain'])
+    const result = await this.runner.read(['worktree', 'list', '--porcelain'])
     if (!result.success || !result.output?.trim()) return []
 
     return parseWorktreeList(result.output, this.workingDirectory)
   }
 
   async readCommitsBetween(baseBranch: string, targetBranch = 'HEAD'): Promise<{ subject: string; body: string }[]> {
-    const result = await this.runner.executeGitCommand([
+    const result = await this.runner.read([
       'log', '-z', `${refArgument(baseBranch, 'base branch')}..${refArgument(targetBranch, 'branch')}`,
       '--format=%s%x00%b',
       '--reverse'
@@ -835,7 +836,7 @@ export class GitReads {
   // --- Commit log operations ---
 
   async gitLog(count = 50): Promise<CommitLogEntry[]> {
-    const result = await this.runner.executeGitCommand([
+    const result = await this.runner.read([
       'log', '-z', `-n${count}`,
       '--format=%H%x00%h%x00%s%x00%b%x00%an%x00%ae%x00%aI%x00%D',
     ])
@@ -870,8 +871,9 @@ export class GitReads {
     }
     const { relativeToCwd } = normalizeReadPath(filePath, this.workingDirectory, this.workingDirectory)
     try {
-      return version === 'HEAD' ? await this.fileInCommit(`HEAD:${relativeToCwd}`) : await this.runner.executeGitCommandBinary(['show', stageZeroSpec(relativeToCwd)])
-    } catch {
+      return version === 'HEAD' ? await this.fileInCommit(`HEAD:${relativeToCwd}`) : await this.runner.readBinary(['show', stageZeroSpec(relativeToCwd)])
+    } catch (error) {
+      if (error instanceof GitError) throw error
       return undefined
     }
   }
@@ -888,34 +890,34 @@ export class GitReads {
    * Nothing where there is no remote.
    */
   async readRemoteUrl(): Promise<string | undefined> {
-    const result = await this.runner.executeGitCommand(['ls-remote', '--get-url'])
+    const result = await this.runner.read(['ls-remote', '--get-url'])
     return (result.success && result.output?.trim()) || undefined
   }
 
   async readRemotes(): Promise<GitRemote[]> {
-    const names = (await this.runner.executeGitCommand(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
+    const names = (await this.runner.read(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
     const remotes = await Promise.all(names.map(async (name) => {
-      const url = await this.runner.executeGitCommand(['ls-remote', '--get-url', refArgument(name, 'remote')])
+      const url = await this.runner.read(['ls-remote', '--get-url', refArgument(name, 'remote')])
       return url.success && url.output?.trim() ? { name, url: url.output.trim() } : undefined
     }))
     return remotes.filter((remote): remote is GitRemote => remote !== undefined)
   }
 
   async readRemote(): Promise<{ name: string; url: string } | undefined> {
-    const remotes = (await this.runner.executeGitCommand(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
+    const remotes = (await this.runner.read(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
     if (remotes.length === 0) return undefined
-    const branch = await this.runner.executeGitCommand(['symbolic-ref', '--quiet', '--short', 'HEAD'])
+    const branch = await this.runner.read(['symbolic-ref', '--quiet', '--short', 'HEAD'])
     const followed = branch.success && branch.output?.trim()
-      ? (await this.runner.executeGitCommand(['config', '--get', `branch.${branch.output.trim()}.remote`])).output?.trim()
+      ? (await this.runner.read(['config', '--get', `branch.${branch.output.trim()}.remote`])).output?.trim()
       : undefined
     const name = followed && remotes.includes(followed) ? followed : remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0]! : undefined
     if (!name) return undefined
-    const url = await this.runner.executeGitCommand(['ls-remote', '--get-url', name])
+    const url = await this.runner.read(['ls-remote', '--get-url', name])
     return url.success && url.output?.trim() ? { name, url: url.output.trim() } : undefined
   }
 
   async mergeBase(first: string, second: string): Promise<string | undefined> {
-    const result = await this.runner.executeGitCommand(['merge-base', refArgument(first, 'commit'), refArgument(second, 'commit')])
+    const result = await this.runner.read(['merge-base', refArgument(first, 'commit'), refArgument(second, 'commit')])
     return (result.success && result.output?.trim()) || undefined
   }
 }

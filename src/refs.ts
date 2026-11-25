@@ -19,8 +19,8 @@ export class Refs {
 
   async model(): Promise<RefsModel> {
     const [listed, configured] = await Promise.all([
-      this.runner.executeGitCommand(['for-each-ref', `--format=${FIELDS.join('%00')}`, 'refs/heads', 'refs/remotes', 'refs/tags']),
-      this.runner.executeGitCommand(['config', '--get-regexp', '^remote\\..*\\.(url|pushurl)$']),
+      this.runner.read(['for-each-ref', `--format=${FIELDS.join('%00')}`, 'refs/heads', 'refs/remotes', 'refs/tags']),
+      this.runner.read(['config', '--get-regexp', '^remote\\..*\\.(url|pushurl)$']),
     ])
     if (!listed.success) throw failure(listed, 'Failed to read the branches')
     return parseRefs(listed.output ?? '', configured.success ? configured.output ?? '' : '')

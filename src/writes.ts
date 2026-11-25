@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs/promises'
 import { branchNameArgument, commitArgument, refArgument, rowSpec, stashArgument } from './arguments.ts'
 import type { DiscardStore } from './discards.ts'
-import { rebaseWithTodo, refusePublished } from './rewrite.ts'
+import { cleanupRewriteMessages, rebaseWithTodo, refusePublished, refusePublishedCommit } from './rewrite.ts'
 import type { CheckpointStore } from './checkpoints.ts'
 import type { Journal } from './journal.ts'
 import { GitError, gitErrorOf, type GitErrorCode } from './errors.ts'
@@ -48,13 +48,13 @@ export class GitWrites {
 
   /** Where a ref points, or `null` when there is none: `HEAD` before the first commit has none */
   private async revisionOf(ref: string): Promise<string | null> {
-    const result = await this.runner.executeGitCommand(['rev-parse', '--verify', '--quiet', ref])
+    const result = await this.runner.read(['rev-parse', '--verify', '--quiet', ref])
     return result.success ? (result.output ?? '').trim() || null : null
   }
 
   /** The branch `HEAD` is on, as a full ref, or `HEAD` itself when it is on none */
   private async headRef(): Promise<string> {
-    const result = await this.runner.executeGitCommand(['symbolic-ref', '--quiet', 'HEAD'])
+    const result = await this.runner.read(['symbolic-ref', '--quiet', 'HEAD'])
     return result.success ? (result.output ?? '').trim() || 'HEAD' : 'HEAD'
   }
 
@@ -64,8 +64,8 @@ export class GitWrites {
    * when the repository has none, or several and nothing names one.
    */
   private async publishRemote(branch: string): Promise<string> {
-    const setting = async (key: string) => (await this.runner.executeGitCommand(['config', '--get', key])).output?.trim() || undefined
-    const remotes = (await this.runner.executeGitCommand(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
+    const setting = async (key: string) => (await this.runner.read(['config', '--get', key])).output?.trim() || undefined
+    const remotes = (await this.runner.read(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
     for (const key of [`branch.${branch}.pushRemote`, 'remote.pushDefault', `branch.${branch}.remote`]) {
       const named = await setting(key)
       if (named && remotes.includes(named)) return named
@@ -79,7 +79,7 @@ export class GitWrites {
 
   /** The stashes there are, newest first, each with the commit it is and its message */
   private async stashes(): Promise<{ commit: string; message: string }[]> {
-    const result = await this.runner.executeGitCommand(['stash', 'list', '-z', '--format=%H%x00%gs'])
+    const result = await this.runner.read(['stash', 'list', '-z', '--format=%H%x00%gs'])
     if (!result.success) return []
     const fields = (result.output ?? '').split('\0')
     const stashes: { commit: string; message: string }[] = []
@@ -130,8 +130,8 @@ export class GitWrites {
   async applyHunk(filePath: string, staged: boolean, id: string): Promise<void> {
     return this.withWriteFlag(async () => {
       const hunk = (await this.reads.cutHunks(filePath, staged)).find(cut => cut.id === id)
-      if (!hunk) throw new GitError('The file has changed since this change was read. It is shown as it is now: try again.')
-      const result = await this.runner.executeGitCommand(['apply', '--cached', ...(staged ? ['--reverse'] : []), '--whitespace=nowarn', '-'], { input: Buffer.from(hunk.apply, 'latin1') })
+      if (!hunk) throw new GitError('The file has changed since this change was read. It is shown as it is now: try again.', 'stale-hunk')
+      const result = await this.runner.write(['apply', '--cached', ...(staged ? ['--reverse'] : []), '--whitespace=nowarn', '-'], { input: Buffer.from(hunk.apply, 'latin1') })
       if (!result.success) throw failure(result, staged ? 'Failed to unstage the change' : 'Failed to stage the change')
     }, 'index')
   }
@@ -145,16 +145,25 @@ export class GitWrites {
   async applyPatch(patch: string | Buffer, { staged = false }: { staged?: boolean } = {}): Promise<void> {
     return this.withWriteFlag(async () => {
       const top = await this.model.checkoutTop()
-      const result = await this.runner.executeGitCommand(['-C', top, 'apply', ...(staged ? ['--cached'] : []), '--whitespace=nowarn', '-'], { input: patch })
+      const result = await this.runner.write(['-C', top, 'apply', ...(staged ? ['--cached'] : []), '--whitespace=nowarn', '-'], { input: patch })
       if (!result.success) throw failure(result, 'Failed to apply the patch')
     }, 'index')
+  }
+
+  /** Runs a pathspec-taking write command via CLI args for small lists and `--pathspec-from-file` for large ones */
+  private writeWithSpecs(baseArgs: string[], filePaths: string[]) {
+    const specs = filePaths.map(rowSpec)
+    if (specs.length > 32 || specs.reduce((total, spec) => total + spec.length, 0) > 4096) {
+      return this.runner.write([...baseArgs, '--pathspec-from-file=-', '--pathspec-file-nul'], { input: specs.join('\0') })
+    }
+    return this.runner.write([...baseArgs, '--', ...specs])
   }
 
   async stageFiles(filePaths: string[]): Promise<void> {
     refuseNamesNotText(filePaths)
     if (filePaths.length === 0) return
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['add', '--', ...filePaths.map(rowSpec)])
+      const result = await this.writeWithSpecs(['add'], filePaths)
       if (!result.success) {
         throw failure(result, 'Failed to stage files')
       }
@@ -165,7 +174,7 @@ export class GitWrites {
     refuseNamesNotText(filePaths)
     if (filePaths.length === 0) return
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['reset', 'HEAD', '--', ...filePaths.map(rowSpec)])
+      const result = await this.writeWithSpecs(['reset', 'HEAD'], filePaths)
       if (!result.success) {
         throw failure(result, 'Failed to unstage files')
       }
@@ -195,19 +204,18 @@ export class GitWrites {
         // and clears the conflict state in both the index and worktree.
         const existsInHead = await this.reads.fileExistsInHead(filePath)
         if (existsInHead) {
-          const result = await this.runner.executeGitCommand(['checkout', 'HEAD', '--', rowSpec(filePath)])
+          const result = await this.runner.write(['checkout', 'HEAD', '--', rowSpec(filePath)])
           if (!result.success) {
             throw failure(result, `Failed to revert file: ${filePath}`)
           }
         } else {
           // File was added by stash/merge — delete it and clean the index entry
-          const top = await this.model.checkoutTop()
           const onDisk = await resolveInsideTop(top, filePath)
           await fs.unlink(onDisk)
-          await this.runner.executeGitCommand(['rm', '--cached', '--force', '--', rowSpec(filePath)])
+          await this.runner.write(['rm', '--cached', '--force', '--', rowSpec(filePath)])
         }
       } else {
-        const result = await this.runner.executeGitCommand(['checkout', '--', rowSpec(filePath)])
+        const result = await this.runner.write(['checkout', '--', rowSpec(filePath)])
         if (!result.success) {
           throw failure(result, `Failed to revert file: ${filePath}`)
         }
@@ -230,7 +238,7 @@ export class GitWrites {
     if (await fs.access(path.join(onDisk, '.git')).then(() => true, () => false)) {
       throw new GitError(`${filePath} is a repository of its own, which git does not remove. Delete the folder yourself if it is not wanted.`)
     }
-    const result = await this.runner.executeGitCommand(['clean', '--force', '-d', '--quiet', '--', rowSpec(filePath)])
+    const result = await this.runner.write(['clean', '--force', '-d', '--quiet', '--', rowSpec(filePath)])
     if (!result.success) throw failure(result, `Failed to discard folder: ${filePath}`)
   }
 
@@ -243,54 +251,72 @@ export class GitWrites {
       for (const p of filePaths) await resolveInsideTop(top, p)
       const status = await this.model.readStatus()
       const statusMap = new Map(status.map(f => [f.path, f.status]))
+      const folderRows = status.filter(f => f.isDirectory)
+      const isUntrackedPath = (p: string) =>
+        statusMap.get(p) === 'untracked' || (!statusMap.has(p) && folderRows.some(f => p.startsWith(f.path)))
       const kept = await this.discards.keep(filePaths)
 
-      const untrackedPaths = filePaths.filter(p => statusMap.get(p) === 'untracked')
+      const untrackedPaths = filePaths.filter(isUntrackedPath)
       const unmergedPaths = filePaths.filter(p => statusMap.get(p) === 'unmerged')
-      const trackedPaths = filePaths.filter(p => {
-        const s = statusMap.get(p)
-        return s !== 'untracked' && s !== 'unmerged'
-      })
+      const trackedPaths = filePaths.filter(p => !isUntrackedPath(p) && statusMap.get(p) !== 'unmerged')
 
-      // Delete untracked files, and what git lists of untracked folders
-      const folders = new Set(status.filter(f => f.isDirectory).map(f => f.path))
-      for (const filePath of untrackedPaths) await this.discardUntracked(filePath, folders.has(filePath))
+      const summary = filePaths.length === 1 ? `discarding ${filePaths[0]}` : `discarding ${filePaths.length} files`
+      let touched = false
+      let journaled: DiscardKept | undefined
+      try {
+        // Delete untracked files, and what git lists of untracked folders
+        const folders = new Set(folderRows.map(f => f.path))
+        for (const filePath of untrackedPaths) {
+          await this.discardUntracked(filePath, folders.has(filePath))
+          touched = true
+        }
 
-      // Revert unmerged files — split by whether they exist in HEAD
-      if (unmergedPaths.length > 0) {
-        const existsInHead: string[] = []
-        const newFiles: string[] = []
-        for (const p of unmergedPaths) {
-          if (await this.reads.fileExistsInHead(p)) {
-            existsInHead.push(p)
-          } else {
-            newFiles.push(p)
+        // Revert unmerged files — split by whether they exist in HEAD
+        if (unmergedPaths.length > 0) {
+          const existsInHead: string[] = []
+          const newFiles: string[] = []
+          for (const p of unmergedPaths) {
+            if (await this.reads.fileExistsInHead(p)) {
+              existsInHead.push(p)
+            } else {
+              newFiles.push(p)
+            }
+          }
+          if (existsInHead.length > 0) {
+            const result = await this.writeWithSpecs(['checkout', 'HEAD'], existsInHead)
+            if (!result.success) {
+              throw failure(result, 'Failed to revert unmerged files')
+            }
+            touched = true
+          }
+          for (const p of newFiles) {
+            const onDisk = await resolveInsideTop(top, p)
+            await fs.unlink(onDisk)
+            touched = true
+            await this.runner.write(['rm', '--cached', '--force', '--', rowSpec(p)])
           }
         }
-        if (existsInHead.length > 0) {
-          const result = await this.runner.executeGitCommand(['checkout', 'HEAD', '--', ...existsInHead.map(rowSpec)])
+
+        // Revert tracked files
+        if (trackedPaths.length > 0) {
+          const result = await this.writeWithSpecs(['checkout'], trackedPaths)
           if (!result.success) {
-            throw failure(result, 'Failed to revert unmerged files')
+            throw failure(result, 'Failed to revert files')
           }
+          touched = true
         }
-        for (const p of newFiles) {
-          const top = await this.model.checkoutTop()
-          const onDisk = await resolveInsideTop(top, p)
-          await fs.unlink(onDisk)
-          await this.runner.executeGitCommand(['rm', '--cached', '--force', '--', rowSpec(p)])
+
+        this.model.markSnapshotStale()
+        journaled = await this.journalDiscard(kept, summary)
+        return journaled
+      } finally {
+        // If any file was already deleted/reverted before a later failure, still record the kept checkpoint in the
+        // journal so `undo` can recover what was already removed
+        if (touched && !journaled) {
+          this.model.markSnapshotStale()
+          await this.journalDiscard(kept, summary).catch(() => {})
         }
       }
-
-      // Revert tracked files
-      if (trackedPaths.length > 0) {
-        const result = await this.runner.executeGitCommand(['checkout', '--', ...trackedPaths.map(rowSpec)])
-        if (!result.success) {
-          throw failure(result, 'Failed to revert files')
-        }
-      }
-
-      this.model.markSnapshotStale()
-      return this.journalDiscard(kept, filePaths.length === 1 ? `discarding ${filePaths[0]}` : `discarding ${filePaths.length} files`)
     })
   }
 
@@ -309,21 +335,21 @@ export class GitWrites {
       const spec = rowSpec(filePath)
       if (typeof answer === 'object') {
         const target = await resolveInsideTop(top, filePath, { followTargetSymlink: true })
-        const unmerged = await this.runner.executeGitCommand(['-C', top, 'ls-files', '--unmerged', '-z', '--', spec])
+        const unmerged = await this.runner.read(['-C', top, 'ls-files', '--unmerged', '-z', '--', spec])
         if (!unmerged.success) throw failure(unmerged, `Failed to read the conflict in ${filePath}`)
         if (!(unmerged.output ?? '').trim()) throw new GitError(`${filePath} has no conflict`)
         await fs.writeFile(target, answer.content)
       } else {
         const sides = await this.reads.conflictSides(filePath)
         if ((answer === 'ours' ? sides.ours : sides.theirs) === null) {
-          const removed = await this.runner.executeGitCommand(['-C', top, 'rm', '--quiet', '--force', '--', spec])
+          const removed = await this.runner.write(['-C', top, 'rm', '--quiet', '--force', '--', spec])
           if (!removed.success) throw failure(removed, `Failed to resolve conflict with ${answer}`)
           return
         }
-        const result = await this.runner.executeGitCommand(['-C', top, 'checkout', `--${answer}`, '--', spec])
+        const result = await this.runner.write(['-C', top, 'checkout', `--${answer}`, '--', spec])
         if (!result.success) throw failure(result, `Failed to resolve conflict with ${answer}`)
       }
-      const added = await this.runner.executeGitCommand(['-C', top, 'add', '--', spec])
+      const added = await this.runner.write(['-C', top, 'add', '--', spec])
       if (!added.success) throw failure(added, `Failed to mark ${filePath} resolved`)
     }, 'index')
   }
@@ -337,12 +363,18 @@ export class GitWrites {
     if (!operation) throw new Error('Git is not in the middle of anything in this repository')
     if (move === 'skip' && operation.kind !== 'rebase') throw new Error(`Only a rebase has a commit to skip, and this is a ${operation.kind}`)
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand([operation.kind, `--${move}`])
+      const gitDir = (await this.model.directories())?.gitDir
+      const result = await this.runner.write([operation.kind, `--${move}`])
       this.model.markSnapshotStale()
-      if (result.success) return
-      // A rebase that went on to its next commit and stopped there, at a conflict, did what was asked
+      if (result.success) {
+        if (operation.kind === 'rebase') await cleanupRewriteMessages(gitDir)
+        return
+      }
+      // A rebase that went on to its next commit and stopped there on a conflict did what was asked; non-conflict
+      // failures (such as a refusing hook or a failed exec) are never swallowed
       const now = (await this.model.currentSnapshot()).operation
-      if (now?.kind === 'rebase' && (now.step ?? 0) > (operation.step ?? 0)) return
+      if (now?.kind === 'rebase' && (now.step ?? 0) > (operation.step ?? 0) && result.code === 'conflict') return
+      if (operation.kind === 'rebase' && now?.kind !== 'rebase') await cleanupRewriteMessages(gitDir)
       throw failure(result, `Could not ${move} the ${operation.kind}`)
     })
   }
@@ -354,7 +386,7 @@ export class GitWrites {
     return this.withWriteFlag(async () => {
       const ref = await this.headRef()
       const before = await this.revisionOf('HEAD')
-      const result = await this.runner.executeGitCommand(['commit', '-m', message])
+      const result = await this.runner.write(['commit', '-m', message])
       if (!result.success) {
         throw failure(result, 'Failed to commit')
       }
@@ -373,7 +405,7 @@ export class GitWrites {
       const ref = await this.headRef()
       const before = await this.revisionOf('HEAD')
       const { id: checkpoint } = await this.checkpoints.checkpoint()
-      const result = await this.runner.executeGitCommand(args)
+      const result = await this.runner.write(args)
       this.reads.clearCache()
       if (!result.success) throw failure(result, `Failed to ${summary}`)
       await this.journal.record({ operation, summary, refs: [{ ref, before, after: await this.revisionOf('HEAD') }], checkpoint })
@@ -384,28 +416,28 @@ export class GitWrites {
   async createTag(name: string, { commit, message }: { commit?: string; message?: string } = {}): Promise<void> {
     return this.withWriteFlag(async () => {
       const args = ['tag', ...(message !== undefined ? ['-a', '-m', message] : []), refArgument(name, 'tag'), ...(commit ? [refArgument(commit, 'commit')] : [])]
-      const result = await this.runner.executeGitCommand(args)
+      const result = await this.runner.write(args)
       if (!result.success) throw failure(result, `Failed to make the tag ${name}`)
     })
   }
 
   async deleteTag(name: string): Promise<void> {
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['tag', '--delete', refArgument(name, 'tag')])
+      const result = await this.runner.write(['tag', '--delete', refArgument(name, 'tag')])
       if (!result.success) throw failure(result, `Failed to delete the tag ${name}`)
     })
   }
 
   /** Pushes a tag to a remote, `origin` unless another is named, with progress, stopped through `signal` */
   async pushTag(name: string, { remote = 'origin', onProgress, signal }: { remote?: string; onProgress?: (progress: GitProgress) => void; signal?: AbortSignal } = {}): Promise<void> {
-    const result = await this.runner.executeGitCommand(['push', '--progress', refArgument(remote, 'remote'), `refs/tags/${refArgument(name, 'tag')}`], { onProgress, signal })
+    const result = await this.runner.network(['push', '--progress', refArgument(remote, 'remote'), `refs/tags/${refArgument(name, 'tag')}`], { onProgress, signal })
     if (!result.success) throw result.code === 'aborted' ? new GitError('The push was stopped', 'aborted') : failure(result, `Failed to push the tag ${name}`)
   }
 
   /** Renames a local branch, and what it follows with it; refused when a branch already has the new name */
   async renameBranch(name: string, to: string): Promise<void> {
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['branch', '--move', refArgument(name, 'branch'), refArgument(to, 'branch')])
+      const result = await this.runner.write(['branch', '--move', refArgument(name, 'branch'), refArgument(to, 'branch')])
       if (!result.success) throw failure(result, `Failed to rename ${name}`)
       this.reads.clearCache()
     })
@@ -422,8 +454,8 @@ export class GitWrites {
       const ref = await this.headRef()
       const before = await this.revisionOf('HEAD')
       if (!before) throw new GitError('There is no commit to amend yet.')
-      await refusePublished(this.runner, `${before}~1`, evenIfPublished)
-      const result = await this.runner.executeGitCommand(['commit', '--amend', '--allow-empty', ...(message === undefined ? ['--no-edit'] : ['-m', message])])
+      await refusePublishedCommit(this.runner, before, evenIfPublished)
+      const result = await this.runner.write(['commit', '--amend', '--allow-empty', ...(message === undefined ? ['--no-edit'] : ['-m', message])])
       if (!result.success) throw failure(result, 'Failed to amend the last commit')
       this.reads.clearCache()
       await this.journal.record({ operation: 'amend', summary: 'amending the last commit', refs: [{ ref, before, after: await this.revisionOf('HEAD') }] })
@@ -441,8 +473,9 @@ export class GitWrites {
       const before = await this.revisionOf('HEAD')
       await refusePublished(this.runner, base, evenIfPublished)
       const { id: checkpoint } = await this.checkpoints.checkpoint()
+      const gitDir = (await this.model.directories())?.gitDir
       try {
-        await rebaseWithTodo(this.runner, base, steps)
+        await rebaseWithTodo(this.runner, base, steps, gitDir)
       } finally {
         this.reads.clearCache()
       }
@@ -475,12 +508,12 @@ export class GitWrites {
       const ref = `refs/heads/${refArgument(name, 'branch')}`
       const before = await this.revisionOf(ref)
       const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const settings = await this.runner.executeGitCommand(['config', '--get-regexp', `^branch\\.${escaped}\\.`])
+      const settings = await this.runner.read(['config', '--get-regexp', `^branch\\.${escaped}\\.`])
       const config = (settings.output ?? '').split('\n').filter(Boolean).map((line) => {
         const space = line.indexOf(' ')
         return [line.slice(0, space), line.slice(space + 1)] as [string, string]
       })
-      const result = await this.runner.executeGitCommand(['branch', '--delete', '--force', '--', refArgument(name, 'branch')])
+      const result = await this.runner.write(['branch', '--delete', '--force', '--', refArgument(name, 'branch')])
       if (!result.success) throw failure(result, `Failed to delete branch ${name}`)
       await this.journal.record({ operation: 'delete-branch', summary: `deleting branch ${name}`, refs: [{ ref, before, after: null }], config })
     })
@@ -489,7 +522,7 @@ export class GitWrites {
   async fetchRemoteBranch(branch: string, remote = 'origin'): Promise<string> {
     const ref = `refs/remotes/${refArgument(remote, 'remote')}/${refArgument(branch, 'branch')}`
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${ref}`])
+      const result = await this.runner.network(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${ref}`])
       if (!result.success) throw failure(result, `Failed to fetch ${branch} from ${remote}`)
       return ref
     })
@@ -499,7 +532,7 @@ export class GitWrites {
     if (!Number.isInteger(number) || number < 1) throw new Error(`Invalid pull request number: ${JSON.stringify(number)}`)
     const ref = `refs/remotes/${refArgument(remote, 'remote')}/pull/${number}`
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['fetch', '--no-tags', remote, `+refs/pull/${number}/head:${ref}`])
+      const result = await this.runner.network(['fetch', '--no-tags', remote, `+refs/pull/${number}/head:${ref}`])
       if (!result.success) throw failure(result, `Failed to fetch pull request #${number}`)
       return ref
     })
@@ -507,7 +540,7 @@ export class GitWrites {
 
   async deleteRemoteBranch(branch: string, remote = 'origin'): Promise<void> {
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['push', refArgument(remote, 'remote'), '--delete', refArgument(branch, 'branch')])
+      const result = await this.runner.network(['push', refArgument(remote, 'remote'), '--delete', refArgument(branch, 'branch')])
       if (!result.success) {
         throw failure(result, 'Failed to delete remote branch')
       }
@@ -524,7 +557,7 @@ export class GitWrites {
     return this.withWriteFlag(async () => {
       // The `--` ends the names of branches: without it, a name that is no branch and is a tracked file or folder
       // is checked out as that path, over whatever was changed in it
-      const result = await this.runner.executeGitCommand(['checkout', '--progress', branchName, '--'], { onProgress })
+      const result = await this.runner.write(['checkout', '--progress', branchName, '--'], { onProgress })
 
       if (!result.success) {
         if (result.code === 'unknown-ref') {
@@ -564,7 +597,7 @@ export class GitWrites {
       } else if (tip === target) {
         done = 'current'
         args = ['checkout', '--progress', name, '--']
-      } else if ((await this.runner.executeGitCommand(['merge-base', '--is-ancestor', tip, target])).success) {
+      } else if ((await this.runner.read(['merge-base', '--is-ancestor', tip, target])).success) {
         // Moved to the commit itself rather than to `at`, which a fetch could move before git reads it
         done = 'fast-forwarded'
         args = ['checkout', '--progress', '-B', name, target, '--']
@@ -572,7 +605,7 @@ export class GitWrites {
         done = 'kept'
         args = ['checkout', '--progress', name, '--']
       }
-      const result = await this.runner.executeGitCommand(args, { onProgress })
+      const result = await this.runner.write(args, { onProgress })
       if (!result.success) {
         if (result.code === 'local-changes') {
           throw gitErrorOf('Cannot switch branches: Your uncommitted changes conflict with files in the target branch. Please commit, stash, or discard your changes first.', result.code, result.error ?? '')
@@ -593,9 +626,9 @@ export class GitWrites {
     return this.withWriteFlag(async () => {
       // The branch this one is made from: where it was is not written down otherwise
       const from = await this.reads.readCurrentBranch().catch(() => 'HEAD')
-      const result = await this.runner.executeGitCommand(['checkout', '-b', branchName, '--'])
+      const result = await this.runner.write(['checkout', '-b', branchName, '--'])
       if (!result.success) throw failure(result, `Failed to create branch: ${branchName}`)
-      if (from !== 'HEAD') await this.runner.executeGitCommand(['config', `branch.${branchName}.${BASE_KEY}`, from])
+      if (from !== 'HEAD') await this.runner.write(['config', `branch.${branchName}.${BASE_KEY}`, from])
       this.reads.clearCache()
     })
   }
@@ -604,7 +637,7 @@ export class GitWrites {
   async deleteRemoteTrackingBranch(branch: string, remote = 'origin'): Promise<void> {
     const ref = `refs/remotes/${refArgument(remote, 'remote')}/${refArgument(branch, 'branch')}`
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['update-ref', '-d', ref])
+      const result = await this.runner.write(['update-ref', '-d', ref])
       if (!result.success) throw failure(result, `Failed to delete ${remote}/${branch}`)
     })
   }
@@ -626,7 +659,7 @@ export class GitWrites {
         ? ['push', '--progress']
         : ['push', '--progress', '-u', await this.publishRemote(branch), 'HEAD']
 
-      const result = await this.runner.executeGitCommand(args, { onProgress, signal })
+      const result = await this.runner.network(args, { onProgress, signal })
 
       if (!result.success) {
         // What a stopped git did before it ended is read afresh
@@ -638,19 +671,19 @@ export class GitWrites {
     })
   }
 
-  async pullBranch(onProgress?: (progress: GitProgress) => void): Promise<void> {
+  async pullBranch(onProgress?: (progress: GitProgress) => void, signal?: AbortSignal): Promise<void> {
     return this.withWriteFlag(async () => {
       // Check if we have an upstream branch
       const hasUpstream = await this.reads.isCurrentBranchPublished()
       if (!hasUpstream) {
-        throw new Error('No upstream branch to pull from. Push your branch first.')
+        throw new GitError('No upstream branch to pull from. Push your branch first.', 'no-upstream')
       }
 
-      // Execute git pull
-      const result = await this.runner.executeGitCommand(['pull', '--progress'], { onProgress })
+      // Execute git pull (touches working tree and index, so serialized in the write lane)
+      const result = await this.runner.write(['pull', '--progress'], { onProgress, signal })
 
       if (!result.success) {
-        throw gitErrorOf(result.error || 'git gave no reason', result.code, result.error ?? '')
+        throw gitErrorOf(result.code === 'aborted' ? 'The pull was stopped' : result.error || 'git gave no reason', result.code, result.error ?? '')
       }
 
       this.reads.clearCache()
@@ -666,7 +699,7 @@ export class GitWrites {
   async updateSubmodules(paths: string[] = [], { onProgress, signal }: { onProgress?: (progress: GitProgress) => void; signal?: AbortSignal } = {}): Promise<void> {
     return this.withWriteFlag(async () => {
       const top = await this.model.checkoutTop()
-      const result = await this.runner.executeGitCommand(
+      const result = await this.runner.write(
         ['-C', top, 'submodule', 'update', '--init', '--recursive', '--progress', '--', ...paths.map(rowSpec)],
         { onProgress, signal },
       )
@@ -694,7 +727,7 @@ export class GitWrites {
         args.push('--include-untracked')
       }
       if (paths?.length) args.push('--', ...paths.map(rowSpec))
-      const result = await this.runner.executeGitCommand(args)
+      const result = await this.runner.write(args)
       if (!result.success) {
         throw failure(result, 'Failed to stash changes')
       }
@@ -705,7 +738,7 @@ export class GitWrites {
 
   async stashApply(index: number): Promise<void> {
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['stash', 'apply', stashArgument(index)])
+      const result = await this.runner.write(['stash', 'apply', stashArgument(index)])
       if (!result.success) {
         if (this.isStashConflict(result)) {
           // Stash was applied — unmerged files now exist. Refresh cache so
@@ -721,7 +754,7 @@ export class GitWrites {
 
   async stashPop(index: number): Promise<void> {
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['stash', 'pop', stashArgument(index)])
+      const result = await this.runner.write(['stash', 'pop', stashArgument(index)])
       if (!result.success) {
         if (this.isStashConflict(result)) {
           // `git stash pop` with conflicts leaves the stash in place and
@@ -742,7 +775,7 @@ export class GitWrites {
   async stashDrop(index: number): Promise<void> {
     return this.withWriteFlag(async () => {
       const dropped = (await this.stashes())[index]
-      const result = await this.runner.executeGitCommand(['stash', 'drop', stashArgument(index)])
+      const result = await this.runner.write(['stash', 'drop', stashArgument(index)])
       if (!result.success) {
         throw failure(result, 'Failed to drop stash')
       }
@@ -753,7 +786,7 @@ export class GitWrites {
   async stashClear(): Promise<void> {
     return this.withWriteFlag(async () => {
       const cleared = await this.stashes()
-      const result = await this.runner.executeGitCommand(['stash', 'clear'])
+      const result = await this.runner.write(['stash', 'clear'])
       if (!result.success) {
         throw failure(result, 'Failed to clear stashes')
       }
@@ -772,7 +805,7 @@ export class GitWrites {
         args.push('--', wtPath)
       }
 
-      const result = await this.runner.executeGitCommand(args)
+      const result = await this.runner.write(args)
       if (!result.success) {
         throw failure(result, 'Failed to add worktree')
       }
@@ -786,7 +819,7 @@ export class GitWrites {
       if (force) args.push('--force')
       args.push('--', wtPath)
 
-      const result = await this.runner.executeGitCommand(args)
+      const result = await this.runner.write(args)
       if (!result.success) {
         throw failure(result, 'Failed to remove worktree')
       }
@@ -795,7 +828,7 @@ export class GitWrites {
 
   async revertCommit(hash: string): Promise<void> {
     return this.withWriteFlag(async () => {
-      const result = await this.runner.executeGitCommand(['revert', '--no-edit', commitArgument(hash)])
+      const result = await this.runner.write(['revert', '--no-edit', commitArgument(hash)])
       if (!result.success) {
         throw failure(result, `Failed to revert commit ${hash}`)
       }
@@ -809,7 +842,7 @@ export class GitWrites {
       const before = await this.revisionOf('HEAD')
       // A copy of the working tree first: the reset leaves the files as they are, and anything after it may not
       const { id: checkpoint } = await this.checkpoints.checkpoint()
-      const result = await this.runner.executeGitCommand(['reset', commitArgument(hash)])
+      const result = await this.runner.write(['reset', commitArgument(hash)])
       if (!result.success) {
         throw failure(result, `Failed to reset to commit ${hash}`)
       }
@@ -823,7 +856,7 @@ export class GitWrites {
    * no write and marks the picture stale: what the fetch brought is found by the check that follows it.
    */
   async fetch(signal?: AbortSignal): Promise<{ success: boolean; code?: GitErrorCode; error?: string }> {
-    const result = await this.runner.executeGitCommand(['fetch', '--quiet'], { signal })
+    const result = await this.runner.network(['fetch', '--quiet'], { signal })
     this.model.markSnapshotStale()
     return { success: result.success, ...(result.code && { code: result.code }), ...(result.error && { error: result.error }) }
   }

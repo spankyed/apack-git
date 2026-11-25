@@ -283,3 +283,21 @@ it('discards an unmerged deleted-by-us file from a working directory under the t
   await subRepo.revertFile('du.txt');
   expect(fs.existsSync(path.join(root, 'du.txt'))).toBe(false);
 });
+
+it('discards files inside an untracked folder via revertFiles and keeps a journal entry on partial failure', async () => {
+  const { root, repo } = await repository();
+  write(root, 'notes/draft.md', '# draft\n');
+  await repo.readSnapshot();
+
+  await repo.revertFiles(['notes/draft.md']);
+  expect(fs.existsSync(path.join(root, 'notes/draft.md'))).toBe(false);
+
+  // Partial failure: untracked file is deleted before nonexistent tracked path fails; journal still lets user undo
+  write(root, 'temp.txt', 'keep me via undo\n');
+  await expect(repo.revertFiles(['temp.txt', 'does-not-exist.txt'])).rejects.toThrow();
+  expect(fs.existsSync(path.join(root, 'temp.txt'))).toBe(false);
+  const [latest] = await repo.undoables();
+  expect(latest?.entry.operation).toBe('discard');
+  await repo.undo(latest!.entry.id);
+  expect(read(root, 'temp.txt')).toBe('keep me via undo\n');
+});

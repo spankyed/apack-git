@@ -110,3 +110,41 @@ it('starts no git for a read with nothing noted, watched', async () => {
 
   expect(await startedBy(() => repo.readSnapshot())).toEqual([]);
 });
+
+it('runs read commands without hook tracing and with GIT_NO_LAZY_FETCH, and branch mutations in the write lane', async () => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-lanes-')));
+  directories.push(root);
+  const git = async (...args: string[]) => (await run('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args])).stdout.trim();
+  await git('init', '--quiet', '--initial-branch=main');
+  fs.writeFileSync(path.join(root, 'a.txt'), 'one\n');
+  await git('add', '.');
+  await git('commit', '--quiet', '-m', 'first');
+  await git('branch', 'temp');
+  const head = await git('rev-parse', 'HEAD');
+  const seen: { cmd: string; hasTrace: boolean; noLazy: string | undefined }[] = [];
+  const repo = new GitRepository(root, {
+    run: (file, args, options) => {
+      seen.push({ cmd: nameOf(args), hasTrace: Boolean(options.env.GIT_TRACE2_EVENT), noLazy: options.env.GIT_NO_LAZY_FETCH });
+      return runUnbounded(file, args, options);
+    },
+  });
+  repositories.push(repo);
+
+  await repo.readSnapshot();
+  await repo.blame('a.txt');
+  await repo.changesIn(head);
+  await repo.trailersIn('subj\n\nSigned-off-by: A <a@b>');
+  await repo.deleteBranch('temp');
+
+  for (const readCmd of ['config', 'blame', 'diff-tree', 'interpret-trailers']) {
+    const calls = seen.filter(entry => entry.cmd === readCmd);
+    expect(calls.length, `${readCmd} ran`).toBeGreaterThan(0);
+    expect(calls.every(entry => !entry.hasTrace), `${readCmd} creates no hook trace`).toBe(true);
+  }
+  for (const lazyRead of ['blame', 'diff-tree', 'interpret-trailers']) {
+    expect(seen.filter(entry => entry.cmd === lazyRead).every(entry => entry.noLazy === '1'), `${lazyRead} sets GIT_NO_LAZY_FETCH=1`).toBe(true);
+  }
+  const branchDel = seen.filter(entry => entry.cmd === 'branch');
+  expect(branchDel.length).toBeGreaterThan(0);
+  expect(branchDel.every(entry => entry.hasTrace && entry.noLazy === undefined), 'deleteBranch runs in write lane').toBe(true);
+});

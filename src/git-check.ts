@@ -1,6 +1,8 @@
 // Whether the git a host handed in can be used, asked once of each repository before its first command: that
 // there is a git at all, that on macOS it is not the placeholder that stands for the developer tools until they
 // are installed, and that it is new enough for what the engine asks of it.
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { GitError } from './errors.ts'
 import type { RunProcess } from './ties.ts'
 
@@ -50,17 +52,33 @@ export function olderThan(a: string, b: string): boolean {
   return false
 }
 
+/** On macOS, whether `git` resolves to `/usr/bin/git`, the stub that prompts to install Command Line Tools */
+function resolvesToAppleStub(git: string, env: NodeJS.ProcessEnv): boolean {
+  if (git === '/usr/bin/git') return true
+  if (git !== 'git') return false
+  for (const dir of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
+    const candidate = path.join(dir, 'git')
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK)
+      return path.resolve(candidate) === '/usr/bin/git'
+    } catch {
+      // keep searching PATH
+    }
+  }
+  return false
+}
+
 /** Why `git` cannot be used, or the version it is when it can */
 export async function checkGit(git: string, run: RunProcess, env: NodeJS.ProcessEnv): Promise<GitUnusable | { version: string }> {
   const options = { cwd: process.cwd(), env, maxBuffer: 1024 * 1024, encoding: 'utf8' as const }
   // The placeholder is the one git that does something when merely asked its version, so it is not asked first
-  if (process.platform === 'darwin' && git === '/usr/bin/git') {
+  if (process.platform === 'darwin' && resolvesToAppleStub(git, env)) {
     const tools = await run('xcode-select', ['-p'], options).then(() => true, () => false)
     if (!tools) return { code: 'developer-tools-missing', git }
   }
   const printed = await run(git, ['--version'], options).then(
     ({ stdout }) => stdout,
-    (error: NodeJS.ErrnoException) => (error.code === 'ENOENT' ? undefined : ''),
+    (error: NodeJS.ErrnoException) => (error.code === 'ENOENT' || error.code === 'EACCES' || error.code === 'EPERM' ? undefined : ''),
   )
   if (printed === undefined) return { code: 'git-not-found', git }
   const version = gitVersionOf(printed)

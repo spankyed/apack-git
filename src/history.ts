@@ -26,7 +26,7 @@ export class History {
    * each read, so a skip past one would lose it.
    */
   private async filePage(tip: string, path: string, limit: number, signal: AbortSignal | undefined): Promise<HistoryPage> {
-    const result = await this.runner.executeGitCommand([
+    const result = await this.runner.read([
       'log', '-z', '--follow', '--name-status', `--format=%x1e${FIELDS.join('%x00')}%x00`, `-n${limit + 1}`, tip, '--', path,
     ], { signal })
     if (!result.success) throw failure(result, `Failed to read the history of ${path}`)
@@ -50,7 +50,7 @@ export class History {
     // Not `--verify`, which takes one name only: a name that names nothing fails the command all the same, and
     // `refArgument` refuses one git would read as an option. Only the hashes are kept, since without `--verify`
     // git prints `--end-of-options` back among them
-    const resolved = await this.runner.executeGitCommand(['rev-parse', '--end-of-options', ...refs.map(ref => `${refArgument(ref)}^{commit}`)])
+    const resolved = await this.runner.read(['rev-parse', '--end-of-options', ...refs.map(ref => `${refArgument(ref)}^{commit}`)])
     if (!resolved.success) throw failure(resolved, `Not every one of ${refs.join(', ')} names a commit here`)
     return [...new Set((resolved.output ?? '').split('\n').map(line => line.trim()).filter(line => /^[0-9a-f]{40,64}$/.test(line)))]
   }
@@ -62,11 +62,11 @@ export class History {
    */
   async page({ refs, cursor, path, limit = HISTORY_PAGE, signal }: { refs?: string[]; cursor?: string; path?: string; limit?: number; signal?: AbortSignal } = {}): Promise<HistoryPage> {
     // `HEAD` before the first commit names none, and that history is empty; a ref asked for by name must name one
-    if (!cursor && !refs?.length && !(await this.runner.executeGitCommand(['rev-parse', '--verify', '--quiet', 'HEAD'])).success) return { commits: [] }
+    if (!cursor && !refs?.length && !(await this.runner.read(['rev-parse', '--verify', '--quiet', 'HEAD'])).success) return { commits: [] }
     const from: Cursor = cursor ? decode(cursor) : { tips: await this.tipsOf(refs?.length ? refs : ['HEAD']), read: 0, path }
     if (from.path !== undefined) return this.filePage(from.tips[0]!, from.path, limit, signal)
     const args = ['log', '-z', '--topo-order', `--format=${FIELDS.join('%x00')}`, `--skip=${from.read}`, `-n${limit + 1}`, ...from.tips, '--']
-    const result = await this.runner.executeGitCommand(args, { signal })
+    const result = await this.runner.read(args, { signal })
     if (!result.success) throw failure(result, 'Failed to read the history')
     const commits = historyRecords(result.output ?? '')
     // One more than a page was asked for, so that a page that ends the history says so without another read
