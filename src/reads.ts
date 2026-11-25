@@ -6,6 +6,7 @@ import { recordsOf, refArgument, rowSpec } from './arguments.ts'
 import { hunksOf, type CutHunk } from './hunks.ts'
 import type { RepositoryModel } from './model.ts'
 import { GitObjectReader } from './objects.ts'
+import { normalizeReadPath, resolveInsideTop, stageZeroSpec } from './paths.ts'
 import { failure, mayFetch, type GitRunner } from './runner.ts'
 import { GitUnusableError } from './git-check.ts'
 import { GitError, ownershipRefusal } from './errors.ts'
@@ -501,26 +502,18 @@ export class GitReads {
   async readFileContent(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<string> {
     if (version === 'working') {
       // Working-tree reads don't touch the git index — no queue needed
+      const fullPath = await resolveInsideTop(this.workingDirectory, filePath, { followTargetSymlink: true })
       try {
-        const relativePath = filePath.startsWith(this.workingDirectory)
-          ? filePath.slice(this.workingDirectory.length + 1)
-          : filePath
-
-        if (await this.isDirectory(relativePath)) {
-          return ''
-        }
-
-        const fullPath = path.join(this.workingDirectory, relativePath)
+        const stats = await fs.stat(fullPath)
+        if (stats.isDirectory()) return ''
         return await fs.readFile(fullPath, 'utf8')
       } catch (error) {
         throw new Error(`Failed to read file: ${error}`)
       }
     } else {
-      const relativePath = filePath.startsWith(this.workingDirectory)
-        ? filePath.slice(this.workingDirectory.length + 1)
-        : filePath
-      if (version === 'HEAD') return (await this.fileInCommit(`HEAD:${relativePath}`))?.toString('utf8') ?? ''
-      const result = await this.runner.executeGitCommand(['show', `:${relativePath}`])
+      const { relativeToCwd } = normalizeReadPath(filePath, this.workingDirectory, this.workingDirectory)
+      if (version === 'HEAD') return (await this.fileInCommit(`HEAD:${relativeToCwd}`))?.toString('utf8') ?? ''
+      const result = await this.runner.executeGitCommand(['show', stageZeroSpec(relativeToCwd)])
       if (!result.success) {
         return ''
       }
@@ -555,8 +548,7 @@ export class GitReads {
    * and 3 theirs. The path is from the top of the checkout. A path git has no conflict for has no sides.
    */
   async conflictSides(filePath: string): Promise<ConflictSides> {
-    const directories = await this.model.directories()
-    const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
+    const top = await this.model.checkoutTop()
     const listed = await this.runner.executeGitCommand(['-C', top, 'ls-files', '--unmerged', '-z', '--', `:(top,literal)${filePath}`])
     if (!listed.success) throw failure(listed, `Failed to read the conflict in ${filePath}`)
     // `<mode> <object> <stage>\t<path>`, one a stage that holds the file
@@ -868,12 +860,17 @@ export class GitReads {
    * there is no such file, or it could not be read.
    */
   async readFileBytes(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<Buffer | undefined> {
-    const relativePath = filePath.startsWith(this.workingDirectory)
-      ? filePath.slice(this.workingDirectory.length + 1)
-      : filePath
+    if (version === 'working') {
+      const fullPath = await resolveInsideTop(this.workingDirectory, filePath, { followTargetSymlink: true })
+      try {
+        return await fs.readFile(fullPath)
+      } catch {
+        return undefined
+      }
+    }
+    const { relativeToCwd } = normalizeReadPath(filePath, this.workingDirectory, this.workingDirectory)
     try {
-      if (version === 'working') return await fs.readFile(path.join(this.workingDirectory, relativePath))
-      return version === 'HEAD' ? await this.fileInCommit(`HEAD:${relativePath}`) : await this.runner.executeGitCommandBinary(['show', `:${relativePath}`])
+      return version === 'HEAD' ? await this.fileInCommit(`HEAD:${relativeToCwd}`) : await this.runner.executeGitCommandBinary(['show', stageZeroSpec(relativeToCwd)])
     } catch {
       return undefined
     }

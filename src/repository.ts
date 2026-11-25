@@ -332,7 +332,7 @@ export class GitRepository {
    * `directory` is an `UnsafeOwnershipError`'s, the path as git printed it.
    */
   async trustOwnership(directory: string): Promise<void> {
-    const result = await this.runner.executeGitCommand(['config', '--global', '--add', 'safe.directory', directory])
+    const result = await this.runner.executeGitCommand(['config', '--global', '--add', '--', 'safe.directory', directory])
     if (!result.success) throw failure(result, `Could not add ${directory} to safe.directory`)
   }
 

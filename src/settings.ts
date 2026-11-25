@@ -4,7 +4,7 @@
 import * as os from 'node:os'
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import type { GitDirectories } from './types.ts'
+import type { LocatedDirectories } from './paths.ts'
 
 /** Runs one git that reads and runs nothing: `rev-parse` for where the repository is, `config --list` for what it says */
 export type ReadGit = (args: string[]) => Promise<{ success: boolean; output?: string; error?: string }>
@@ -26,7 +26,7 @@ export interface SettingsReading {
   /** The value git uses for a key, spelled as git prints it (`core.ignorecase`), or nothing */
   value(key: string): string | undefined
   /** Where the repository's git state lives, as git said when first asked; nothing when the directory is in none */
-  directories?: GitDirectories
+  directories?: LocatedDirectories
 }
 
 /** `scope`, `origin`, `key` and `value` of each setting `git config --list --show-scope --show-origin -z` printed */
@@ -43,7 +43,7 @@ export function settingsOf(output: string): Setting[] {
 }
 
 /** A reading of these settings, with the value git uses for each key: the last one listed */
-function readingOf(settings: Setting[], unreadable: string | undefined, directories: GitDirectories | undefined): SettingsReading {
+function readingOf(settings: Setting[], unreadable: string | undefined, directories: LocatedDirectories | undefined): SettingsReading {
   const last = new Map(settings.map(setting => [setting.key, setting.value]))
   return { settings, ...(unreadable !== undefined && { unreadable }), value: key => last.get(key), ...(directories && { directories }) }
 }
@@ -64,7 +64,7 @@ export class HeldSettings {
    * Where the git state lives: asked of git the first time, and held once found. Taking the settings afresh does not
    * ask again; a directory in no repository is asked again until it is one
    */
-  private directories: GitDirectories | undefined
+  private directories: LocatedDirectories | undefined
   /** The reading being taken, which every read asked for meanwhile waits on */
   private taking: Promise<SettingsReading> | undefined
 
@@ -93,12 +93,21 @@ export class HeldSettings {
   }
 
   /** Where the repository's git state lives, asked of git until it is found and then held */
-  private async located(): Promise<GitDirectories | undefined> {
+  private async located(): Promise<LocatedDirectories | undefined> {
     if (this.directories) return this.directories
-    const result = await this.readGit(['rev-parse', '--git-dir', '--git-common-dir', '--show-prefix'])
-    const [gitDir, commonDir, prefix] = (result.success ? result.output ?? '' : '').split('\n').map(line => line.trim())
+    let result = await this.readGit(['rev-parse', '--git-dir', '--git-common-dir', '--show-prefix', '--show-toplevel'])
+    // In a bare repository `--show-toplevel` refuses; ask again without it
+    if (!result.success && /must be run in a work tree/i.test(result.error ?? '')) {
+      result = await this.readGit(['rev-parse', '--git-dir', '--git-common-dir', '--show-prefix'])
+    }
+    const [gitDir, commonDir, prefix, top] = (result.success ? result.output ?? '' : '').split('\n').map(line => line.trim())
     if (gitDir && commonDir) {
-      this.directories = { gitDir: path.resolve(this.workingDirectory, gitDir), commonDir: path.resolve(this.workingDirectory, commonDir), prefix: prefix ?? '' }
+      this.directories = {
+        gitDir: path.resolve(this.workingDirectory, gitDir),
+        commonDir: path.resolve(this.workingDirectory, commonDir),
+        prefix: prefix ?? '',
+        ...(top && { top: path.resolve(this.workingDirectory, top) }),
+      }
     }
     return this.directories
   }

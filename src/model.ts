@@ -2,6 +2,7 @@
 // of the repository differ from the last time it was checked.
 import * as path from 'path'
 import * as fs from 'fs/promises'
+import { fallbackTop, type LocatedDirectories } from './paths.ts'
 import { failure, type GitRunner } from './runner.ts'
 import {
   NOTED_PATHS_LIMIT, STATUS_LIMIT, WHOLE_TREE_FILES, differingFiles, inStatusOrder, nameOfCommit, partsAll, pathFolding, snapshotOf, splitStatus,
@@ -70,7 +71,7 @@ export class RepositoryModel {
   checkedIdentity?: SnapshotIdentity
 
   /** Where this checkout's git state lives, as git last said: it is asked again whenever the watches are checked */
-  gitDirectories?: GitDirectories
+  gitDirectories?: LocatedDirectories
 
   /** Whether a watcher reports this checkout's changes; without one a snapshot is read every time it is asked for */
   watched = false
@@ -408,7 +409,7 @@ export class RepositoryModel {
   async snapshotOver(
     read: Pick<LoadedSnapshot, 'headers' | 'entries' | 'untracked' | 'ignoreCase' | 'hasIdentity' | 'slowStatus' | 'operation' | 'refs'>,
     rest: Pick<SnapshotIdentity, 'history' | 'stashes' | 'worktrees' | 'refs'>,
-    { directories, truncated, held }: { directories: GitDirectories | null; truncated: boolean; held?: { files?: Map<string, string>; kept: Set<StatusEntry> } },
+    { directories, truncated, held }: { directories: LocatedDirectories | null; truncated: boolean; held?: { files?: Map<string, string>; kept: Set<StatusEntry> } },
   ): Promise<LoadedSnapshot> {
     const { headers, entries } = read
     const value = snapshotOf({ headers, entries })
@@ -420,7 +421,7 @@ export class RepositoryModel {
       value.truncated = true
     }
     // Status names its paths from the top of the checkout, which the working directory may be under
-    const top = path.resolve(this.workingDirectory, ...(directories?.prefix ?? '').split('/').filter(Boolean).map(() => '..'))
+    const top = directories?.top ?? fallbackTop(this.workingDirectory, directories)
     // A file's record names what it holds in HEAD and in the index, and nothing of what it holds in the working
     // tree: a second edit to a file already changed leaves the record as it was. How the file looks says that,
     // for the files a window can have a diff of open, which are the ones the snapshot lists
@@ -519,8 +520,14 @@ export class RepositoryModel {
    * Where the git state lives for a read: as git last said when the watches were checked, else as the settings'
    * reading says, which asked git once when the repository was opened
    */
-  async directories(): Promise<GitDirectories | null> {
+  async directories(): Promise<LocatedDirectories | null> {
     return this.gitDirectories ?? (await this.runner.settings.read()).directories ?? null
+  }
+
+  /** The working tree's root directory as git reported it (`--show-toplevel`), falling back lexically when absent */
+  async checkoutTop(): Promise<string> {
+    const directories = await this.directories()
+    return directories?.top ?? fallbackTop(this.workingDirectory, directories)
   }
 
   /**
@@ -528,11 +535,19 @@ export class RepositoryModel {
    * The two differ in a linked worktree. Null when the working directory is in no repository.
    */
   async resolveGitDirectories(): Promise<GitDirectories | null> {
-    const result = await this.runner.executeGitCommand(['rev-parse', '--git-dir', '--git-common-dir', '--show-prefix'])
-    const [gitDir, commonDir, prefix] = (result.success ? result.output ?? '' : '').split('\n').map(line => line.trim())
+    let result = await this.runner.executeGitCommand(['rev-parse', '--git-dir', '--git-common-dir', '--show-prefix', '--show-toplevel'])
+    if (!result.success && /must be run in a work tree/i.test(result.error ?? '')) {
+      result = await this.runner.executeGitCommand(['rev-parse', '--git-dir', '--git-common-dir', '--show-prefix'])
+    }
+    const [gitDir, commonDir, prefix, top] = (result.success ? result.output ?? '' : '').split('\n').map(line => line.trim())
     this.gitDirectories = gitDir && commonDir
-      ? { gitDir: path.resolve(this.workingDirectory, gitDir), commonDir: path.resolve(this.workingDirectory, commonDir), prefix: prefix ?? '' }
+      ? {
+        gitDir: path.resolve(this.workingDirectory, gitDir),
+        commonDir: path.resolve(this.workingDirectory, commonDir),
+        prefix: prefix ?? '',
+        ...(top && { top: path.resolve(this.workingDirectory, top) }),
+      }
       : undefined
-    return this.gitDirectories ?? null
+    return this.gitDirectories ? { gitDir: this.gitDirectories.gitDir, commonDir: this.gitDirectories.commonDir, prefix: this.gitDirectories.prefix } : null
   }
 }
