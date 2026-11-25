@@ -282,9 +282,9 @@ export class RepositoryModel {
     // Another git holding the index is why git would skip the write, silently: the index is as suspect after
     const gitDir = refreshesIndex ? (await this.directories())?.gitDir : undefined
     const heldElsewhere = gitDir !== undefined && await fs.stat(path.join(gitDir, 'index.lock')).then(() => true, () => false)
-    const statusStarted = performance.now()
+    const statusStarted = this.runner.clock.monotonic()
     const status = await this.runner.read(['status', '--porcelain=v2', '--branch', '--show-stash', `--untracked-files=${untracked}`, '-z'], { refreshesIndex })
-    const statusMs = Math.round(performance.now() - statusStarted)
+    const statusMs = Math.round(this.runner.clock.monotonic() - statusStarted)
     const on = (key: string) => /^(true|yes|on|1)$/i.test(told.get(key) ?? '')
     const fileMonitor = on('core.fsmonitor')
     const untrackedCache = on('core.untrackedcache')

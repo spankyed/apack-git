@@ -23,6 +23,41 @@ export type RunProcess = (file: string, args: string[], options: RunOptions) => 
  */
 export type WatchProcess = (pid: number, onStalled: () => void, idleMs?: number) => { output(): void; stop(): void }
 
+/**
+ * A clock the engine takes its wall time, monotonic elapsed time, and timers from. Matches `@apackdev/clock`'s
+ * `controller.clock` and `@apackdev/orderings`'s `schedule.clock` structurally with no runtime dependency on
+ * either package.
+ */
+export interface RepositoryClock {
+  /** Wall time in milliseconds since 1970 (for persisted timestamps and filesystem mtime comparisons) */
+  now(): number
+  /** Monotonic time in milliseconds for elapsed durations, on the same timeline as `after` */
+  monotonic(): number
+  /** Runs `run` once after `ms` milliseconds on the monotonic timeline. Returns what cancels it before it runs */
+  after(ms: number, run: () => void): () => void
+}
+
+/** Built-in clock over `Date.now`, `performance.now` and `.unref()`'d `setTimeout`, used when no clock is handed in */
+export const systemClock: RepositoryClock = {
+  now: () => Date.now(),
+  monotonic: () => performance.now(),
+  after: (ms, run) => {
+    const timer = setTimeout(run, Math.max(0, ms))
+    timer.unref()
+    return () => { clearTimeout(timer) }
+  },
+}
+
+/** Schedules `run` on `clock`, returning `undefined` instead of throwing when a host clock has already closed */
+export function scheduleAfter(clock: RepositoryClock, ms: number, run: () => void): (() => void) | undefined {
+  try {
+    return clock.after(Math.max(0, ms), run)
+  } catch (error) {
+    if (error instanceof Error && error.name === 'ClockClosedError') return undefined
+    throw error
+  }
+}
+
 export interface RepositoryLog {
   warn?(message: string, data?: Record<string, unknown>): void
   error?(message: string, data?: Record<string, unknown>): void
@@ -57,6 +92,11 @@ export interface RepositoryTies {
    * given, which the system may empty
    */
   checkpointDirectory?: (commonDir: string) => string
+  /**
+   * Clock for timers, monotonic elapsed windows (lock patience, cache TTL, linger, slow-status budget), and wall
+   * timestamps (checkpoint/journal expiry). Matches `@apackdev/clock`'s `controller.clock` structurally
+   */
+  clock?: RepositoryClock
 }
 
 /** `execFile` as a promise with its child beside it, unbounded: what runs git when a host hands nothing in */

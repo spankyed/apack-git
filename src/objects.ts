@@ -6,7 +6,7 @@
 // that moved is read where it is now. `:src/a.ts`, the staged version, is read from the index, which this process
 // loads once and keeps: it would go on answering with what was staged when it started.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import type { WatchProcess } from './ties.js'
+import { scheduleAfter, systemClock, type RepositoryClock, type WatchProcess } from './ties.js'
 
 /** The largest file handed back; a larger one is read past and answered as not there, as a read by `git show` is */
 const LARGEST_READ = 10 * 1024 * 1024
@@ -29,7 +29,7 @@ export class GitObjectReader {
   private received: Buffer = Buffer.alloc(0)
   /** The object being read: how many of its bytes are still to come, and whether they are kept */
   private body: { left: number; chunks: Buffer[] | undefined } | undefined
-  private linger: NodeJS.Timeout | undefined
+  private cancelLinger: (() => void) | undefined
   /**
    * The watch on the git process while it owes an answer. Reads are answered in the order they were asked, so
    * one git cannot finish holds every read behind it: a git that does no work and writes nothing for `idleMs`
@@ -53,7 +53,14 @@ export class GitObjectReader {
     private readonly idleMs?: number,
     /** The git to run, as the repository runs it */
     private readonly git = 'git',
+    /** Clock used for the idle linger timer; defaults to the system clock */
+    private readonly clock: RepositoryClock = systemClock,
   ) {}
+
+  private clearLinger(): void {
+    this.cancelLinger?.()
+    this.cancelLinger = undefined
+  }
 
   /** Whether the git process is open */
   get isOpen(): boolean {
@@ -74,7 +81,7 @@ export class GitObjectReader {
       } catch (error) {
         return reject(error instanceof Error ? error : new Error(String(error)))
       }
-      clearTimeout(this.linger)
+      this.clearLinger()
       this.pending.push({ resolve, reject })
       if (!this.stall && child.pid !== undefined) {
         this.stall = this.watchProcess?.(child.pid, () => this.end(child, new Error('git cat-file stopped answering while a file was being read')), this.idleMs)
@@ -95,7 +102,7 @@ export class GitObjectReader {
   /** Ends this git process, which is the one started here, failing whatever it still owed */
   private end(child: ChildProcessWithoutNullStreams, why: Error): void {
     if (this.child !== child) return
-    clearTimeout(this.linger)
+    this.clearLinger()
     this.child = undefined
     this.fail(why)
     // It has gone once its output has closed: on Windows `git` starts the git doing the work, and that one holds
@@ -118,7 +125,7 @@ export class GitObjectReader {
     const gone = (error: Error) => {
       if (this.child !== child) return
       this.child = undefined
-      clearTimeout(this.linger)
+      this.clearLinger()
       this.fail(error)
     }
     child.on('error', gone)
@@ -146,8 +153,13 @@ export class GitObjectReader {
     if (this.pending.length > 0) return
     this.stall?.stop()
     this.stall = undefined
-    this.linger = setTimeout(() => void this.close(), this.lingerMs)
-    this.linger.unref()
+    this.clearLinger()
+    this.cancelLinger = scheduleAfter(this.clock, this.lingerMs, () => {
+      this.cancelLinger = undefined
+      void this.close()
+    })
+    // If the host clock is already closed, close the idle child immediately rather than leaking it
+    if (!this.cancelLinger) void this.close()
   }
 
   /**

@@ -187,7 +187,10 @@ export class CheckpointStore {
       const kept = paths === undefined ? undefined : files.filter(({ file, size }) => size !== undefined && !notKeptSet.has(file)).map(({ file }) => file)
       const tree = await this.treeOf(env, where, kept, paths === undefined ? 'index' : undefined, notKept)
       const recorded: Recorded = { notKept }
-      const committed = await this.runner.write(['-C', where.top, 'commit-tree', tree, '-m', JSON.stringify(recorded)], { env: { ...env, ...IDENTITY } })
+      const stamp = `${Math.max(0, Math.floor(this.runner.clock.now() / 1000))} +0000`
+      const committed = await this.runner.write(['-C', where.top, 'commit-tree', tree, '-m', JSON.stringify(recorded)], {
+        env: { ...env, ...IDENTITY, GIT_AUTHOR_DATE: stamp, GIT_COMMITTER_DATE: stamp },
+      })
       const id = committed.output?.trim()
       if (!committed.success || !id) throw failure(committed, 'Could not keep a copy of the working tree')
       const named = await this.inStore(['update-ref', `${REFS}${id}`, id], 'write')
@@ -308,7 +311,7 @@ export class CheckpointStore {
       const [ref, at] = line.split('\0')
       return { ref: ref!, at: Number(at) * 1000 }
     })
-    const old = refs.filter(({ at }) => Date.now() - at > CHECKPOINT_MAX_AGE_MS)
+    const old = refs.filter(({ at }) => this.runner.clock.now() - at > CHECKPOINT_MAX_AGE_MS)
     let kept = refs.filter(each => !old.includes(each))
     const dropAll = async (gone: typeof refs) => {
       for (const { ref } of gone) await this.inStore(['update-ref', '-d', ref], 'write')

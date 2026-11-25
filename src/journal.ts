@@ -41,7 +41,7 @@ export class Journal {
       if (!line.trim()) continue
       try { entries.push(JSON.parse(line) as JournalEntry) } catch { /* a line cut short by a crash says nothing */ }
     }
-    return entries.filter(entry => Date.now() - entry.at <= CHECKPOINT_MAX_AGE_MS).slice(-KEPT_ENTRIES)
+    return entries.filter(entry => this.runner.clock.now() - entry.at <= CHECKPOINT_MAX_AGE_MS).slice(-KEPT_ENTRIES)
   }
 
   private async write(entries: JournalEntry[]): Promise<void> {
@@ -54,7 +54,7 @@ export class Journal {
   /** Writes down what a write did, once it has, and answers the entry it wrote */
   record(entry: Omit<JournalEntry, 'id' | 'at'>): Promise<JournalEntry> {
     return this.inLine(async () => {
-      const written = { ...entry, id: randomUUID(), at: Date.now() }
+      const written = { ...entry, id: randomUUID(), at: this.runner.clock.now() }
       await this.write([...await this.entries(), written])
       return written
     })
