@@ -67,7 +67,7 @@ it('refuses a piece read before the file changed, and stages nothing', async () 
   const [top] = await repo.readHunks('a.txt', false);
   fs.writeFileSync(path.join(root, 'a.txt'), lines(40, { 3: 'edited again', 35: 'the bottom edit' }));
 
-  await expect(repo.applyHunk('a.txt', false, top!.id)).rejects.toThrow('has changed since this change was read');
+  await expect(repo.applyHunk('a.txt', false, top!.id)).rejects.toMatchObject({ code: 'stale-hunk', message: expect.stringContaining('has changed since this change was read') });
 
   expect(await staged(root)).toBe(lines(40));
 });

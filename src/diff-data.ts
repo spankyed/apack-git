@@ -60,8 +60,8 @@ export class DiffData {
    */
   async lineCounts(): Promise<(LineCount & { staged: boolean })[]> {
     const [unstaged, staged] = await Promise.all([
-      this.runner.executeGitCommand(['diff', '--numstat', '-z', '-M']),
-      this.runner.executeGitCommand(['diff', '--cached', '--numstat', '-z', '-M']),
+      this.runner.read(['diff', '--numstat', '-z', '-M']),
+      this.runner.read(['diff', '--cached', '--numstat', '-z', '-M']),
     ])
     if (!unstaged.success) throw failure(unstaged, 'Failed to count the changed lines')
     if (!staged.success) throw failure(staged, 'Failed to count the staged lines')
@@ -75,8 +75,8 @@ export class DiffData {
   private async between(from: string | undefined, to: string): Promise<ChangedFile[]> {
     const range = from === undefined ? ['--root', to] : [from, to]
     const [named, counted] = await Promise.all([
-      this.runner.executeGitCommand(['diff-tree', '--no-commit-id', '-r', '-z', '-M', '--name-status', ...range]),
-      this.runner.executeGitCommand(['diff-tree', '--no-commit-id', '-r', '-z', '-M', '--numstat', ...range]),
+      this.runner.read(['diff-tree', '--no-commit-id', '-r', '-z', '-M', '--name-status', ...range]),
+      this.runner.read(['diff-tree', '--no-commit-id', '-r', '-z', '-M', '--numstat', ...range]),
     ])
     if (!named.success) throw failure(named, `Failed to read what ${to} changed`)
     if (!counted.success) throw failure(counted, `Failed to count what ${to} changed`)
@@ -91,7 +91,7 @@ export class DiffData {
 
   /** The commits a revision has as parents, first first */
   private async parentsOf(revision: string): Promise<string[]> {
-    const listed = await this.runner.executeGitCommand(['rev-list', '--parents', '-n', '1', revision, '--'])
+    const listed = await this.runner.read(['rev-list', '--parents', '-n', '1', revision, '--'])
     if (!listed.success) throw failure(listed, `${revision} is not a commit here`)
     return (listed.output ?? '').trim().split(' ').slice(1)
   }

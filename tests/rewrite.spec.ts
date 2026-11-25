@@ -113,3 +113,82 @@ it('reads a commit\'s whole message, so a reword can keep its body', async () =>
   expect(await repo.commitMessage(await commit(1)), 'and one with no body is its subject').toBe('four');
   await expect(repo.commitMessage('none-such'), 'a name that names no commit is refused').rejects.toThrow();
 });
+
+it('refuses to amend a published root commit and refuses to undo a published amend', async () => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-rewrite-root-')));
+  const remote = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-rewrite-root-remote-')));
+  const store = path.join(fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-rewrite-root-store-'))), 'store');
+  directories.push(root, remote, path.dirname(store));
+  const git = async (...args: string[]) => (await run('git', ['-C', root, ...args])).stdout.trim();
+  await run('git', ['init', '--quiet', '--bare', remote]);
+  await git('init', '--quiet', '--initial-branch=main');
+  fs.writeFileSync(path.join(root, 'a.txt'), 'root\n');
+  await git('add', '.');
+  await git('commit', '--quiet', '-m', 'root');
+  await git('remote', 'add', 'origin', remote);
+  await git('push', '--quiet', '-u', 'origin', 'main');
+  const repo = new GitRepository(root, { checkpointDirectory: () => store });
+
+  await expect(repo.amend({ message: 'amended root' })).rejects.toMatchObject({ code: 'published' });
+
+  // An amend pushed afterwards is also refused by `undo` until `evenIfPublished` is passed
+  fs.writeFileSync(path.join(root, 'b.txt'), 'two\n');
+  await git('add', '.');
+  await git('commit', '--quiet', '-m', 'second');
+  await repo.amend({ message: 'second amended' });
+  await git('push', '--quiet', 'origin', 'main');
+  const [undoable] = await repo.undoables();
+  expect(undoable?.standing).toBe('published');
+  await expect(repo.undo(undoable!.entry.id)).rejects.toMatchObject({ code: 'published' });
+});
+
+it('preserves reword messages across a rewrite conflict until continue finishes', async () => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-rewrite-conflict-')));
+  const store = path.join(fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-rewrite-conflict-store-'))), 'store');
+  directories.push(root, path.dirname(store));
+  const git = async (...args: string[]) => (await run('git', ['-C', root, ...args])).stdout.trim();
+  await git('init', '--quiet', '--initial-branch=main');
+  fs.writeFileSync(path.join(root, 'a.txt'), 'base\n');
+  await git('add', '.');
+  await git('commit', '--quiet', '-m', 'base');
+  const base = await git('rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(root, 'a.txt'), 'one\n');
+  await git('commit', '--quiet', '-am', 'one');
+  const one = await git('rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(root, 'a.txt'), 'two\n');
+  await git('commit', '--quiet', '-am', 'two');
+  const two = await git('rev-parse', 'HEAD');
+  const repo = new GitRepository(root, { checkpointDirectory: () => store });
+
+  await expect(repo.rewrite(base, [
+    { commit: two, action: 'pick' },
+    { commit: one, action: 'reword', message: 'one, reworded after conflict' },
+  ])).rejects.toMatchObject({ code: 'conflict' });
+
+  fs.writeFileSync(path.join(root, 'a.txt'), 'two\n');
+  await repo.stageFiles(['a.txt']);
+  await repo.moveOperation('continue');
+  fs.writeFileSync(path.join(root, 'a.txt'), 'one-resolved\n');
+  await repo.stageFiles(['a.txt']);
+  await repo.moveOperation('continue');
+
+  expect((await repo.readSnapshot()).operation).toBeUndefined();
+  expect(await git('log', '-1', '--format=%s')).toBe('one, reworded after conflict');
+});
+
+it('rejects squashing into nothing after a drop, and supports dropping every commit in a range', async () => {
+  const { git, commit, repo } = await repository();
+  const base = await commit(2);
+  const [three, four] = [await commit(1), await commit(0)];
+
+  await expect(repo.rewrite(base, [
+    { commit: three, action: 'drop' },
+    { commit: four, action: 'squash', message: 'impossible' },
+  ])).rejects.toThrow('nothing before it');
+
+  await repo.rewrite(base, [
+    { commit: three, action: 'drop' },
+    { commit: four, action: 'drop' },
+  ]);
+  expect(await git('rev-parse', 'HEAD')).toBe(base);
+});

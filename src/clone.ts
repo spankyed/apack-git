@@ -37,7 +37,7 @@ export async function cloneInto(url: string, directory: string, ties: Repository
   const runner = new GitRunner(parent, ties)
   await runner.passUsableGit()
   if (signal?.aborted) throw new GitError('The clone was stopped', 'aborted')
-  const result = await runner.runGitOnce(['clone', '--progress', '--', address, target], false, undefined, onProgress, 'utf8', undefined, signal)
+  const result = await runner.runGitOnce(['clone', '--progress', '--', address, target], 'network', false, undefined, onProgress, 'utf8', undefined, signal)
   if (result.success) return
   // Whatever git left of a clone it did not finish is not a repository anyone asked for; `target` was verified
   // empty beforehand when `existed` is true, so cleanup can never touch pre-existing files
@@ -53,7 +53,7 @@ export async function initIn(directory: string, ties: RepositoryTies, { initialB
   await fs.mkdir(target, { recursive: true })
   const runner = new GitRunner(target, ties)
   await runner.passUsableGit()
-  const result = await runner.runGitOnce(['init', '--quiet', ...(branch ? [`--initial-branch=${branch}`] : []), '--', target])
+  const result = await runner.runGitOnce(['init', '--quiet', ...(branch ? [`--initial-branch=${branch}`] : []), '--', target], 'write')
   if (!result.success) throw failure(result, `Failed to start a repository in ${directory}`)
 }
 

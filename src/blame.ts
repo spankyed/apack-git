@@ -79,10 +79,10 @@ export class Blame {
   async blame(filePath: string, { revision, onLines, signal }: { revision?: string; onLines?: (lines: BlameLine[]) => void; signal?: AbortSignal } = {}): Promise<BlameLine[]> {
     const top = await this.model.checkoutTop()
     // The repository's own file, when its settings name none: git reads the setting itself
-    const configured = await this.runner.executeGitCommand(['config', '--get', 'blame.ignoreRevsFile'])
+    const configured = await this.runner.read(['config', '--get', 'blame.ignoreRevsFile'])
     const ignoring = !configured.success && await fs.access(path.join(top, IGNORE_FILE)).then(() => true, () => false)
     const reader = new IncrementalBlame(onLines)
-    const result = await this.runner.executeGitCommand([
+    const result = await this.runner.read([
       '-C', top, 'blame', '--incremental', ...(ignoring ? ['--ignore-revs-file', IGNORE_FILE] : []),
       ...(revision ? [refArgument(revision, 'revision')] : []), '--', filePath,
     ], { onOutput: chunk => reader.take(chunk), signal })

@@ -168,11 +168,18 @@ function endTree(child: ChildProcess): void {
     execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => {})
     return
   }
+  let exited = false
+  let outright: NodeJS.Timeout | undefined
+  child.once('close', () => {
+    exited = true
+    clearTimeout(outright)
+  })
   execFile('ps', ['-A', '-o', 'pid=,ppid='], (error, listed) => {
     const tree = [pid, ...(error ? [] : descendantsOf(pid, String(listed)))]
     const signal = (name: NodeJS.Signals) => { for (const each of tree) { try { process.kill(each, name) } catch { /* gone */ } } }
     signal('SIGTERM')
-    const outright = setTimeout(() => { signal('SIGKILL') }, STOP_GRACE_MS)
+    if (exited) return
+    outright = setTimeout(() => { if (!exited) signal('SIGKILL') }, STOP_GRACE_MS)
     outright.unref()
   })
 }
@@ -183,7 +190,9 @@ function descendantsOf(root: number, listed: string): number[] {
   for (const line of listed.split('\n')) {
     const [pid, parent] = line.trim().split(/\s+/).map(Number)
     if (!pid || parent === undefined) continue
-    children.set(parent, [...(children.get(parent) ?? []), pid])
+    let list = children.get(parent)
+    if (!list) { list = []; children.set(parent, list) }
+    list.push(pid)
   }
   const found: number[] = []
   const visit = (pid: number) => { for (const each of children.get(pid) ?? []) { found.push(each); visit(each) } }
@@ -223,19 +232,20 @@ export const mayFetch = (): boolean => fetching.getStore() === true
 /** What a read is told so it never fetches: what it lacks is answered as `content-missing` */
 const NO_LAZY_FETCH = { GIT_NO_LAZY_FETCH: '1' }
 
-/** Subcommands that only read, which wait for nothing: no lock is taken, as `GIT_OPTIONAL_LOCKS` says */
-const READS = new Set(['status', 'rev-parse', 'for-each-ref', 'ls-files', 'check-attr', 'diff', 'show', 'cat-file', 'rev-list', 'symbolic-ref', 'log', 'branch', 'reflog', 'show-ref', 'blame', 'merge-base', 'merge-tree'])
-/** Subcommands that talk to a remote and touch no index, which wait only for each other */
-const NETWORK = new Set(['fetch', 'push'])
+/** Which lane a command runs in: `read` waits for nothing, `network` waits for remote commands, `write` waits for local mutations */
+export type CommandLane = 'read' | 'network' | 'write'
 
-/** Which commands a command waits behind: none for a read, the other remote commands, or the other writes */
-function laneOf(args: string[]): 'read' | 'network' | 'write' {
-  const [command, verb] = args
-  if (READS.has(command!) || (command === 'config' && (verb === '--get' || verb === '--get-regexp'))) return 'read'
-  if ((command === 'stash' || command === 'worktree') && verb === 'list') return 'read'
-  // The address a remote is configured with, which is read from the config and asks the remote nothing
-  if (command === 'ls-remote' && verb === '--get-url') return 'read'
-  return NETWORK.has(command!) ? 'network' : 'write'
+/** Options for running a git command through `GitRunner` */
+export interface CommandOptions {
+  signal?: AbortSignal
+  refreshesIndex?: boolean
+  input?: string | Buffer
+  onProgress?: (progress: GitProgress) => void
+  encoding?: BufferEncoding
+  /** Laid over the environment every git runs with, for this one */
+  env?: NodeJS.ProcessEnv
+  /** Handed what git writes as it writes it, beside the whole of it in the answer */
+  onOutput?: (chunk: string) => void
 }
 
 export interface GitCommandResult {
@@ -309,8 +319,8 @@ export class GitRunner {
     this.base = ties.environment ?? (() => process.env)
     this.log = ties.log ?? {}
     // Its reads run beside every other, in no lane, and are not themselves gated
-    this.settings = new HeldSettings(workingDirectory, args => this.runGitOnce(args), this.environment)
-    this.trust = new TrustGate(workingDirectory, this.settings, ties.isTrusted, args => this.runGitOnce(args))
+    this.settings = new HeldSettings(workingDirectory, args => this.runGitOnce(args, 'read'), this.environment)
+    this.trust = new TrustGate(workingDirectory, this.settings, ties.isTrusted, args => this.runGitOnce(args, 'read'))
   }
 
   /** What every git child of this repository runs with: the engine's own over what the host handed in */
@@ -357,14 +367,14 @@ export class GitRunner {
   }
 
   /**
-   * Runs `run` in the line `args` waits in. A read's line is known only once git's version is, so it is chosen
-   * when that is; every other line is joined at once, so a write is in line from when it was asked.
+   * Runs `run` in `lane`. A read's lane is known only once git's version is, so it is chosen when that is; every
+   * other lane is joined at once, so a write is in line from when it was asked.
    */
-  private inLane<T>(args: string[], refreshesIndex: boolean, fetches: boolean, run: () => Promise<T>): Promise<T> {
+  private inLane<T>(lane: CommandLane, refreshesIndex: boolean, fetches: boolean, run: () => Promise<T>): Promise<T> {
     // A read allowed to write the index waits its turn among the writes made here, which need the same lock
-    const lane = refreshesIndex ? 'write' : laneOf(args)
-    if (lane !== 'read') return this.enqueueCommand(lane, run)
-    return this.untilEnded(this.readLane(fetches).then(chosen => this.enqueueCommand(chosen, run)))
+    const chosen = refreshesIndex ? 'write' : lane
+    if (chosen !== 'read') return this.enqueueCommand(chosen, run)
+    return this.untilEnded(this.readLane(fetches).then(resolved => this.enqueueCommand(resolved, run)))
   }
 
   /**
@@ -419,23 +429,38 @@ export class GitRunner {
     return running.finally(() => clearTimeout(grace))
   }
 
+  /** Runs a read-only git command: no lock, `GIT_NO_LAZY_FETCH=1` unless inside `fetchingMissing`, and no hook trace */
+  read(args: string[], options: CommandOptions = {}): Promise<GitCommandResult> {
+    return this.executeInLane('read', args, options)
+  }
+
+  /** Runs a local write command: serialized in the write lane, with lock-wait retry and hook tracing */
+  write(args: string[], options: CommandOptions = {}): Promise<GitCommandResult> {
+    return this.executeInLane('write', args, options)
+  }
+
+  /** Runs a remote command: serialized in the network lane, with hook tracing */
+  network(args: string[], options: CommandOptions = {}): Promise<GitCommandResult> {
+    return this.executeInLane('network', args, options)
+  }
+
   /**
    * Runs a git command in its lane. One that another git's lock refuses is run again once that lock is let go
    * of: a git in a terminal, or an agent's, holds the index for moments, and the user who staged a file in
    * those moments meant it. The lane waits with it, since what is queued behind needs the same lock.
    */
-  executeGitCommand(args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env: given, signal, onOutput }: { signal?: AbortSignal; refreshesIndex?: boolean; input?: string | Buffer; onProgress?: (progress: GitProgress) => void; encoding?: BufferEncoding; /** Laid over the environment every git runs with, for this one */ env?: NodeJS.ProcessEnv; /** Handed what git writes as it writes it, beside the whole of it in the answer */ onOutput?: (chunk: string) => void } = {}): Promise<GitCommandResult> {
+  private executeInLane(lane: CommandLane, args: string[], { refreshesIndex = false, input, onProgress, encoding = 'utf8', env: given, signal, onOutput }: CommandOptions = {}): Promise<GitCommandResult> {
     const fetches = mayFetch()
     // A read fetches nothing unless it was said it may: a write (a checkout, a merge) fetches what it needs
-    const env = laneOf(args) === 'read' && !fetches ? { ...NO_LAZY_FETCH, ...given } : given
-    return this.inLane(args, refreshesIndex, fetches, async () => {
+    const env = lane === 'read' && !fetches ? { ...NO_LAZY_FETCH, ...given } : given
+    return this.inLane(lane, refreshesIndex, fetches, async () => {
       await this.passUsableGit()
       await this.trust.pass()
       // Stopped while it waited its turn: it is not started
       if (signal?.aborted) return STOPPED
       let refusedAt: number | undefined
       for (;;) {
-        const result = await this.runGitOnce(args, refreshesIndex, input, onProgress, encoding, env, signal, onOutput)
+        const result = await this.runGitOnce(args, lane, refreshesIndex, input, onProgress, encoding, env, signal, onOutput)
         const lock = result.code === 'locked' ? LOCKED.exec(result.error ?? '')?.[1] : undefined
         if (!lock) return result
         // A stash is several steps to git, and one refused part-way has done the steps before it: run again, it
@@ -450,10 +475,10 @@ export class GitRunner {
     })
   }
 
-  async runGitOnce(args: string[], refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, encoding: BufferEncoding = 'utf8', env?: NodeJS.ProcessEnv, signal?: AbortSignal, onOutput?: (chunk: string) => void): Promise<GitCommandResult> {
+  async runGitOnce(args: string[], lane: CommandLane = 'write', refreshesIndex = false, input?: string | Buffer, onProgress?: (progress: GitProgress) => void, encoding: BufferEncoding = 'utf8', env?: NodeJS.ProcessEnv, signal?: AbortSignal, onOutput?: (chunk: string) => void): Promise<GitCommandResult> {
     const started = performance.now()
     // A command that may run a hook writes git's account of it, which says which hook refused it: a read runs none
-    const trace = laneOf(args) === 'read' ? undefined : traceFile()
+    const trace = lane === 'read' ? undefined : traceFile()
     const answered = await this.runGitAnswered(args, refreshesIndex, input, onProgress, encoding, trace ? { ...env, GIT_TRACE2_EVENT: trace } : env, signal, onOutput)
     const hooks = trace ? await hooksIn(trace) : []
     const refused = answered.success ? undefined : hooks.find(hook => hook.exitCode !== 0)
@@ -483,7 +508,7 @@ export class GitRunner {
         return { success: false, error: GIT_NOT_INSTALLED, missing: true }
       }
       if (gitError.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
-        return { success: false, error: gitError.message, output: gitError.stdout, truncated: true }
+        return { success: false, error: gitError.message, output: gitError.stdout, truncated: true, code: 'output-too-large' }
       }
 
       // Special cases where non-zero exit codes are expected
@@ -506,15 +531,17 @@ export class GitRunner {
     }
   }
 
-  /** Execute a git command and return raw binary buffer output. */
-  executeGitCommandBinary(args: string[]): Promise<Buffer> {
+  /** Execute a read-only git command and return raw binary buffer output. */
+  readBinary(args: string[]): Promise<Buffer> {
     const fetches = mayFetch()
-    return this.inLane(args, false, fetches, async () => {
+    return this.inLane('read', false, fetches, async () => {
       await this.passUsableGit()
       await this.trust.pass()
       // Read as latin1, which maps each byte to one character and back, so the bytes survive a text channel
       const { stdout, stderr } = await this.runGit(args, 'latin1', false, undefined, undefined, fetches ? undefined : NO_LAZY_FETCH).catch((error: GitCommandError) => {
-        throw CONTENT_MISSING.test(error.stderr ?? '') ? new GitError(String(error.stderr).trim(), 'content-missing') : error
+        if (CONTENT_MISSING.test(error.stderr ?? '')) throw new GitError(String(error.stderr).trim(), 'content-missing')
+        if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new GitError(error.message, 'output-too-large')
+        throw error
       })
       if (CONTENT_MISSING.test(stderr)) throw new GitError(stderr.trim(), 'content-missing')
       return Buffer.from(stdout, 'latin1')

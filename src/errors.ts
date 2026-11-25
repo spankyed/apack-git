@@ -95,6 +95,12 @@ export const GIT_ERROR_CODES = [
    * git printed
    */
   'no-longer-kept',
+  /** A pull with no upstream branch configured for the current branch. Not read from git */
+  'no-upstream',
+  /** A hunk to apply no longer matches the file as it stands now. Not read from git */
+  'stale-hunk',
+  /** Git wrote more output than the engine's buffer bound (`maxBuffer`), so the command was truncated */
+  'output-too-large',
 ] as const
 
 export type GitErrorCode = (typeof GIT_ERROR_CODES)[number]

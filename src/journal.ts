@@ -62,13 +62,13 @@ export class Journal {
 
   /** Where a ref points now, or `null` when there is no such ref */
   private async now(ref: string): Promise<string | null> {
-    const result = await this.runner.executeGitCommand(['rev-parse', '--verify', '--quiet', ref])
+    const result = await this.runner.read(['rev-parse', '--verify', '--quiet', ref])
     return result.success ? (result.output ?? '').trim() || null : null
   }
 
   /** The branch `HEAD` is on, as a full ref, or `HEAD` itself when it is on none */
   private async headRef(): Promise<string> {
-    const result = await this.runner.executeGitCommand(['symbolic-ref', '--quiet', 'HEAD'])
+    const result = await this.runner.read(['symbolic-ref', '--quiet', 'HEAD'])
     return result.success ? (result.output ?? '').trim() || 'HEAD' : 'HEAD'
   }
 
@@ -87,8 +87,9 @@ export class Journal {
     }
     if (moved.length > 0) return { entry, standing: 'moved-since', moved }
     const after = entry.refs[0]?.after
-    if (entry.operation === 'commit' && after) {
-      const holding = await this.runner.executeGitCommand(['for-each-ref', '--format=%(refname:short)', '--contains', after, 'refs/remotes/'])
+    const createsCommits = entry.operation === 'commit' || entry.operation === 'amend' || entry.operation === 'merge' || entry.operation === 'rebase' || entry.operation === 'cherry-pick' || entry.operation === 'rewrite'
+    if (createsCommits && after) {
+      const holding = await this.runner.read(['for-each-ref', '--format=%(refname:short)', '--contains', after, 'refs/remotes/'])
       const publishedOn = (holding.output ?? '').split('\n').filter(Boolean)
       if (publishedOn.length > 0) return { entry, standing: 'published', publishedOn }
     }
@@ -157,31 +158,31 @@ export class Journal {
       // The branch back where it was, and the files that changed with it, keeping what the user changed since: git
       // refuses rather than overwrite a change of theirs
       const before = entry.refs[0]!.before!
-      const reset = await this.runner.executeGitCommand(['reset', '--quiet', '--keep', before])
+      const reset = await this.runner.write(['reset', '--quiet', '--keep', before])
       if (!reset.success) throw failure(reset, `Failed to undo ${entry.summary}`)
       return
     }
     if (checkedOut && entry.operation === 'reset') {
       // The branch and the index back where they were; the files were never touched, and are left as they are
       const before = entry.refs[0]!.before!
-      const reset = await this.runner.executeGitCommand(['reset', '--quiet', before])
+      const reset = await this.runner.write(['reset', '--quiet', before])
       if (!reset.success) throw failure(reset, `Failed to undo ${entry.summary}`)
       return
     }
     for (const { ref, before, after } of entry.refs) {
       // Moved only from where the write left it, which git checks as it moves it
       const moved = before === null
-        ? await this.runner.executeGitCommand(['update-ref', '-d', ref, after!])
-        : await this.runner.executeGitCommand(['update-ref', '-m', `undo: ${entry.summary}`, ref, before, after ?? ''])
+        ? await this.runner.write(['update-ref', '-d', ref, after!])
+        : await this.runner.write(['update-ref', '-m', `undo: ${entry.summary}`, ref, before, after ?? ''])
       if (!moved.success) throw failure(moved, `Failed to undo ${entry.summary}`)
     }
     for (const [key, value] of entry.config ?? []) {
-      const set = await this.runner.executeGitCommand(['config', '--add', key, value])
+      const set = await this.runner.write(['config', '--add', key, value])
       if (!set.success) throw failure(set, `Failed to undo ${entry.summary}`)
     }
     // Put back oldest first, so that they stand in the order they did
     for (const { commit, message } of [...entry.stashes ?? []].reverse()) {
-      const stored = await this.runner.executeGitCommand(['stash', 'store', '--quiet', '-m', message, commit])
+      const stored = await this.runner.write(['stash', 'store', '--quiet', '-m', message, commit])
       if (!stored.success) throw failure(stored, `Failed to undo ${entry.summary}`)
     }
   }

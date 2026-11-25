@@ -28,7 +28,7 @@ export class DiscardStore {
         named.add(row)
         continue
       }
-      const listed = await this.runner.executeGitCommand(['-C', top, 'ls-files', '--others', '--exclude-standard', '-z', '--', rowSpec(row)])
+      const listed = await this.runner.read(['-C', top, 'ls-files', '--others', '--exclude-standard', '-z', '--', rowSpec(row)])
       if (!listed.success) throw failure(listed, `Failed to list the folder: ${row}`)
       for (const file of (listed.output ?? '').split('\0')) if (file && !file.endsWith('/')) named.add(file)
     }
@@ -67,12 +67,17 @@ export class DiscardStore {
   async restore(id: string): Promise<DiscardRestored> {
     const files = await this.checkpoints.filesIn(id)
     if (files.length === 0) return { restored: [], left: [] }
-    // Changed in the working tree, or there and untracked: a file the discard left as git has it is neither
-    const status = await this.runner.executeGitCommand(['status', '--porcelain=v2', '--untracked-files=all', '-z', '--', ...files.map(rowSpec)])
-    if (!status.success) throw failure(status, 'Failed to read how the kept files stand now')
-    const changed = new Set(splitStatus(status.output ?? '').entries
-      .filter(entry => !entry.columns || entry.columns[1] !== '.')
-      .map(entry => entry.path))
+    // Changed in the working tree, or there and untracked: a file the discard left as git has it is neither.
+    // Batched so large discarded folders never exceed Windows' CreateProcess command-line bound.
+    const changed = new Set<string>()
+    for (let at = 0; at < files.length; at += 200) {
+      const batch = files.slice(at, at + 200)
+      const status = await this.runner.read(['status', '--porcelain=v2', '--untracked-files=all', '-z', '--', ...batch.map(rowSpec)])
+      if (!status.success) throw failure(status, 'Failed to read how the kept files stand now')
+      for (const entry of splitStatus(status.output ?? '').entries) {
+        if (!entry.columns || entry.columns[1] !== '.') changed.add(entry.path)
+      }
+    }
     const changedNow = files.filter(file => changed.has(file))
     const differ = changedNow.length === 0 ? new Set<string>() : new Set((await this.checkpoints.changedSince(id, changedNow)).map(change => change.path))
     const left = changedNow.filter(file => differ.has(file)).sort()

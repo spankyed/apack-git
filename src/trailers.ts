@@ -54,7 +54,7 @@ export class Trailers {
    */
   async trailersIn(message: string): Promise<Trailer[]> {
     // `--no-divider`: a commit message is not a patch, so a line of `---` in it does not end it
-    const result = await this.runner.executeGitCommand(['interpret-trailers', '--parse', '--no-divider'], { input: message })
+    const result = await this.runner.read(['interpret-trailers', '--parse', '--no-divider'], { input: message })
     if (!result.success) throw failure(result, 'Failed to read the trailers of a message')
     return parsed(result.output ?? '')
   }

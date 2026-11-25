@@ -83,7 +83,7 @@ export class CheckpointStore {
       if (!await fs.access(path.join(store, 'HEAD')).then(() => true, () => false)) {
         await fs.mkdir(path.dirname(store), { recursive: true })
         // No template: a store has no hooks, and nothing of the repository's is copied into it
-        const made = await this.runner.executeGitCommand(['init', '--bare', '--quiet', '--template=', store])
+        const made = await this.runner.write(['init', '--bare', '--quiet', '--template=', store])
         if (!made.success) throw failure(made, 'Could not make the store that keeps copies of the working tree')
       }
       // Its own objects first, then the repository's, which every checkpoint shares what it has not changed with
@@ -112,8 +112,10 @@ export class CheckpointStore {
   }
 
   /** A git command in the store itself: its refs, and its housekeeping */
-  private inStore(args: string[]) {
-    return this.open().then(({ store }) => this.runner.executeGitCommand(['--git-dir', store, ...args]))
+  private inStore(args: string[], lane: 'read' | 'write' = 'read') {
+    return this.open().then(({ store }) => lane === 'read'
+      ? this.runner.read(['--git-dir', store, ...args])
+      : this.runner.write(['--git-dir', store, ...args]))
   }
 
   /**
@@ -127,7 +129,7 @@ export class CheckpointStore {
         named.add(row)
         continue
       }
-      const listed = await this.runner.executeGitCommand(['-C', top, 'ls-files', '--others', '--exclude-standard', '-z', '--', rowSpec(row)])
+      const listed = await this.runner.read(['-C', top, 'ls-files', '--others', '--exclude-standard', '-z', '--', rowSpec(row)])
       if (!listed.success) throw failure(listed, `Failed to list the folder: ${row}`)
       for (const file of (listed.output ?? '').split('\0')) if (file && !file.endsWith('/')) named.add(file)
     }
@@ -141,7 +143,7 @@ export class CheckpointStore {
 
   /** The files that differ from the index or that git does not track yet, whose content a checkpoint has to write */
   private async unstagedFiles(top: string): Promise<{ file: string; size: number | undefined }[]> {
-    const listed = await this.runner.executeGitCommand(['-C', top, 'ls-files', '--modified', '--others', '--exclude-standard', '-z'])
+    const listed = await this.runner.read(['-C', top, 'ls-files', '--modified', '--others', '--exclude-standard', '-z'])
     if (!listed.success) throw failure(listed, 'Failed to list the changed files')
     return this.filesOf([...new Set((listed.output ?? '').split('\0').filter(Boolean))], top)
   }
@@ -155,19 +157,19 @@ export class CheckpointStore {
       // The repository's index knows which files have not changed since they were last read, so only the rest are
       await fs.copyFile(path.join(where.gitDir, 'index'), env.GIT_INDEX_FILE!).catch(() => {})
     } else if (seed) {
-      const read = await this.runner.executeGitCommand(['-C', where.top, 'read-tree', seed], { env })
+      const read = await this.runner.write(['-C', where.top, 'read-tree', seed], { env })
       if (!read.success) throw failure(read, 'Failed to read a checkpoint')
     }
     const specs = paths === undefined ? ['.'] : paths.map(rowSpec)
     if (specs.length > 0) {
-      const added = await this.runner.executeGitCommand(['-C', where.top, 'add', '--all', '--pathspec-from-file=-', '--pathspec-file-nul'], { env, input: specs.join('\0') })
+      const added = await this.runner.write(['-C', where.top, 'add', '--all', '--pathspec-from-file=-', '--pathspec-file-nul'], { env, input: specs.join('\0') })
       if (!added.success) throw failure(added, 'Could not keep a copy of the working tree')
     }
     if (leaveOut.length > 0) {
-      const removed = await this.runner.executeGitCommand(['-C', where.top, 'update-index', '--force-remove', '-z', '--stdin'], { env, input: leaveOut.join('\0') })
+      const removed = await this.runner.write(['-C', where.top, 'update-index', '--force-remove', '-z', '--stdin'], { env, input: leaveOut.join('\0') })
       if (!removed.success) throw failure(removed, 'Could not keep a copy of the working tree')
     }
-    const written = await this.runner.executeGitCommand(['-C', where.top, 'write-tree'], { env })
+    const written = await this.runner.write(['-C', where.top, 'write-tree'], { env })
     if (!written.success || !written.output?.trim()) throw failure(written, 'Could not keep a copy of the working tree')
     return written.output.trim()
   }
@@ -181,13 +183,14 @@ export class CheckpointStore {
     return this.inLine(() => this.withOwnIndex(async (env, where) => {
       const files = paths === undefined ? await this.unstagedFiles(where.top) : await this.filesOf(paths, where.top)
       const notKept = files.filter(({ size }) => size !== undefined && size > KEPT_FILE_LIMIT).map(({ file }) => file).sort()
-      const kept = paths === undefined ? undefined : files.filter(({ file, size }) => size !== undefined && !notKept.includes(file)).map(({ file }) => file)
+      const notKeptSet = new Set(notKept)
+      const kept = paths === undefined ? undefined : files.filter(({ file, size }) => size !== undefined && !notKeptSet.has(file)).map(({ file }) => file)
       const tree = await this.treeOf(env, where, kept, paths === undefined ? 'index' : undefined, notKept)
       const recorded: Recorded = { notKept }
-      const committed = await this.runner.executeGitCommand(['-C', where.top, 'commit-tree', tree, '-m', JSON.stringify(recorded)], { env: { ...env, ...IDENTITY } })
+      const committed = await this.runner.write(['-C', where.top, 'commit-tree', tree, '-m', JSON.stringify(recorded)], { env: { ...env, ...IDENTITY } })
       const id = committed.output?.trim()
       if (!committed.success || !id) throw failure(committed, 'Could not keep a copy of the working tree')
-      const named = await this.inStore(['update-ref', `${REFS}${id}`, id])
+      const named = await this.inStore(['update-ref', `${REFS}${id}`, id], 'write')
       if (!named.success) throw failure(named, 'Could not keep a copy of the working tree')
       await this.expire()
       return { id, notKept }
@@ -224,20 +227,25 @@ export class CheckpointStore {
 
   private async changesOf(id: string, paths?: string[]): Promise<CheckpointChange[]> {
     const { notKept } = await this.recorded(id)
+    const notKeptSet = new Set(notKept)
     return this.withOwnIndex(async (env, where) => {
       const existing = paths === undefined ? undefined : (await this.filesOf(paths, where.top)).filter(({ size }) => size !== undefined).map(({ file }) => file)
       // A file in the checkpoint that is gone now is named too, so that it reads as deleted
       const held = paths === undefined ? undefined : await this.heldOf(id, paths, where.top, env)
       const now = await this.treeOf(env, where, existing && [...new Set([...existing, ...held!])], paths === undefined ? 'index' : id, notKept)
-      const compared = await this.runner.executeGitCommand(['-C', where.top, 'diff-tree', '-r', '-z', '--no-renames', '--name-status', id, now, ...(paths === undefined ? [] : ['--', ...paths.map(rowSpec)])], { env })
-      if (!compared.success) throw failure(compared, 'Failed to compare the working tree with its copy')
-      const fields = (compared.output ?? '').split('\0').filter(Boolean)
-      const changes: CheckpointChange[] = []
-      for (let at = 0; at + 1 < fields.length; at += 2) {
-        const change = fields[at] === 'A' ? 'added' : fields[at] === 'D' ? 'deleted' : 'modified'
-        if (!notKept.includes(fields[at + 1]!)) changes.push({ path: fields[at + 1]!, change })
+      const changesByPath = new Map<string, CheckpointChange>()
+      const batches = paths === undefined ? [undefined] : Array.from({ length: Math.ceil(paths.length / 200) || 1 }, (_, i) => paths.slice(i * 200, (i + 1) * 200))
+      for (const batch of batches) {
+        const compared = await this.runner.read(['-C', where.top, 'diff-tree', '-r', '-z', '--no-renames', '--name-status', id, now, ...(batch === undefined ? [] : ['--', ...batch.map(rowSpec)])], { env })
+        if (!compared.success) throw failure(compared, 'Failed to compare the working tree with its copy')
+        const fields = (compared.output ?? '').split('\0').filter(Boolean)
+        for (let at = 0; at + 1 < fields.length; at += 2) {
+          const change = fields[at] === 'A' ? 'added' : fields[at] === 'D' ? 'deleted' : 'modified'
+          const filePath = fields[at + 1]!
+          if (!notKeptSet.has(filePath)) changesByPath.set(filePath, { path: filePath, change })
+        }
       }
-      return changes.sort((a, b) => a.path.localeCompare(b.path))
+      return [...changesByPath.values()].sort((a, b) => a.path.localeCompare(b.path))
     })
   }
 
@@ -251,9 +259,19 @@ export class CheckpointStore {
 
   /** The files a checkpoint holds under these rows, or all of them */
   private async heldOf(id: string, rows: string[] | undefined, top: string, env: NodeJS.ProcessEnv): Promise<string[]> {
-    const listed = await this.runner.executeGitCommand(['-C', top, 'ls-tree', '-r', '-z', '--name-only', '--full-tree', id, ...(rows ? ['--', ...rows.map(rowSpec)] : [])], { env })
-    if (!listed.success) throw failure(listed, 'Failed to read a checkpoint')
-    return (listed.output ?? '').split('\0').filter(Boolean)
+    if (rows === undefined) {
+      const listed = await this.runner.read(['-C', top, 'ls-tree', '-r', '-z', '--name-only', '--full-tree', id], { env })
+      if (!listed.success) throw failure(listed, 'Failed to read a checkpoint')
+      return (listed.output ?? '').split('\0').filter(Boolean)
+    }
+    const found = new Set<string>()
+    for (let at = 0; at < rows.length; at += 200) {
+      const batch = rows.slice(at, at + 200)
+      const listed = await this.runner.read(['-C', top, 'ls-tree', '-r', '-z', '--name-only', '--full-tree', id, '--', ...batch.map(rowSpec)], { env })
+      if (!listed.success) throw failure(listed, 'Failed to read a checkpoint')
+      for (const file of (listed.output ?? '').split('\0')) if (file) found.add(file)
+    }
+    return [...found]
   }
 
   /**
@@ -266,11 +284,11 @@ export class CheckpointStore {
       const changes = await this.changesOf(id, paths)
       if (changes.length === 0) return []
       await this.withOwnIndex(async (env, where) => {
-        const read = await this.runner.executeGitCommand(['-C', where.top, 'read-tree', id], { env })
+        const read = await this.runner.write(['-C', where.top, 'read-tree', id], { env })
         if (!read.success) throw failure(read, 'Failed to read a checkpoint')
         const back = changes.filter(({ change }) => change !== 'added').map(({ path: file }) => file)
         if (back.length > 0) {
-          const out = await this.runner.executeGitCommand(['-C', where.top, 'checkout-index', '--force', '-z', '--stdin'], { env, input: back.join('\0') })
+          const out = await this.runner.write(['-C', where.top, 'checkout-index', '--force', '-z', '--stdin'], { env, input: back.join('\0') })
           if (!out.success) throw failure(out, 'Failed to put back a copy of the working tree')
         }
         for (const { path: file } of changes.filter(({ change }) => change === 'added')) {
@@ -293,16 +311,21 @@ export class CheckpointStore {
     const old = refs.filter(({ at }) => Date.now() - at > CHECKPOINT_MAX_AGE_MS)
     let kept = refs.filter(each => !old.includes(each))
     const dropAll = async (gone: typeof refs) => {
-      for (const { ref } of gone) await this.inStore(['update-ref', '-d', ref])
+      for (const { ref } of gone) await this.inStore(['update-ref', '-d', ref], 'write')
       // Objects nothing refers to are removed once they are an hour old: a checkpoint being written at that moment
       // by another process holds only newer ones
-      if (gone.length > 0) await this.inStore(['gc', '--quiet', '--prune=1.hour.ago'])
+      if (gone.length > 0) await this.inStore(['gc', '--quiet', '--prune=1.hour.ago'], 'write')
     }
     await dropAll(old)
-    while (kept.length > 1 && await this.size() > CHECKPOINT_STORE_LIMIT) {
+    let currentSize = kept.length > 1 ? await this.size() : 0
+    while (kept.length > 1 && currentSize > CHECKPOINT_STORE_LIMIT) {
       const oldest = kept[0]!
       kept = kept.slice(1)
       await dropAll([oldest])
+      const nextSize = await this.size()
+      // Objects younger than an hour are kept by `--prune=1.hour.ago`; stop rather than deleting every newer ref futilely
+      if (nextSize >= currentSize) break
+      currentSize = nextSize
     }
   }
 

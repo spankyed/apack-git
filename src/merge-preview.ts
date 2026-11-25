@@ -13,19 +13,19 @@ export class MergePreviews {
   constructor(private readonly runner: GitRunner) {}
 
   private async isAncestor(ancestor: string, of: string): Promise<boolean> {
-    return (await this.runner.executeGitCommand(['merge-base', '--is-ancestor', ancestor, of])).success
+    return (await this.runner.read(['merge-base', '--is-ancestor', ancestor, of])).success
   }
 
   /** What merging `target` into what is checked out would do; for a pull, `target` is the upstream after a fetch */
   async preview(target: string): Promise<MergePreview> {
     const into = 'HEAD'
     const named = refArgument(target, 'branch')
-    const exists = await this.runner.executeGitCommand(['rev-parse', '--verify', '--quiet', `${named}^{commit}`])
+    const exists = await this.runner.read(['rev-parse', '--verify', '--quiet', `${named}^{commit}`])
     if (!exists.success) throw failure(exists, `${target} is not a commit here`)
     if (await this.isAncestor(named, into)) return { kind: 'up-to-date' }
     if (await this.isAncestor(into, named)) return { kind: 'fast-forward' }
     if (olderThan(await this.runner.passUsableGit(), MERGE_TREE_FROM)) return { kind: 'unknown' }
-    const merged = await this.runner.executeGitCommand(['merge-tree', '--write-tree', '--name-only', '--no-messages', into, named])
+    const merged = await this.runner.read(['merge-tree', '--write-tree', '--name-only', '--no-messages', into, named])
     // Exit 1 is a merge that would stop on conflicts, and says so on its output: the tree, then each file
     const lines = (merged.output ?? '').split('\n').filter(Boolean)
     if (merged.success) return { kind: 'clean' }

@@ -278,7 +278,7 @@ export class RepositoryModel {
     const gitDir = refreshesIndex ? (await this.directories())?.gitDir : undefined
     const heldElsewhere = gitDir !== undefined && await fs.stat(path.join(gitDir, 'index.lock')).then(() => true, () => false)
     const statusStarted = performance.now()
-    const status = await this.runner.executeGitCommand(['status', '--porcelain=v2', '--branch', '--show-stash', `--untracked-files=${untracked}`, '-z'], { refreshesIndex })
+    const status = await this.runner.read(['status', '--porcelain=v2', '--branch', '--show-stash', `--untracked-files=${untracked}`, '-z'], { refreshesIndex })
     const statusMs = Math.round(performance.now() - statusStarted)
     const on = (key: string) => /^(true|yes|on|1)$/i.test(told.get(key) ?? '')
     const fileMonitor = on('core.fsmonitor')
@@ -299,7 +299,7 @@ export class RepositoryModel {
     const isBranch = (header: string) => header.startsWith('# branch.')
     const isStashCount = (header: string) => header.startsWith('# stash ')
     // Refs move without the status moving: a fetch, a branch made or deleted, a stash
-    refs ??= ((await this.runner.executeGitCommand(['for-each-ref', '--format=%(objectname) %(refname)'])).output ?? '').split('\n')
+    refs ??= ((await this.runner.read(['for-each-ref', '--format=%(objectname) %(refname)'])).output ?? '').split('\n')
     const isStash = (ref: string) => ref.endsWith(' refs/stash')
     const isLocalBranch = (ref: string) => ref.includes(' refs/heads/')
     const directories = await this.directories()
@@ -353,7 +353,7 @@ export class RepositoryModel {
     const magic = `:(literal${held.ignoreCase ? ',icase' : ''})`
     const statusFor = async (specs: string[]): Promise<StatusEntry[] | undefined> => {
       // The working directory itself is asked about as `.`
-      const status = await this.runner.executeGitCommand(['status', '--porcelain=v2', `--untracked-files=${held.untracked}`, '-z', '--', ...specs.map(spec => magic + (spec || '.'))])
+      const status = await this.runner.read(['status', '--porcelain=v2', `--untracked-files=${held.untracked}`, '-z', '--', ...specs.map(spec => magic + (spec || '.'))])
       if (!status.success || status.truncated) return undefined
       const entries = splitStatus(status.output ?? '').entries
       return entries.some(entry => entry.originalPath !== undefined) ? undefined : entries
@@ -535,9 +535,9 @@ export class RepositoryModel {
    * The two differ in a linked worktree. Null when the working directory is in no repository.
    */
   async resolveGitDirectories(): Promise<GitDirectories | null> {
-    let result = await this.runner.executeGitCommand(['rev-parse', '--git-dir', '--git-common-dir', '--show-prefix', '--show-toplevel'])
+    let result = await this.runner.read(['rev-parse', '--git-dir', '--git-common-dir', '--show-prefix', '--show-toplevel'])
     if (!result.success && /must be run in a work tree/i.test(result.error ?? '')) {
-      result = await this.runner.executeGitCommand(['rev-parse', '--git-dir', '--git-common-dir', '--show-prefix'])
+      result = await this.runner.read(['rev-parse', '--git-dir', '--git-common-dir', '--show-prefix'])
     }
     const [gitDir, commonDir, prefix, top] = (result.success ? result.output ?? '' : '').split('\n').map(line => line.trim())
     this.gitDirectories = gitDir && commonDir
