@@ -87,6 +87,7 @@ export async function rebaseWithTodo(runner: GitRunner, base: string, steps: Rew
     await fs.rm(scratchDir, { recursive: true, force: true })
     if (!rebasePaused && messagesDir !== scratchDir) {
       await fs.rm(messagesDir, { recursive: true, force: true }).catch(() => {})
+      if (gitDir) await fs.rmdir(path.join(gitDir, REWRITE_MESSAGES_DIR)).catch(() => {})
     }
   }
 }

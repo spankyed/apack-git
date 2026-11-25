@@ -273,13 +273,37 @@ export class GitReads {
     const cached = this.getCached<boolean>(cacheKey)
     if (cached !== null) return cached
 
-    // Only consult git attributes for in-repo files when an attributes file may exist
+    // Only consult git attributes for in-repo files when an attributes file actually exists (repo, subdir, gitdir or config)
     if (!external) {
-      const hasAttrs = await fs.access(path.join(this.workingDirectory, '.gitattributes')).then(() => true, () => false)
+      const directories = await this.model.directories()
+      const top = directories?.top ?? this.workingDirectory
+      const settings = await this.runner.settings.read()
+      const configuredAttrs = settings.value('core.attributesfile')?.trim()
+      const absFile = path.resolve(this.workingDirectory, filePath)
+      const relToTop = relativeWithin(top, absFile)
+      const candidateFiles: string[] = []
+      if (directories?.gitDir) candidateFiles.push(path.join(directories.gitDir, 'info', 'attributes'))
+      if (configuredAttrs) candidateFiles.push(configuredAttrs)
+      if (relToTop !== undefined) {
+        let dir = path.dirname(absFile)
+        const resolvedTop = path.resolve(top)
+        for (;;) {
+          candidateFiles.push(path.join(dir, '.gitattributes'))
+          if (dir === resolvedTop) break
+          const parent = path.dirname(dir)
+          if (parent === dir) break
+          dir = parent
+        }
+      } else {
+        candidateFiles.push(path.join(top, '.gitattributes'))
+      }
+      const hasAttrs = (await Promise.all(candidateFiles.map(file => fs.access(file).then(() => true, () => false)))).some(Boolean)
       if (hasAttrs) {
-        const gitResult = await this.runner.read(['check-attr', 'diff', '--', filePath])
+        const attrPath = relToTop !== undefined ? relToTop.split(path.sep).join('/') : filePath
+        const gitResult = await this.runner.read(['-C', top, 'check-attr', 'diff', '--', attrPath])
         if (gitResult.success && gitResult.output) {
-          if (gitResult.output.includes(': diff: binary') || gitResult.output.includes(': diff: -diff')) {
+          // `binary` and `-diff` in gitattributes both report `: diff: unset` from `git check-attr`
+          if (gitResult.output.includes(': diff: unset') || gitResult.output.includes(': diff: binary') || gitResult.output.includes(': diff: -diff')) {
             this.setCached(cacheKey, true)
             return true
           }
@@ -308,15 +332,15 @@ export class GitReads {
           return false
         }
 
-        // UTF-16/UTF-32 BOMs hold NUL bytes legitimately as text
-        if (bytesRead >= 2 && ((buffer[0] === 0xFF && buffer[1] === 0xFE) || (buffer[0] === 0xFE && buffer[1] === 0xFF))) {
-          this.setCached(cacheKey, false)
-          return false
-        }
+        // UTF-32/UTF-16 BOMs hold NUL bytes legitimately as text (check 4-byte UTF-32 before 2-byte UTF-16)
         if (bytesRead >= 4 && (
           (buffer[0] === 0xFF && buffer[1] === 0xFE && buffer[2] === 0x00 && buffer[3] === 0x00) ||
           (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0xFE && buffer[3] === 0xFF)
         )) {
+          this.setCached(cacheKey, false)
+          return false
+        }
+        if (bytesRead >= 2 && ((buffer[0] === 0xFF && buffer[1] === 0xFE) || (buffer[0] === 0xFE && buffer[1] === 0xFF))) {
           this.setCached(cacheKey, false)
           return false
         }
@@ -477,10 +501,25 @@ export class GitReads {
     }
   }
 
+  /** Resolves a working-tree read path within `workingDirectory` (zero git spawns) or the enclosing checkout root */
+  private async resolveWorkingReadPath(filePath: string): Promise<string> {
+    if (!filePath || filePath.includes('\0')) throw new GitError(`Invalid path: ${JSON.stringify(filePath)}`)
+    const candidate = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(this.workingDirectory, filePath)
+    if (relativeWithin(this.workingDirectory, candidate) !== undefined) {
+      try {
+        return await resolveInsideTop(this.workingDirectory, filePath, { followTargetSymlink: true })
+      } catch (error) {
+        if (!(error instanceof GitError)) throw error
+      }
+    }
+    const top = await this.model.checkoutTop()
+    return resolveInsideTop(top, filePath, { base: this.workingDirectory, followTargetSymlink: true })
+  }
+
   async readFileContent(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<string> {
     if (version === 'working') {
       // Working-tree reads don't touch the git index — no queue needed
-      const fullPath = await resolveInsideTop(this.workingDirectory, filePath, { followTargetSymlink: true })
+      const fullPath = await this.resolveWorkingReadPath(filePath)
       try {
         const stats = await fs.stat(fullPath)
         if (stats.isDirectory()) return ''
@@ -489,9 +528,10 @@ export class GitReads {
         throw new Error(`Failed to read file: ${error}`)
       }
     } else {
-      const { relativeToCwd } = normalizeReadPath(filePath, this.workingDirectory, this.workingDirectory)
-      if (version === 'HEAD') return (await this.fileInCommit(`HEAD:${relativeToCwd}`))?.toString('utf8') ?? ''
-      const result = await this.runner.read(['show', stageZeroSpec(relativeToCwd)])
+      const top = await this.model.checkoutTop()
+      const { relativeToTop } = normalizeReadPath(filePath, this.workingDirectory, top)
+      if (version === 'HEAD') return (await this.fileInCommit(`HEAD:${relativeToTop}`))?.toString('utf8') ?? ''
+      const result = await this.runner.read(['show', stageZeroSpec(relativeToTop)])
       if (!result.success) {
         return ''
       }
@@ -543,7 +583,15 @@ export class GitReads {
       if (!object) return null
       return await this.fileInCommit(object) ?? this.runner.readBinary(['cat-file', 'blob', object])
     }
-    const [base, ours, theirs, working] = await Promise.all([read(1), read(2), read(3), fs.readFile(path.join(top, filePath)).catch(() => null)])
+    const readWorking = async (): Promise<Buffer | null> => {
+      try {
+        const safePath = await resolveInsideTop(top, filePath, { followTargetSymlink: true })
+        return await fs.readFile(safePath)
+      } catch {
+        return null
+      }
+    }
+    const [base, ours, theirs, working] = await Promise.all([read(1), read(2), read(3), readWorking()])
     const binary = [base, ours, theirs, working].some(side => side?.includes(0))
     const text = (side: Buffer | null) => (side === null ? null : binary ? '' : side.toString('utf8'))
     return { base: text(base), ours: text(ours), theirs: text(theirs), working: text(working), regions: binary || !working ? [] : conflictRegions(working.toString('utf8')), binary }
@@ -844,16 +892,17 @@ export class GitReads {
    */
   async readFileBytes(filePath: string, version: 'HEAD' | 'working' | 'index' = 'working'): Promise<Buffer | undefined> {
     if (version === 'working') {
-      const fullPath = await resolveInsideTop(this.workingDirectory, filePath, { followTargetSymlink: true })
+      const fullPath = await this.resolveWorkingReadPath(filePath)
       try {
         return await fs.readFile(fullPath)
       } catch {
         return undefined
       }
     }
-    const { relativeToCwd } = normalizeReadPath(filePath, this.workingDirectory, this.workingDirectory)
+    const top = await this.model.checkoutTop()
+    const { relativeToTop } = normalizeReadPath(filePath, this.workingDirectory, top)
     try {
-      return version === 'HEAD' ? await this.fileInCommit(`HEAD:${relativeToCwd}`) : await this.runner.readBinary(['show', stageZeroSpec(relativeToCwd)])
+      return version === 'HEAD' ? await this.fileInCommit(`HEAD:${relativeToTop}`) : await this.runner.readBinary(['show', stageZeroSpec(relativeToTop)])
     } catch (error) {
       if (error instanceof GitError) throw error
       return undefined

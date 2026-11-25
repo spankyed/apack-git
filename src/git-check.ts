@@ -55,12 +55,20 @@ export function olderThan(a: string, b: string): boolean {
 /** On macOS, whether `git` resolves to `/usr/bin/git`, the stub that prompts to install Command Line Tools */
 function resolvesToAppleStub(git: string, env: NodeJS.ProcessEnv): boolean {
   if (git === '/usr/bin/git') return true
+  if (git.includes('/')) {
+    try {
+      return fs.realpathSync(git) === '/usr/bin/git'
+    } catch {
+      return false
+    }
+  }
   if (git !== 'git') return false
   for (const dir of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
     const candidate = path.join(dir, 'git')
     try {
+      if (!fs.statSync(candidate).isFile()) continue
       fs.accessSync(candidate, fs.constants.X_OK)
-      return path.resolve(candidate) === '/usr/bin/git'
+      return fs.realpathSync(candidate) === '/usr/bin/git'
     } catch {
       // keep searching PATH
     }
@@ -68,11 +76,24 @@ function resolvesToAppleStub(git: string, env: NodeJS.ProcessEnv): boolean {
   return false
 }
 
+/** Fast filesystem check for an active macOS developer-tools installation so installed Macs spawn no `xcode-select` */
+function developerToolsPresentOnDisk(env: NodeJS.ProcessEnv): boolean {
+  const candidates = [
+    env.DEVELOPER_DIR ? path.join(env.DEVELOPER_DIR, 'usr', 'bin', 'git') : undefined,
+    '/Library/Developer/CommandLineTools/usr/bin/git',
+    '/Applications/Xcode.app/Contents/Developer/usr/bin/git',
+    '/var/db/xcode_select_link',
+  ]
+  return candidates.some(candidate => candidate !== undefined && fs.existsSync(candidate))
+}
+
 /** Why `git` cannot be used, or the version it is when it can */
 export async function checkGit(git: string, run: RunProcess, env: NodeJS.ProcessEnv): Promise<GitUnusable | { version: string }> {
   const options = { cwd: process.cwd(), env, maxBuffer: 1024 * 1024, encoding: 'utf8' as const }
-  // The placeholder is the one git that does something when merely asked its version, so it is not asked first
-  if (process.platform === 'darwin' && resolvesToAppleStub(git, env)) {
+  // The placeholder is the one git that does something when merely asked its version, so it is not asked first.
+  // Explicit `/usr/bin/git` always checks via `xcode-select -p`; a `PATH`-resolved stub skips that extra process
+  // when developer tools are already present on disk.
+  if (process.platform === 'darwin' && resolvesToAppleStub(git, env) && (git === '/usr/bin/git' || !developerToolsPresentOnDisk(env))) {
     const tools = await run('xcode-select', ['-p'], options).then(() => true, () => false)
     if (!tools) return { code: 'developer-tools-missing', git }
   }
