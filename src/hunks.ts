@@ -7,7 +7,7 @@
 // line breaks, which are one byte in every encoding git diffs as text, and handed back to git the same way. A
 // window is sent the piece as text to show, and an id to name it by: the bytes never leave this side.
 import { createHash } from 'node:crypto'
-import type { DiffHunk } from './types.ts'
+import type { DiffHunk } from './types.js'
 
 const HUNK = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/
 

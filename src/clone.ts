@@ -3,11 +3,11 @@
 // settings are what git wrote, so it opens trusted by what it names: nothing.
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { branchNameArgument } from './arguments.ts'
-import { GitError } from './errors.ts'
-import { GitRunner, failure } from './runner.ts'
-import type { RepositoryTies } from './ties.ts'
-import type { GitProgress } from './types.ts'
+import { branchNameArgument } from './arguments.js'
+import { GitError } from './errors.js'
+import { GitRunner, failure } from './runner.js'
+import type { RepositoryTies } from './ties.js'
+import type { GitProgress } from './types.js'
 
 /** An address git reads as an address and not as an option, a control sequence or a shell-executing transport */
 function addressArgument(url: string): string {

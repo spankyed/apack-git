@@ -2,7 +2,7 @@
 // every caller that needs to know why reads the code this gives rather than the prose: a second place matching the
 // text is a second list to keep in step with git, and the one that falls behind answers wrongly without failing.
 //
-// The prose is English because every git child is run in English (`gitEnvironment`, git.ts), whatever the user's
+// The prose is English because every git child is run in English (`gitEnvironment`, runner.ts), whatever the user's
 // locale is.
 
 /** Why a git command failed, where what it printed says */

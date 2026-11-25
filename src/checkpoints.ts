@@ -14,12 +14,12 @@ import { createHash, randomUUID } from 'node:crypto'
 import * as os from 'node:os'
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { rowSpec } from './arguments.ts'
-import { GitError } from './errors.ts'
-import type { RepositoryModel } from './model.ts'
-import { fallbackTop, resolveInsideTop } from './paths.ts'
-import { failure, type GitRunner } from './runner.ts'
-import type { Checkpoint, CheckpointChange } from './types.ts'
+import { rowSpec } from './arguments.js'
+import { GitError } from './errors.js'
+import type { RepositoryModel } from './model.js'
+import { fallbackTop, resolveInsideTop } from './paths.js'
+import { failure, type GitRunner } from './runner.js'
+import type { Checkpoint, CheckpointChange } from './types.js'
 
 /** The largest file a checkpoint keeps a copy of. A larger one is left out, and the checkpoint names it */
 export const KEPT_FILE_LIMIT = 10 * 1024 * 1024

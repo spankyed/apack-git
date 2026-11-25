@@ -6,9 +6,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
-import { run } from './_support/process.ts';
-import { removeDirectory } from './_support/remove.ts';
-import { GitRepository, runUnbounded, type RunProcess } from '../src/index.ts';
+import { run } from './_support/process.js';
+import { removeDirectory } from './_support/remove.js';
+import { GitRepository, runUnbounded, type RunProcess } from '../src/index.js';
 
 const directories: string[] = [];
 const repositories: GitRepository[] = [];

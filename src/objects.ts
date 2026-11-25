@@ -6,7 +6,7 @@
 // that moved is read where it is now. `:src/a.ts`, the staged version, is read from the index, which this process
 // loads once and keeps: it would go on answering with what was staged when it started.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import type { WatchProcess } from './ties.ts'
+import type { WatchProcess } from './ties.js'
 
 /** The largest file handed back; a larger one is read past and answered as not there, as a read by `git show` is */
 const LARGEST_READ = 10 * 1024 * 1024

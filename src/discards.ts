@@ -4,13 +4,13 @@
 //
 // The user's index, refs, objects and stash are not touched, in either direction.
 import * as fs from 'fs/promises'
-import { rowSpec } from './arguments.ts'
-import { KEPT_FILE_LIMIT, type CheckpointStore } from './checkpoints.ts'
-import type { RepositoryModel } from './model.ts'
-import { resolveInsideTop } from './paths.ts'
-import { failure, type GitRunner } from './runner.ts'
-import { splitStatus } from './status.ts'
-import type { DiscardKept, DiscardRestored } from './types.ts'
+import { rowSpec } from './arguments.js'
+import { KEPT_FILE_LIMIT, type CheckpointStore } from './checkpoints.js'
+import type { RepositoryModel } from './model.js'
+import { resolveInsideTop } from './paths.js'
+import { failure, type GitRunner } from './runner.js'
+import { splitStatus } from './status.js'
+import type { DiscardKept, DiscardRestored } from './types.js'
 
 export class DiscardStore {
   constructor(private readonly runner: GitRunner, private readonly model: RepositoryModel, private readonly checkpoints: CheckpointStore) {}

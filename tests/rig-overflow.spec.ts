@@ -6,7 +6,7 @@
 import { afterEach, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { catchesUp, cleanUp, platformWatch, watchedRepository } from './_support/rig.ts';
+import { catchesUp, cleanUp, platformWatch, watchedRepository } from './_support/rig.js';
 
 afterEach(cleanUp);
 

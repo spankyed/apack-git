@@ -4,7 +4,7 @@
 // what this counts and prints. It fails nothing: whether a platform delivers its events is the platform's to
 // answer, and a run on a busy machine loses more of them than one on a quiet one.
 import { it } from 'vitest'
-import { runSequence, stepsOf } from '../_support/sequences.ts'
+import { runSequence, stepsOf } from '../_support/sequences.js'
 
 const SEEDS = Number(process.env.SOAK_SEEDS ?? 50)
 const FIRST = Number(process.env.SOAK_FIRST_SEED ?? 1000)

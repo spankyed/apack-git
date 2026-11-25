@@ -6,8 +6,8 @@
 // own (`Signed-off-by`) or a key the repository configures, comments in it are skipped and an indented line
 // continues the one before. So `git interpret-trailers --parse` names them, and the message's lines are matched
 // to what it named rather than parsed a second way here.
-import { failure, type GitRunner } from './runner.ts'
-import type { Trailer } from './types.ts'
+import { failure, type GitRunner } from './runner.js'
+import type { Trailer } from './types.js'
 
 /** What `git interpret-trailers --parse` printed, one trailer a line, each `key: value` with its lines unfolded */
 export function parseTrailers(printed: string): Trailer[] {

@@ -4,8 +4,8 @@ import { afterEach, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { cleanUp, platformWatch } from './_support/rig.ts';
-import { removeDirectory, removeDirectoryNow } from './_support/remove.ts';
+import { cleanUp, platformWatch } from './_support/rig.js';
+import { removeDirectory, removeDirectoryNow } from './_support/remove.js';
 
 afterEach(cleanUp);
 

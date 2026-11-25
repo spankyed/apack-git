@@ -5,9 +5,9 @@
 // page walks from those same commits, so a ref that moves between pages neither repeats a commit nor drops one: the
 // history a set of pages draws is the one that was there when the first was asked for. The cursor carries those
 // commits and how many were read, and is the caller's to hand back as it was given.
-import { recordsOf, refArgument } from './arguments.ts'
-import { failure, type GitRunner } from './runner.ts'
-import type { HistoryCommit, HistoryPage } from './types.ts'
+import { recordsOf, refArgument } from './arguments.js'
+import { failure, type GitRunner } from './runner.js'
+import type { HistoryCommit, HistoryPage } from './types.js'
 
 /** How many commits a page holds when no number is asked for */
 export const HISTORY_PAGE = 200

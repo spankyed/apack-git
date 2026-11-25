@@ -1,9 +1,9 @@
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import type { GitRepository } from './repository.ts'
-import { subscribeToDirectory, type DirectorySubscription, type SubscribeToDirectory, type WatchedChange } from './directory-watch.ts'
-import { followFile, type FileFollower, type FollowFile } from './file-watch.ts'
-import type { RepositoryLog } from './ties.ts'
+import type { GitRepository } from './repository.js'
+import { subscribeToDirectory, type DirectorySubscription, type SubscribeToDirectory, type WatchedChange } from './directory-watch.js'
+import { followFile, type FileFollower, type FollowFile } from './file-watch.js'
+import type { RepositoryLog } from './ties.js'
 
 /** How long the repository must go quiet before its change is reported */
 const QUIET_MS = 200

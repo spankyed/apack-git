@@ -44,7 +44,7 @@ export interface RepositoryTies {
   log?: RepositoryLog
   /** How long a command waits for another git to let go of a lock it needs */
   lockPatienceMs?: number
-  /** How long a whole status may take before the snapshot says it is slow (`STATUS_BUDGET_MS` when not given) */
+  /** How long a whole status may take before the snapshot says it is slow (1,000 ms when not given) */
   statusBudgetMs?: number
   /**
    * Whether the repository whose git state lives at this real path is one the host trusts to have git run what

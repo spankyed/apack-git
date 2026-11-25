@@ -1,7 +1,7 @@
 // What can be done now in a checkout, and why not, from its snapshot alone: an entry with no Node imports, so a
 // window can say why a button is not to be pressed without asking anything. Each answer is a reason a host can word,
 // never git's text.
-import type { RepositorySnapshot } from './types.ts'
+import type { RepositorySnapshot } from './types.js'
 
 /** Why something cannot be done now */
 const UNAVAILABLE_REASONS = [

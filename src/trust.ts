@@ -10,9 +10,9 @@
 // list of the settings that run programs, asks less often and makes a hole of every setting it forgets.
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { GitError } from './errors.ts'
-import { relativeWithin } from './paths.ts'
-import type { HeldSettings, ReadGit, SettingsReading } from './settings.ts'
+import { GitError } from './errors.js'
+import { relativeWithin } from './paths.js'
+import type { HeldSettings, ReadGit, SettingsReading } from './settings.js'
 
 /** One thing a repository would have git run, or a setting not known to run nothing */
 export type TrustAsk =

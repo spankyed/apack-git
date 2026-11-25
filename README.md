@@ -134,10 +134,9 @@ busy one does not, as the macOS readings taken under load show, and a whole stat
 snapshot's `slowStatus` reports, against the budget a host sets (`RepositoryTies.statusBudgetMs`, 1 s when none is set).
 
 A status of one noted path, with a snapshot held, is one git asked about that path alone, where a whole status is
-three. On a developer's Mac it took 49 ms at 1,000 files and 33 ms at 100,000, against 136 ms and 259 ms for a whole
-status: git still matches the path against the index, but walks none of the working tree. The noted-path column
-below was read before the script held a snapshot for that reading, and is a whole status; CI's next run prints it
-right.
+three. At 100,000 files on CI below it took 18 ms on Linux, 43 ms on macOS and 61 ms on Windows, against 133 ms,
+325 ms and 276 ms for a whole status: git still matches the path against the index, but walks none of the working
+tree.
 
 ### Readings
 
@@ -146,12 +145,12 @@ jobs; the million is a dispatch of CI by hand (`budget_sizes: 1000000`) and a ru
 
 | Taken | Machine | git | Files | Opening | Whole status | One noted path | Checkpoint |
 |---|---|---|---|---|---|---|---|
-| CI, 2026-11-12 | Linux x64, 4 cores, load 0.34 | 2.56.1 | 1,000 | 42 ms | 16 ms | 16 ms | 67 ms |
-| | | | 100,000 | 200 ms | 165 ms | 165 ms | 469 ms |
-| CI, 2026-11-12 | macOS arm64 (virtual), 3 cores, load 113 | 2.56.0 | 1,000 | 68 ms | 31 ms | 31 ms | 75 ms |
-| | | | 100,000 | 317 ms | 263 ms | 361 ms | 1,393 ms |
-| CI, 2026-11-12 | Windows x64, 4 cores | 2.56.0.windows.4 | 1,000 | 421 ms | 148 ms | 140 ms | 1,172 ms |
-| | | | 100,000 | 392 ms | 276 ms | 201 ms | 3,472 ms |
+| CI, 2026-11-21 | Linux x64, 4 cores, load 0.91 | 2.56.1 | 1,000 | 133 ms | 13 ms | 4 ms | 32 ms |
+| | | | 100,000 | 155 ms | 133 ms | 18 ms | 435 ms |
+| CI, 2026-11-21 | macOS arm64 (virtual), 3 cores, load 73.8 | 2.56.1 | 1,000 | 123 ms | 62 ms | 50 ms | 201 ms |
+| | | | 100,000 | 354 ms | 325 ms | 43 ms | 1,180 ms |
+| CI, 2026-11-21 | Windows x64, 4 cores | 2.56.1.windows.1 | 1,000 | 214 ms | 130 ms | 35 ms | 452 ms |
+| | | | 100,000 | 325 ms | 276 ms | 61 ms | 3,315 ms |
 | CI by hand, 2026-11-12 | Linux x64, 4 cores, load 0.35 | 2.56.0 | 1,000,000 | 1,763 ms | 1,067 ms | 1,129 ms | 4,809 ms |
 | CI by hand, 2026-11-12 | macOS arm64 (virtual), 3 cores, load 85.6 | 2.56.0 | 1,000,000 | 11,874 ms | 34,961 ms | 13,301 ms | 32,850 ms |
 | CI by hand, 2026-11-12 | Windows x64, 4 cores | 2.56.0.windows.4 | 1,000,000 | 1,384 ms | 1,009 ms | 958 ms | 25,812 ms |

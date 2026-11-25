@@ -12,10 +12,10 @@ import * as path from 'node:path'
 import {
   GitRepository, GitWatcherService,
   type ChangedPaths, type RepositorySnapshot, type SubscribeToDirectory, type WatchedChange,
-} from '../../src/index.ts'
-import { run } from './process.ts'
-import { removeDirectory } from './remove.ts'
-import { seeded } from './rig.ts'
+} from '../../src/index.js'
+import { run } from './process.js'
+import { removeDirectory } from './remove.js'
+import { seeded } from './rig.js'
 
 export const STEP_KINDS = [
   'write', 'edit', 'delete', 'rename', 'rename-case', 'make-folder',

@@ -1,6 +1,6 @@
 // How far along a push, a pull, a fetch or a checkout is, read from what git prints while it works. Asked for
 // progress, git writes lines such as `Writing objects:  42% (3/7)` to its error stream, each one over the last.
-import type { GitProgress } from './types.ts'
+import type { GitProgress } from './types.js'
 
 /**
  * A line of progress: what git is doing, and how far through it is. A remote's own are prefixed with `remote: `.

@@ -4,12 +4,12 @@ import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { run } from './_support/process.ts';
-import { settles } from './_support/settles.ts';
-import { GitWatcherService } from '../src/index.ts';
-import type { SubscribeToDirectory, WatchedChange } from '../src/index.ts';
-import { GitRepository } from '../src/index.ts';
-import { removeDirectory } from './_support/remove.ts';
+import { run } from './_support/process.js';
+import { settles } from './_support/settles.js';
+import { GitWatcherService } from '../src/index.js';
+import type { SubscribeToDirectory, WatchedChange } from '../src/index.js';
+import { GitRepository } from '../src/index.js';
+import { removeDirectory } from './_support/remove.js';
 
 interface FakeWatch {
   directory: string;

@@ -5,9 +5,9 @@ import { afterEach, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { run } from './_support/process.ts';
-import { removeDirectory } from './_support/remove.ts';
-import { GitRepository, runUnbounded, type RunProcess } from '../src/index.ts';
+import { run } from './_support/process.js';
+import { removeDirectory } from './_support/remove.js';
+import { GitRepository, runUnbounded, type RunProcess } from '../src/index.js';
 
 /**
  * What git lists among its local variables that says how git behaves rather than which repository it is in, and
