@@ -29,7 +29,7 @@ export type WatchProcess = (pid: number, onStalled: () => void, idleMs?: number)
  * either package.
  */
 export interface RepositoryClock {
-  /** Wall time in milliseconds since 1970 (for persisted timestamps and filesystem mtime comparisons) */
+  /** Wall time in milliseconds since 1970 (for persisted checkpoint and journal timestamps) */
   now(): number
   /** Monotonic time in milliseconds for elapsed durations, on the same timeline as `after` */
   monotonic(): number
@@ -37,12 +37,16 @@ export interface RepositoryClock {
   after(ms: number, run: () => void): () => void
 }
 
+/** Node's maximum 32-bit signed `setTimeout` delay; larger values emit a warning and clamp to 1 ms */
+const MAX_TIMEOUT_MS = 0x7fffffff
+
 /** Built-in clock over `Date.now`, `performance.now` and `.unref()`'d `setTimeout`, used when no clock is handed in */
 export const systemClock: RepositoryClock = {
   now: () => Date.now(),
   monotonic: () => performance.now(),
   after: (ms, run) => {
-    const timer = setTimeout(run, Math.max(0, ms))
+    const delay = Number.isFinite(ms) ? Math.min(MAX_TIMEOUT_MS, Math.max(0, ms)) : 0
+    const timer = setTimeout(run, delay)
     timer.unref()
     return () => { clearTimeout(timer) }
   },
@@ -51,7 +55,7 @@ export const systemClock: RepositoryClock = {
 /** Schedules `run` on `clock`, returning `undefined` instead of throwing when a host clock has already closed */
 export function scheduleAfter(clock: RepositoryClock, ms: number, run: () => void): (() => void) | undefined {
   try {
-    return clock.after(Math.max(0, ms), run)
+    return clock.after(Number.isFinite(ms) ? Math.max(0, ms) : 0, run)
   } catch (error) {
     if (error instanceof Error && error.name === 'ClockClosedError') return undefined
     throw error

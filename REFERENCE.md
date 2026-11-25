@@ -755,7 +755,7 @@ either package.
 
 ```ts
 interface RepositoryClock {
-  /** Wall time in milliseconds since 1970 (for persisted timestamps and filesystem mtime comparisons) */
+  /** Wall time in milliseconds since 1970 (for persisted checkpoint and journal timestamps) */
   now(): number
   /** Monotonic time in milliseconds for elapsed durations, on the same timeline as `after` */
   monotonic(): number

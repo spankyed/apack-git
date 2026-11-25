@@ -124,9 +124,12 @@ function lockReleased(lock: string, patienceMs: number, clock: RepositoryClock):
     }
     follow()
     void takenAt().then((taken) => {
+      if (settled) return
       if (taken === undefined) return settle(true)
-      // No longer than the patience itself, whatever a clock that disagrees with this one stamped the lock with
-      const left = Math.min(patienceMs, patienceMs - (clock.now() - taken))
+      // `stat.mtimeMs` is stamped by the OS wall clock, so compare it against `Date.now()` rather than an injected
+      // clock that may be at a synthetic epoch, while still running the patience timer on `clock`. No longer than
+      // the patience itself, whatever a clock that disagrees with this one stamped the lock with.
+      const left = Math.min(patienceMs, patienceMs - (Date.now() - taken))
       if (left <= 0) return settle(false)
       cancelTimer = scheduleAfter(clock, left, () => settle(false))
       if (!cancelTimer) settle(false)

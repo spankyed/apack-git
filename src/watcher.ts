@@ -364,14 +364,20 @@ export class GitWatcherService {
     const now = this.clock.monotonic()
     const waited = now - (this.pendingSince ?? now)
     const delay = Math.max(0, Math.min(quietMs, MAX_WAIT_MS - waited))
+    const generation = this.generation
     this.cancelQuiet = scheduleAfter(this.clock, delay, () => {
       this.cancelQuiet = undefined
+      if (generation !== this.generation) return
       this.pendingSince = undefined
       const paths = this.changedPaths
       this.changedPaths = new Set()
       if (paths === null) this.burst.saidAnythingAt = this.clock.monotonic()
       this.onChangeCallback?.(paths === null || paths === 'index' ? paths : [...paths])
     })
+    if (!this.cancelQuiet) {
+      this.pendingSince = undefined
+      this.changedPaths = new Set()
+    }
   }
 
   async stopWatching(): Promise<void> {

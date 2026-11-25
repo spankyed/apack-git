@@ -1,6 +1,6 @@
-// Deterministic time and timer control through `RepositoryClock`: debounce, flood bursts, catch-up, object reader
-// linger, read cache TTL, lock patience, slow-status budget, checkpoint/journal expiry, NTP wall-clock jumps, and
-// safe degradation once a host clock is closed (`ClockClosedError`). Zero real sleeps and zero `vi.useFakeTimers()`.
+// Deterministic time and timer control through `RepositoryClock`: debounce, post-write quiet window, flood bursts,
+// catch-up, object reader linger, read cache TTL, lock patience, slow-status budget, checkpoint/journal expiry,
+// NTP wall-clock jumps, and safe degradation once a host clock is closed (`ClockClosedError`). Zero `vi.useFakeTimers()`.
 import { afterEach, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -12,6 +12,16 @@ import {
   type DirectorySubscription, type RepositoryClock, type SubscribeToDirectory, type WatchedChange,
 } from '../src/index.js';
 import { CHECKPOINT_MAX_AGE_MS } from '../src/checkpoints.js';
+
+/** Compile-time check that `@apackdev/clock`'s `Clock` shape (with `sleep`) is assignable to `RepositoryClock` */
+type ApackClockShape = {
+  now(): number;
+  monotonic(): number;
+  after(ms: number, run: () => void): () => void;
+  sleep(ms: number, options?: { signal?: AbortSignal }): Promise<void>;
+};
+const _checkStructuralCompatibility: RepositoryClock = null as unknown as ApackClockShape;
+void _checkStructuralCompatibility;
 
 class FakeClockClosedError extends Error {
   constructor() {
@@ -158,6 +168,29 @@ it('drives watcher debounce, max-wait, catch-up and flood bursts deterministical
   fake.advance(200);
   expect(reports).toEqual([null]);
 
+  // Post-write quiet window: an event arriving during a write waits for onWriteComplete, then fires after QUIET_AFTER_WRITE_MS (50 ms)
+  reports.length = 0;
+  let finishWrite: (() => void) | undefined;
+  const fakeRepo = {
+    resolveGitDirectories: () => repo.resolveGitDirectories(),
+    listIgnoredDirectories: () => repo.listIgnoredDirectories(),
+    setWatched: () => {},
+    hasWatchFailed: false,
+    isWriteInProgress: true,
+    onWriteComplete: (callback: () => void) => { finishWrite = callback; },
+  } as unknown as GitRepository;
+  watcher.setGitRepository(fakeRepo);
+  emit('b.txt');
+  fake.advance(500);
+  expect(reports).toEqual([]);
+  (fakeRepo as unknown as { isWriteInProgress: boolean }).isWriteInProgress = false;
+  finishWrite?.();
+  fake.advance(49);
+  expect(reports).toEqual([]);
+  fake.advance(1);
+  expect(reports).toEqual([['b.txt']]);
+  watcher.setGitRepository(repo);
+
   // Flood starting at monotonic time 0 (1,000+ events) widens to null after FLOOD_QUIET_MS (500 ms)
   await watcher.stopWatching();
   const fakeZero = new FakeClock({ monotonic: 0 });
@@ -262,8 +295,9 @@ it('expires checkpoints and prunes journal entries deterministically when clock.
   await expect(repo.changedSince(first.id)).rejects.toMatchObject({ code: 'no-longer-kept' });
 });
 
-it('measures slowStatus and lock patience on clock.monotonic(), and settles cleanly if the clock closes during a lock wait', async () => {
-  const fake = new FakeClock();
+it('measures slowStatus and lock patience on clock.monotonic(), ignores synthetic future wall time on OS lock mtime, and settles cleanly once the clock is closed', async () => {
+  // Start wall time 7 days ahead of real OS time to prove OS `index.lock` mtime is not compared against synthetic `clock.now()`
+  const fake = new FakeClock({ wall: Date.now() + CHECKPOINT_MAX_AGE_MS });
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-clock-slow-')));
   directories.push(root);
   await git(root, 'init', '--quiet', '--initial-branch=main');
@@ -286,7 +320,7 @@ it('measures slowStatus and lock patience on clock.monotonic(), and settles clea
   const snapshot = await repo.readSnapshot();
   expect(snapshot.slowStatus).toMatchObject({ ms: 1_500, budgetMs: 1_000 });
 
-  // Hold index.lock and advance the fake clock once the lock wait timer is armed: settles as `locked` with zero real sleep
+  // Hold index.lock and advance the fake clock once the lock wait timer is armed: settles as `locked` via the fake clock
   const lockFile = path.join(root, '.git', 'index.lock');
   fs.writeFileSync(lockFile, '');
   try {
