@@ -213,30 +213,58 @@ export class TrustGate {
   /**
    * Every submodule git directory that git may recurse into during a status or diff: under `<common>/modules/**`
    * (nested submodules included) and any legacy `<top>/<submodule>/.git` directory named in `.gitmodules`.
+   * Reports `truncated` when a depth/count bound or an unreadable symlink stopped the walk, so the gate fails closed.
    */
-  private async submoduleGitDirs(where: Location): Promise<string[]> {
+  private async submoduleGitDirs(where: Location): Promise<{ dirs: string[]; truncated: boolean }> {
     const found = new Set<string>()
+    const seenRealDirs = new Set<string>()
     let visited = 0
+    let truncated = false
     const walkModules = async (dir: string, depth: number): Promise<void> => {
-      if (depth > MAX_SUBMODULE_DEPTH || visited >= MAX_SUBMODULE_DIRS) return
+      if (depth > MAX_SUBMODULE_DEPTH || visited >= MAX_SUBMODULE_DIRS) {
+        truncated = true
+        return
+      }
+      const realDir = await fs.realpath(dir).catch(() => undefined)
+      if (!realDir || seenRealDirs.has(realDir)) return
+      seenRealDirs.add(realDir)
       const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
       for (const entry of entries) {
-        if (!entry.isDirectory() || visited >= MAX_SUBMODULE_DIRS) continue
-        visited++
+        if (visited >= MAX_SUBMODULE_DIRS) {
+          truncated = true
+          return
+        }
         const candidate = path.join(dir, entry.name)
+        let isDir = entry.isDirectory()
+        if (!isDir && entry.isSymbolicLink()) {
+          const stats = await fs.stat(candidate).catch(() => undefined)
+          if (!stats) {
+            truncated = true
+            continue
+          }
+          isDir = stats.isDirectory()
+        }
+        if (!isDir) continue
+        visited++
         const hasConfig = await fs.access(path.join(candidate, 'config')).then(() => true, () => false)
         const hasHead = hasConfig || await fs.access(path.join(candidate, 'HEAD')).then(() => true, () => false)
         if (hasHead) {
           found.add(candidate)
           // Nested submodules live under `<submodule-git-dir>/modules/`
-          await walkModules(path.join(candidate, 'modules'), depth + 1)
+          const nested = path.join(candidate, 'modules')
+          if (await fs.access(nested).then(() => true, () => false)) {
+            await walkModules(nested, depth + 1)
+          }
         } else {
           // A submodule whose name contains `/` is stored in nested folders under `modules/`
           await walkModules(candidate, depth + 1)
         }
       }
     }
-    await walkModules(path.join(where.common, 'modules'), 0)
+    const modulesRoot = path.join(where.common, 'modules')
+    if (await fs.access(modulesRoot).then(() => true, () => false)) {
+      await walkModules(modulesRoot, 0)
+    }
 
     if (where.top) {
       const gitmodules = await fs.readFile(path.join(where.top, '.gitmodules'), 'utf8').catch(() => '')
@@ -250,11 +278,11 @@ export class TrustGate {
         if (stats?.isDirectory()) found.add(dotGit)
       }
     }
-    return [...found].sort()
+    return { dirs: [...found].sort(), truncated }
   }
 
   /** Config and hook asks for one submodule git directory, cached by the stat signatures of its files */
-  private async submoduleAsksOf(subDir: string, top: string | undefined): Promise<{ signature: string; asks: TrustAsk[] }> {
+  private async submoduleAsksOf(subDir: string, realTop: string | undefined): Promise<{ signature: string; asks: TrustAsk[] }> {
     const configPath = path.join(subDir, 'config')
     const hooksDir = path.join(subDir, 'hooks')
     const hooksSig = await this.hooksLook(hooksDir)
@@ -276,9 +304,14 @@ export class TrustGate {
           for (const setting of fileSettingsOf(listed.output ?? '')) {
             const file = setting.origin.startsWith('file:') ? path.resolve(subDir, setting.origin.slice('file:'.length)) : configPath
             files.add(file)
-            // `git submodule` writes `core.worktree` pointing back to the submodule's folder inside the parent tree
-            const safeSubmoduleWorktree = setting.key === 'core.worktree' && top !== undefined
-              && relativeWithin(top, path.resolve(subDir, setting.value)) !== undefined
+            // `git submodule` writes `core.worktree` pointing back to the submodule's folder inside the parent tree;
+            // compare realpaths so a symlink inside the tree cannot escape outside `realTop`
+            let safeSubmoduleWorktree = false
+            if (setting.key === 'core.worktree' && realTop !== undefined) {
+              const target = path.resolve(subDir, setting.value)
+              const realTarget = await fs.realpath(target).catch(() => undefined)
+              safeSubmoduleWorktree = realTarget !== undefined && relativeWithin(realTop, realTarget) !== undefined
+            }
             if (!safeSubmoduleWorktree && !settingRunsNothing(setting.key, setting.value)) {
               asks.push({ kind: 'setting', key: setting.key, value: setting.value, file })
             }
@@ -335,11 +368,17 @@ export class TrustGate {
     const reading = await this.settings.read()
     const where = await this.where(reading)
     if (!where) return { trusted: false, asks: [] }
-    const [hooks, subDirs] = await Promise.all([this.hooksLook(where.hooks), this.submoduleGitDirs(where)])
-    const subResults = await Promise.all(subDirs.map(subDir => this.submoduleAsksOf(subDir, where.top)))
-    const submodulesSig = subResults.map((res, i) => `${subDirs[i]}\0${res.signature}`).join('\n---\n')
+    const [hooks, { dirs: subDirs, truncated }] = await Promise.all([this.hooksLook(where.hooks), this.submoduleGitDirs(where)])
+    const active = new Set(subDirs)
+    for (const key of this.submoduleHeld.keys()) if (!active.has(key)) this.submoduleHeld.delete(key)
+    const realTop = where.top ? await fs.realpath(where.top).catch(() => where.top) : undefined
+    const subResults = await Promise.all(subDirs.map(subDir => this.submoduleAsksOf(subDir, realTop)))
+    const submodulesSig = `${truncated ? 'truncated\0' : ''}${subResults.map((res, i) => `${subDirs[i]}\0${res.signature}`).join('\n---\n')}`
     if (this.held?.reading !== reading || this.held.hooks !== hooks || this.held.submodules !== submodulesSig) {
       const subAsks = subResults.flatMap(res => res.asks)
+      if (truncated) {
+        subAsks.push({ kind: 'setting', key: UNREADABLE, value: 'Submodule tree exceeded scan limits', file: path.join(where.common, 'modules') })
+      }
       this.held = { reading, hooks, submodules: submodulesSig, asks: await this.asksOf(reading, where, subAsks) }
     }
     return { trusted: this.isTrusted(where.repository), asks: this.held.asks, repository: where.repository }

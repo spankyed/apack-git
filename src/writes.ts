@@ -209,9 +209,9 @@ export class GitWrites {
             throw failure(result, `Failed to revert file: ${filePath}`)
           }
         } else {
-          // File was added by stash/merge — delete it and clean the index entry
+          // File was added by stash/merge — delete it (if still on disk) and clean the index entry
           const onDisk = await resolveInsideTop(top, filePath)
-          await fs.unlink(onDisk)
+          await fs.rm(onDisk, { force: true })
           await this.runner.write(['rm', '--cached', '--force', '--', rowSpec(filePath)])
         }
       } else {
@@ -291,7 +291,7 @@ export class GitWrites {
           }
           for (const p of newFiles) {
             const onDisk = await resolveInsideTop(top, p)
-            await fs.unlink(onDisk)
+            await fs.rm(onDisk, { force: true })
             touched = true
             await this.runner.write(['rm', '--cached', '--force', '--', rowSpec(p)])
           }
@@ -338,6 +338,7 @@ export class GitWrites {
         const unmerged = await this.runner.read(['-C', top, 'ls-files', '--unmerged', '-z', '--', spec])
         if (!unmerged.success) throw failure(unmerged, `Failed to read the conflict in ${filePath}`)
         if (!(unmerged.output ?? '').trim()) throw new GitError(`${filePath} has no conflict`)
+        await fs.mkdir(path.dirname(target), { recursive: true })
         await fs.writeFile(target, answer.content)
       } else {
         const sides = await this.reads.conflictSides(filePath)

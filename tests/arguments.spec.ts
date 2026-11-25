@@ -135,3 +135,33 @@ it('resolves the checkout root through a symlinked subdirectory', async () => {
   expect(blamed).toHaveLength(1);
   expect(blamed[0]!.originalPath).toBe('sub/b.txt');
 });
+
+it('reads HEAD, index and working content from a subdirectory repository and respects .git/info/attributes', async () => {
+  const { root } = await repository();
+  fs.mkdirSync(path.join(root, 'sub'));
+  fs.writeFileSync(path.join(root, 'root.txt'), 'at-root\n');
+  fs.writeFileSync(path.join(root, 'sub', 'inside.txt'), 'committed\n');
+  await git(root, 'add', 'root.txt', 'sub/inside.txt');
+  await git(root, 'commit', '--quiet', '-m', 'add subdir files');
+  fs.writeFileSync(path.join(root, 'sub', 'inside.txt'), 'staged\n');
+  await git(root, 'add', 'sub/inside.txt');
+  fs.writeFileSync(path.join(root, 'sub', 'inside.txt'), 'working\n');
+
+  const subRepo = new GitRepository(path.join(root, 'sub'));
+  repositories.push(subRepo);
+  expect(await subRepo.readFileContent('inside.txt', 'HEAD')).toBe('committed\n');
+  expect(await subRepo.readFileContent('inside.txt', 'index')).toBe('staged\n');
+  expect(await subRepo.readFileContent('inside.txt', 'working')).toBe('working\n');
+  expect((await subRepo.readFileBytes('inside.txt', 'HEAD'))?.toString('utf8')).toBe('committed\n');
+  expect((await subRepo.readFileBytes('inside.txt', 'index'))?.toString('utf8')).toBe('staged\n');
+  expect(await subRepo.readFileContent(path.join(root, 'root.txt'), 'HEAD')).toBe('at-root\n');
+  expect(await subRepo.readFileContent(path.join(root, 'root.txt'), 'working')).toBe('at-root\n');
+  await expect(subRepo.readFileContent('../../outside.txt', 'working')).rejects.toThrow('escapes repository');
+
+  // Untracked file marked binary via .git/info/attributes is detected without root .gitattributes
+  fs.writeFileSync(path.join(root, '.git', 'info', 'attributes'), '*.dat binary\n');
+  fs.writeFileSync(path.join(root, 'opaque.dat'), 'plain text bytes\n');
+  const rootRepo = new GitRepository(root);
+  repositories.push(rootRepo);
+  expect(await rootRepo.readDiff('opaque.dat', false)).toContain('Binary files /dev/null and b/opaque.dat differ');
+});

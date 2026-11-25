@@ -8,6 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { run } from './_support/process.js';
 import { GitRepository, UntrustedError, settingRunsNothing } from '../src/index.js';
+import { UNREADABLE } from '../src/trust.js';
 import { removeDirectory } from './_support/remove.js';
 
 const directories: string[] = [];
@@ -240,6 +241,29 @@ it('asks when a repository sets core.worktree pointing outside itself', async ()
   await git(root, 'config', 'core.worktree', '..');
   const repo = new GitRepository(root);
   expect((await repo.readTrust()).asks.map(ask => ask.kind === 'setting' && ask.key)).toEqual(['core.worktree']);
+});
+
+it('fails closed when submodule directories exceed scan depth, and follows symlinks under .git/modules', async () => {
+  const { root, program, ran } = await repository();
+  const deep = path.join(root, '.git', 'modules', ...Array.from({ length: 12 }, (_, i) => `d${i}`));
+  fs.mkdirSync(deep, { recursive: true });
+  const repo = new GitRepository(root);
+  const reading = await repo.readTrust();
+  expect(reading.asks.some(ask => ask.kind === 'setting' && ask.key === UNREADABLE)).toBe(true);
+  await expect(refused(repo.readSnapshot())).resolves.toBeInstanceOf(UntrustedError);
+  expect(ran()).toBe(false);
+
+  if (process.platform !== 'win32') {
+    fs.rmSync(path.join(root, '.git', 'modules'), { recursive: true, force: true });
+    fs.mkdirSync(path.join(root, '.git', 'modules'), { recursive: true });
+    const outside = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'apack-trust-symlink-mod-')));
+    directories.push(outside);
+    fs.writeFileSync(path.join(outside, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(outside, 'config'), `[core]\n\tfsmonitor = ${program}\n`);
+    fs.symlinkSync(outside, path.join(root, '.git', 'modules', 'linked'));
+    const symReading = await repo.readTrust();
+    expect(symReading.asks.some(ask => ask.kind === 'setting' && ask.key === 'core.fsmonitor')).toBe(true);
+  }
 });
 
 it('allows global url.insteadOf while asking when set locally in the repository', async () => {

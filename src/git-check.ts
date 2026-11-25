@@ -55,12 +55,20 @@ export function olderThan(a: string, b: string): boolean {
 /** On macOS, whether `git` resolves to `/usr/bin/git`, the stub that prompts to install Command Line Tools */
 function resolvesToAppleStub(git: string, env: NodeJS.ProcessEnv): boolean {
   if (git === '/usr/bin/git') return true
+  if (git.includes('/')) {
+    try {
+      return fs.realpathSync(git) === '/usr/bin/git'
+    } catch {
+      return false
+    }
+  }
   if (git !== 'git') return false
   for (const dir of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
     const candidate = path.join(dir, 'git')
     try {
+      if (!fs.statSync(candidate).isFile()) continue
       fs.accessSync(candidate, fs.constants.X_OK)
-      return path.resolve(candidate) === '/usr/bin/git'
+      return fs.realpathSync(candidate) === '/usr/bin/git'
     } catch {
       // keep searching PATH
     }
