@@ -64,10 +64,10 @@ export class GitWrites {
    * when the repository has none, or several and nothing names one.
    */
   private async publishRemote(branch: string): Promise<string> {
-    const setting = async (key: string) => (await this.runner.read(['config', '--get', key])).output?.trim() || undefined
     const remotes = (await this.runner.read(['remote'])).output?.split('\n').map(line => line.trim()).filter(Boolean) ?? []
-    for (const key of [`branch.${branch}.pushRemote`, 'remote.pushDefault', `branch.${branch}.remote`]) {
-      const named = await setting(key)
+    const settings = await this.runner.settings.read()
+    for (const key of [`branch.${branch}.pushremote`, 'remote.pushdefault', `branch.${branch}.remote`]) {
+      const named = settings.value(key)?.trim()
       if (named && remotes.includes(named)) return named
     }
     if (remotes.includes('origin')) return 'origin'

@@ -64,6 +64,8 @@ export interface StatusEntry {
   path: string
   /** Where a renamed or copied path came from */
   originalPath?: string
+  /** Similarity score (0-100) for renamed or copied paths */
+  score?: number
   /** A tracked path's index and worktree columns, `.` where that side is unchanged; a conflict and an untracked path have none */
   columns?: string
   /** An unmerged path's two columns: what each side did to it */
@@ -145,8 +147,19 @@ export function splitStatus(output: string): { headers: string[]; entries: Statu
     else if (record.startsWith('1 ')) entries.push({ path: pathAfter(record, 8), columns: record.slice(2, 4), record })
     else if (record.startsWith('2 ')) {
       // A rename or copy is followed by the path it came from, as a record of its own
-      const originalPath = records[++i]
-      entries.push({ path: pathAfter(record, 9), originalPath, columns: record.slice(2, 4), record: `${record}\0${originalPath}` })
+      if (i + 1 >= records.length) break
+      const originalPath = records[++i]!
+      const scoreField = record.split(' ')[8] ?? ''
+      const parsedScore = /^[RC](\d+)$/.exec(scoreField)?.[1]
+      const filePath = pathAfter(record, 9)
+      if (!filePath) continue
+      entries.push({
+        path: filePath,
+        originalPath,
+        ...(parsedScore !== undefined && { score: Number(parsedScore) }),
+        columns: record.slice(2, 4),
+        record: `${record}\0${originalPath}`,
+      })
     }
   }
   return { headers, entries }
@@ -165,7 +178,8 @@ export function snapshotOf({ headers, entries }: { headers: string[]; entries: S
       snapshot.behind = Math.abs(parseInt(behind ?? '0', 10)) || 0
     }
   }
-  for (const { path: filePath, originalPath, columns, conflict, record } of entries) {
+  for (const { path: filePath, originalPath, score, columns, conflict, record } of entries) {
+    if (!filePath) continue
     if (record.startsWith('? ')) {
       // A folder git tracks nothing in is one row, whatever it holds: git names it with a `/` at its end
       snapshot.files.push({ path: filePath, status: 'untracked', staged: false, ...(filePath.endsWith('/') && { isDirectory: true }) })
@@ -181,6 +195,7 @@ export function snapshotOf({ headers, entries }: { headers: string[]; entries: S
         snapshot.files.push({
           path: filePath, status: statusOf(index), staged: true,
           originalPath: index === 'R' || index === 'C' ? originalPath : undefined,
+          ...(score !== undefined && (index === 'R' || index === 'C') && { score }),
           ...submodule,
         })
       }
@@ -188,7 +203,7 @@ export function snapshotOf({ headers, entries }: { headers: string[]; entries: S
     }
   }
   // A name that is not text read as text holds U+FFFD where its bytes were: the row stands for a file it cannot name
-  for (const file of snapshot.files) if (file.path.includes(NOT_TEXT)) file.nameNotText = true
+  for (const file of snapshot.files) if (file.path.includes(NOT_TEXT) || file.originalPath?.includes(NOT_TEXT)) file.nameNotText = true
   return snapshot
 }
 

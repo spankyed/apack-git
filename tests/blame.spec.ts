@@ -61,3 +61,14 @@ it('answers a revision as that commit had the file', async () => {
 
   expect(lines.map(({ author }) => author)).toEqual(['Ada', 'Bea']);
 });
+
+it('returns unescaped UTF-8 originalPath for non-ASCII filenames', async () => {
+  const { root, git, repo } = await repository();
+  fs.writeFileSync(path.join(root, 'café.txt'), 'bonjour\n');
+  await git('add', 'café.txt');
+  await git('commit', '--quiet', '-m', 'non-ascii');
+
+  const lines = await repo.blame('café.txt');
+  expect(lines).toHaveLength(1);
+  expect(lines[0]!.originalPath).toBe('café.txt');
+});

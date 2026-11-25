@@ -20,9 +20,9 @@ async function gitHere(directory: string): Promise<'own' | 'submodule' | 'worktr
   if (!stats) return undefined
   if (stats.isDirectory()) return 'own'
   const named = /^gitdir: (.+)$/m.exec(await fs.readFile(dotGit, 'utf8').catch(() => ''))?.[1]?.trim() ?? ''
-  const parts = named.replaceAll('\\', '/').split('/')
-  if (parts.includes('modules')) return 'submodule'
-  if (parts.includes('worktrees')) return 'worktree'
+  const normalized = named.replaceAll('\\', '/')
+  if (/(?:^|\/)\.git\/modules\//.test(normalized) || /(?:^|\/)modules\/[^/]+$/.test(normalized)) return 'submodule'
+  if (/(?:^|\/)\.git\/worktrees\/[^/]+$/.test(normalized) || /(?:^|\/)worktrees\/[^/]+$/.test(normalized)) return 'worktree'
   return 'own'
 }
 
@@ -55,6 +55,9 @@ export async function repositoriesUnder(folder: string): Promise<{ repositories:
     }
   }
   await walk(root, 1)
-  const [top, ...rest] = found
-  return { repositories: top ? [top, ...rest.sort((a, b) => a.relative.localeCompare(b.relative))] : rest, truncated }
+  if (enclosing) {
+    const [top, ...rest] = found
+    return { repositories: [top!, ...rest.sort((a, b) => a.relative.localeCompare(b.relative))], truncated }
+  }
+  return { repositories: found.sort((a, b) => a.relative.localeCompare(b.relative)), truncated }
 }

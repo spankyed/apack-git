@@ -35,8 +35,9 @@ export class History {
       const fields = record.split('\0')
       const commit = commitOf(fields.slice(0, FIELDS.length))
       // The first name is the one in the parent: where a rename or a copy came from, and otherwise the only one
-      const [change = '', nameBefore = ''] = fields.slice(FIELDS.length + 1).map(field => field.trim())
-      return { commit, added: change.startsWith('A'), nameBefore }
+      const rawChange = (fields[FIELDS.length + 1] ?? '').trim()
+      const nameBefore = fields[FIELDS.length + 2] ?? ''
+      return { commit, added: rawChange.startsWith('A'), nameBefore }
     }).filter(({ commit }) => commit.hash)
     const page = read.slice(0, limit)
     const last = page.at(-1)
@@ -61,6 +62,7 @@ export class History {
    * then only one ref is walked, since git follows a file down one line of history.
    */
   async page({ refs, cursor, path, limit = HISTORY_PAGE, signal }: { refs?: string[]; cursor?: string; path?: string; limit?: number; signal?: AbortSignal } = {}): Promise<HistoryPage> {
+    if (!Number.isInteger(limit) || limit < 1) throw new Error(`Invalid history limit: ${JSON.stringify(limit)}`)
     // `HEAD` before the first commit names none, and that history is empty; a ref asked for by name must name one
     if (!cursor && !refs?.length && !(await this.runner.read(['rev-parse', '--verify', '--quiet', 'HEAD'])).success) return { commits: [] }
     const from: Cursor = cursor ? decode(cursor) : { tips: await this.tipsOf(refs?.length ? refs : ['HEAD']), read: 0, path }
@@ -99,7 +101,7 @@ const encode = (cursor: Cursor): string => Buffer.from(JSON.stringify(cursor)).t
 function decode(cursor: string): Cursor {
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Cursor
-    if (Array.isArray(parsed.tips) && parsed.tips.every(tip => /^[0-9a-f]{40,64}$/.test(tip)) && Number.isInteger(parsed.read) && parsed.read >= 0) {
+    if (Array.isArray(parsed.tips) && parsed.tips.length > 0 && parsed.tips.every(tip => /^[0-9a-f]{40,64}$/.test(tip)) && Number.isInteger(parsed.read) && parsed.read >= 0) {
       return { tips: parsed.tips, read: parsed.read, ...(typeof parsed.path === 'string' && { path: parsed.path }) }
     }
   } catch { /* said below */ }

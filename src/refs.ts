@@ -1,5 +1,6 @@
 // A repository's branches, remotes and tags, as one model: every branch with what it follows and how far from it it
 // is, read in one command, the remotes with their addresses, and the tags.
+import { refArgument } from './arguments.ts'
 import { failure, type GitRunner } from './runner.ts'
 import type { BranchStanding, RefsModel } from './types.ts'
 
@@ -18,12 +19,29 @@ export class Refs {
   constructor(private readonly runner: GitRunner) {}
 
   async model(): Promise<RefsModel> {
-    const [listed, configured] = await Promise.all([
-      this.runner.read(['for-each-ref', `--format=${FIELDS.join('%00')}`, 'refs/heads', 'refs/remotes', 'refs/tags']),
-      this.runner.read(['config', '--get-regexp', '^remote\\..*\\.(url|pushurl)$']),
-    ])
+    const listed = await this.runner.read(['for-each-ref', `--format=${FIELDS.join('%00')}`, 'refs/heads', 'refs/remotes', 'refs/tags'])
     if (!listed.success) throw failure(listed, 'Failed to read the branches')
-    return parseRefs(listed.output ?? '', configured.success ? configured.output ?? '' : '')
+    const { settings } = await this.runner.settings.read()
+    const remoteLines = settings
+      .filter(({ key }) => /^remote\..+\.(url|pushurl)$/.test(key))
+      .map(({ key, value }) => `${key} ${value}`)
+      .join('\n')
+    const model = parseRefs(listed.output ?? '', remoteLines)
+    // Only invoke git URL rewriting when `url.*.insteadOf` or `pushInsteadOf` rules exist in the settings
+    const hasRewrites = settings.some(({ key }) => /^url\..+\.(?:push)?insteadof$/.test(key))
+    if (hasRewrites && model.remotes.length > 0) {
+      model.remotes = await Promise.all(model.remotes.map(async (remote) => {
+        const named = refArgument(remote.name, 'remote')
+        const [fetchRes, pushRes] = await Promise.all([
+          this.runner.read(['remote', 'get-url', named]),
+          this.runner.read(['remote', 'get-url', '--push', named]),
+        ])
+        const fetchUrl = (fetchRes.success && fetchRes.output?.trim()) || remote.fetchUrl
+        const pushUrl = (pushRes.success && pushRes.output?.trim()) || remote.pushUrl
+        return { name: remote.name, fetchUrl, pushUrl }
+      }))
+    }
+    return model
   }
 }
 

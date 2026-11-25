@@ -14,8 +14,11 @@ import { IncrementalBlame } from '../src/blame.ts';
 import { parseNumstat } from '../src/diff-data.ts';
 import { ownershipRefusal } from '../src/errors.ts';
 import { historyRecords } from '../src/history.ts';
+import { hunksOf } from '../src/hunks.ts';
 import { conflictRegions, parseStashList, parseWorktreeList } from '../src/reads.ts';
 import { parseRefs } from '../src/refs.ts';
+import { settingsOf } from '../src/settings.ts';
+import { parseTrailers } from '../src/trailers.ts';
 
 const SEEDS = Array.from({ length: 25 }, (_, at) => at + 1);
 
@@ -23,7 +26,7 @@ const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await removeDirectory(directory); });
 
 /** Characters git's output is made of, and what can turn up in a name, a message or a hook's words */
-const ALPHABET = ['\0', '\n', '\t', ' ', '#', '?', '!', 'u', '1', '2', 'R', 'C', 'M', 'A', 'D', '.', '-', '+', '/', ':', '@', '{', '}', '*', '\x1e', '\r', '�', 'é', '日', 'a', 'z', '0', '9', 'N', 'S', 'U', '<', '>', '=', '|', '%', 'ahead ', 'behind ', 'branch.', 'worktree ', 'HEAD ', 'filename ', 'author ', '<<<<<<< ', '=======', '>>>>>>> '];
+const ALPHABET = ['\0', '\n', '\t', ' ', '#', '?', '!', 'u', '1', '2', 'R', 'C', 'M', 'A', 'D', '.', '-', '+', '/', ':', '@', '{', '}', '*', '\x1e', '\r', '�', 'é', '日', 'a', 'z', '0', '9', 'N', 'S', 'U', '<', '>', '=', '|', '%', 'ahead ', 'behind ', 'branch.', 'worktree ', 'HEAD ', 'filename ', 'author ', 'author-time ', 'diff --git ', '@@ -1,1 +1,1 @@', '<<<<<<< ', '=======', '>>>>>>> '];
 
 function noise(seed: number): string {
   const random = seeded(seed);
@@ -37,10 +40,15 @@ function name(random: ReturnType<typeof seeded>, extra: readonly string[] = []):
 }
 
 describe('over bytes of any kind', () => {
-  it.each(SEEDS)('none throws, and every one ends (seed %i)', (seed) => {
+  it.each(SEEDS)('none throws, every one ends, and structural invariants hold (seed %i)', (seed) => {
     const bytes = noise(seed);
-    parseStatus(bytes);
-    parseNumstat(bytes);
+    const snap = parseStatus(bytes);
+    for (const file of snap.files) expect(typeof file.path === 'string' && file.path.length > 0).toBe(true);
+    const nums = parseNumstat(bytes);
+    for (const item of nums) {
+      expect(typeof item.path === 'string' && item.path.length > 0).toBe(true);
+      expect(Number.isFinite(item.added) && Number.isFinite(item.removed)).toBe(true);
+    }
     conflictRegions(bytes);
     parseStashList(bytes);
     parseWorktreeList(bytes, '/somewhere');
@@ -51,6 +59,10 @@ describe('over bytes of any kind', () => {
     ownershipRefusal(bytes);
     gitVersionOf(bytes);
     withoutProgress(bytes);
+    hunksOf(bytes, false);
+    hunksOf(bytes, true);
+    settingsOf(bytes);
+    parseTrailers(bytes);
     const progress = progressReader(() => {});
     const blame = new IncrementalBlame();
     // In pieces, as a pipe hands them on, cut anywhere
@@ -60,6 +72,10 @@ describe('over bytes of any kind', () => {
       progress(piece);
       blame.take(piece);
       at += piece.length;
+    }
+    for (const line of blame.lines) {
+      expect(Number.isInteger(line.line) && Number.isInteger(line.originalLine)).toBe(true);
+      expect(typeof line.date).toBe('string');
     }
   });
 });

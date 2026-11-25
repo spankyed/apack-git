@@ -92,7 +92,7 @@ it.each(Object.entries(unstaging))('shows what git lists once %s is unstaged', a
 it('shows a renamed file unstaged as its old name missing and its new name not tracked', async () => {
   const root = await repository(root => git(root, 'mv', 'old name.txt', 'new name.txt'));
   const before = await listed(root);
-  expect(before).toEqual([{ path: 'new name.txt', status: 'renamed', staged: true, originalPath: 'old name.txt' }]);
+  expect(before).toEqual([{ path: 'new name.txt', status: 'renamed', staged: true, originalPath: 'old name.txt', score: 100 }]);
 
   await new GitRepository(root).unstageFiles(['new name.txt', 'old name.txt']);
 

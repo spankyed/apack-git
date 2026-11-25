@@ -70,3 +70,14 @@ it('counts no check that found nothing changed', async () => {
 
   expect((await repo.readSnapshot()).watchSilent).toBeUndefined();
 });
+
+it('does not flag watchSilent on an idle repository holding an untracked folder', async () => {
+  const { root, repo } = await watched();
+  fs.mkdirSync(path.join(root, 'untracked-dir'));
+  fs.writeFileSync(path.join(root, 'untracked-dir', 'file.txt'), 'hello\n');
+  await repo.refreshSnapshot('everything');
+
+  for (let check = 0; check < MISSED_CHECKS_SILENT + 1; check++) await repo.refreshSnapshot('everything');
+
+  expect((await repo.readSnapshot()).watchSilent).toBeUndefined();
+});

@@ -400,3 +400,42 @@ it('reports the checkout once a while after its watches open, as one in which an
   await vi.advanceTimersByTimeAsync(10_000);
   expect(stopped.changed, 'a watcher stopped before then').not.toHaveBeenCalled();
 });
+
+it('cleans up already-opened subscriptions and followers when startup is aborted mid-establish, and keeps callback across stop/start', async () => {
+  const repo = directory('apack-watch-abort-mid-');
+  await git(repo, 'init', '--quiet');
+  const stop = new AbortController();
+  let openSubs = 0;
+  let openFollowers = 0;
+  let subCalls = 0;
+  const watcher = new GitWatcherService(repo, {
+    catchUpAfterMs: NEVER_MS,
+    followFile: () => {
+      openFollowers++;
+      return { close: () => { openFollowers--; }, look: () => {} };
+    },
+    subscribe: async () => {
+      subCalls++;
+      if (subCalls === 2) stop.abort();
+      openSubs++;
+      return { unsubscribe: async () => { openSubs--; } };
+    },
+  });
+  cleanups.push(() => watcher.stopWatching());
+  watcher.setGitRepository(new GitRepository(repo));
+  await watcher.startWatching(stop.signal);
+
+  expect(watcher.isActive()).toBe(false);
+  expect(openSubs, 'no subscription leaked').toBe(0);
+  expect(openFollowers, 'no file follower leaked').toBe(0);
+
+  // Stopping and restarting preserves the registered change callback
+  const { watcher: reusable, changed, platform } = watcherOf(repo);
+  await start(reusable);
+  await reusable.stopWatching();
+  await start(reusable);
+  vi.useFakeTimers();
+  platform.of(repo)!.events('restarted.ts');
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(changed).toHaveBeenCalledWith(['restarted.ts']);
+});
